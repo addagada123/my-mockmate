@@ -1,5 +1,7 @@
 
 
+
+
 ## Environment variables
  - `MONGO_URI` — full MongoDB connection string (preferred).
  - `MONGO_USER` and `MONGO_PASSWORD` — if you prefer to build the URI from parts (used with `MONGO_HOST`).
@@ -7,7 +9,6 @@
  - `MONGO_DB` — database name (default: Endeavor).
  - `MONGO_COLLECTION` — collection name (default: ragCollection).
 
-Note: For CPU-heavy LLMs, consider using a dedicated worker service or Render cron/jobs to offload processing.
 
 
 Requirements files
