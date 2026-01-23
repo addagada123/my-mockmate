@@ -1,0 +1,181 @@
+import { useState } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import "./SignIn.css";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+
+function SignIn() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const navigate = useNavigate();
+
+  const handleSignin = async (e) => {
+    e.preventDefault();
+    setError("");
+    
+    // Frontend validation
+    if (!email || !email.includes("@")) {
+      setError("Please enter a valid email address");
+      return;
+    }
+    
+    if (!password || password.length < 8) {
+      setError("Password must be at least 8 characters long");
+      return;
+    }
+    
+    setLoading(true);
+
+    try {
+      const res = await axios.post(`${API_BASE}/auth/signin`, {
+        email,
+        password,
+      });
+
+      // ✅ Store JWT
+      localStorage.setItem("mockmate_token", res.data.access_token);
+      localStorage.setItem("mockmate_user", JSON.stringify(res.data.user));
+
+      // ✅ Redirect
+      navigate("/dashboard");
+    } catch (err) {
+      let errorMessage = "Sign in failed";
+      
+      if (err.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.response?.status === 401) {
+        errorMessage = "Invalid email or password";
+      } else if (err.response?.status === 422) {
+        errorMessage = "Invalid input. Please check your email and password.";
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div 
+      className="signin-page"
+      style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px'
+      }}
+    >
+      <div 
+        className="signin-brand"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          marginBottom: '28px'
+        }}
+      >
+        <span className="signin-logo" style={{ fontSize: '34px' }}>🎯</span>
+        <span className="signin-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#fff' }}>Mockmate</span>
+      </div>
+
+      <div 
+        className="signin-card"
+        style={{
+          width: '100%',
+          maxWidth: '420px',
+          background: 'white',
+          padding: '40px',
+          borderRadius: '16px',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+        }}
+      >
+        <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Welcome back</h1>
+        <p className="signin-subtitle" style={{ fontSize: '14px', textAlign: 'center', color: '#64748b', marginBottom: '28px' }}>Sign in to continue your preparation</p>
+
+        <form className="signin-form" onSubmit={handleSignin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <label className="signin-label" style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Email</label>
+          <input
+            type="email"
+            className="signin-input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+            style={{
+              padding: '14px 16px',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              fontSize: '15px',
+              width: '100%',
+              marginBottom: '12px'
+            }}
+          />
+
+          <label className="signin-label" style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Password</label>
+          <input
+            type="password"
+            className="signin-input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Minimum 8 characters"
+            required
+            style={{
+              padding: '14px 16px',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              fontSize: '15px',
+              width: '100%',
+              marginBottom: '12px'
+            }}
+          />
+
+          <button 
+            className="signin-button" 
+            disabled={loading}
+            style={{
+              marginTop: '12px',
+              padding: '14px',
+              borderRadius: '12px',
+              border: 'none',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              fontSize: '16px',
+              fontWeight: '600',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              width: '100%',
+              opacity: loading ? 0.6 : 1
+            }}
+          >
+            {loading ? "Signing in..." : "Sign In"}
+          </button>
+        </form>
+
+        {error && <p className="signin-error" style={{ marginTop: '16px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{error}</p>}
+
+        <p className="signin-footer" style={{ marginTop: '24px', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>
+          New to Mockmate?{" "}
+          <span
+            className="signin-link"
+            onClick={() => navigate("/signup")}
+            style={{ color: '#667eea', fontWeight: '500', cursor: 'pointer' }}
+          >
+            Create account
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default SignIn;
