@@ -877,11 +877,8 @@ const Test = () => {
           </div>
         </div>
 
-        {/* Interviewer Avatar + Question */}
+        {/* Question */}
         <div style={{ marginBottom: "32px" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "16px" }}>
-            <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={100} />
-            <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
             <h2 style={{ fontSize: "20px", color: "#1e293b", margin: 0, lineHeight: "1.6", flex: 1 }}>
               {currentQuestion.question}
@@ -939,12 +936,26 @@ const Test = () => {
               </span>
             </div>
           )}
-            </div>
-          </div>
         </div>
 
-        {/* Answer Input */}
-        <div style={{ marginBottom: "32px" }}>
+        {/* Avatar + Answer Input */}
+        <div style={{ display: "flex", gap: "20px", marginBottom: "32px", alignItems: "flex-start" }}>
+          {/* Interviewer Avatar */}
+          <div style={{
+            flexShrink: 0,
+            backgroundColor: "#f8fafc",
+            borderRadius: "12px",
+            padding: "12px",
+            border: "1px solid #e0e7ff",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}>
+            <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={110} />
+          </div>
+
+          {/* Answer area */}
+          <div style={{ flex: 1 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
             <label
               style={{
@@ -1007,6 +1018,7 @@ const Test = () => {
               🎙️ Listening... Speak now!
             </div>
           )}
+          </div>
         </div>
 
         {/* Per-Question Result */}
