@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import "./SignIn.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "337501057744-o9c42tgqbkejjbsm1ddn5rj4h8rag1st.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "406943845792-1dqmvsqci74o91frrqflqnp0701e4r4v.apps.googleusercontent.com";
 
 function SignIn() {
   const [email, setEmail] = useState("");
