@@ -1,0 +1,58 @@
+classDiagram
+  class FastAPIApp {
+    +get_user_session()
+    +upload_resume()
+    +get_resume_questions()
+    +generate_test_questions()
+    +submit_test()
+    +get_performance()
+    +recommend_jobs()
+  }
+
+  class AuthService {
+    +register()
+    +login()
+    +get_current_user()
+  }
+
+  class InterviewRagService {
+    +interview_rag_pipeline()
+    +build_resume_only_questions()
+  }
+
+  class MongoDB {
+    +user_sessions
+    +users
+  }
+
+  class UserSession {
+    +id
+    +user_id
+    +skills
+    +questions
+    +status
+    +percentage
+    +test_attempts
+  }
+
+  class TestAttempt {
+    +completed_at
+    +percentage
+    +topic
+    +difficulty
+  }
+
+  class Question {
+    +id
+    +question
+    +answer
+    +topic
+    +difficulty
+  }
+
+  FastAPIApp --> AuthService
+  FastAPIApp --> InterviewRagService
+  FastAPIApp --> MongoDB
+  MongoDB --> UserSession
+  UserSession "1" o-- "many" TestAttempt
+  UserSession "1" o-- "many" Question

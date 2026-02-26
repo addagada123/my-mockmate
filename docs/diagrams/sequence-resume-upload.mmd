@@ -1,0 +1,15 @@
+sequenceDiagram
+  actor User
+  participant FE as Frontend
+  participant API as FastAPI
+  participant RAG as InterviewRagService
+  participant DB as MongoDB
+
+  User->>FE: Upload resume (PDF)
+  FE->>API: POST /upload-resume
+  API->>RAG: interview_rag_pipeline(resume)
+  RAG-->>API: questions, skills
+  API->>DB: save user session
+  DB-->>API: session_id
+  API-->>FE: questions + topics
+  FE-->>User: Show topics & questions

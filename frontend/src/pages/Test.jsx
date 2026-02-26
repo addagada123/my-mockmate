@@ -17,18 +17,65 @@ const Test = () => {
   const [questionResults, setQuestionResults] = useState({}); // per-question score/feedback
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
+  const keepListeningRef = useRef(false);
+  const pendingStopRef = useRef(false);
+  const silenceTimeoutRef = useRef(null);
   const [currentScore, setCurrentScore] = useState(0); // running average
   const [timeLeft, setTimeLeft] = useState(null);
   const [testSubmitted, setTestSubmitted] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
   const testContainerRef = useRef(null);
   const tabSwitchWarningRef = useRef(null);
+
+  // Text-to-Speech function
+  const stopSpeech = () => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  const speakQuestion = (text) => {
+    if ("speechSynthesis" in window) {
+      stopSpeech(); // Stop previous speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
+      utterance.rate = 1.0; 
+      // Optional: Select a specific voice if available (e.g., Google US English)
+      // const voices = window.speechSynthesis.getVoices();
+      // const preferredVoice = voices.find(voice => voice.name.includes("Google US English"));
+      // if (preferredVoice) utterance.voice = preferredVoice;
+      
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // Trigger TTS when question changes
+  useEffect(() => {
+    if (testStarted && questions.length > 0 && questions[currentQuestionIndex]) {
+      // Small delay to ensure smooth transition
+      const timer = setTimeout(() => {
+        speakQuestion(questions[currentQuestionIndex].question);
+      }, 500);
+      return () => {
+        clearTimeout(timer);
+        stopSpeech();
+      };
+    }
+  }, [currentQuestionIndex, questions, testStarted]);
+
+  // Clean up speech on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+    };
+  }, []);
 
   // Initialize speech recognition
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
+      recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true;
       recognitionRef.current.language = "en-US";
 
@@ -37,7 +84,21 @@ const Test = () => {
       };
 
       recognitionRef.current.onend = () => {
-        setIsListening(false);
+        if (pendingStopRef.current) {
+          pendingStopRef.current = false;
+          setIsListening(false);
+          return;
+        }
+
+        if (keepListeningRef.current) {
+          try {
+            recognitionRef.current.start();
+          } catch (error) {
+            console.error("Speech recognition restart error:", error);
+          }
+        } else {
+          setIsListening(false);
+        }
       };
 
       recognitionRef.current.onresult = (event) => {
@@ -60,6 +121,21 @@ const Test = () => {
             [currentQuestionIndex]: (prev[currentQuestionIndex] || "") + finalTranscript,
           }));
         }
+
+        if (silenceTimeoutRef.current) {
+          clearTimeout(silenceTimeoutRef.current);
+        }
+
+        silenceTimeoutRef.current = setTimeout(() => {
+          if (!keepListeningRef.current || !recognitionRef.current) return;
+          keepListeningRef.current = false;
+          pendingStopRef.current = true;
+          try {
+            recognitionRef.current.stop();
+          } catch (error) {
+            console.error("Speech recognition stop error:", error);
+          }
+        }, 2500);
       };
 
       recognitionRef.current.onerror = (event) => {
@@ -88,6 +164,10 @@ const Test = () => {
           
           console.log("Resume questions response:", resumeResponse.data);
           
+          if (resumeResponse.data.session_id) {
+            setSessionId(resumeResponse.data.session_id);
+          }
+
           if (resumeResponse.data.questions && resumeResponse.data.questions.length > 0) {
             // Filter by difficulty if specified
             let filteredQuestions = resumeResponse.data.questions;
@@ -129,6 +209,10 @@ const Test = () => {
         
         console.log("General questions response:", response.data);
         
+        if (response.data.session_id) {
+          setSessionId(response.data.session_id);
+        }
+
         if (response.data.questions && response.data.questions.length > 0) {
           console.log("Using general questions:", response.data.questions);
           setQuestions(response.data.questions);
@@ -373,9 +457,17 @@ const Test = () => {
     }
 
     if (isListening) {
+      keepListeningRef.current = false;
+      pendingStopRef.current = true;
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
       recognitionRef.current.stop();
       setIsListening(false);
     } else {
+      keepListeningRef.current = true;
+      pendingStopRef.current = false;
       recognitionRef.current.start();
     }
   };
@@ -404,14 +496,22 @@ const Test = () => {
       const token = localStorage.getItem("mockmate_token");
       
       // Step 1: Submit the test answers
+      if (!sessionId) {
+        console.error("No sessionId available for submit-test");
+        return;
+      }
+
+      const answersPayload = questions.map((q, idx) => ({
+        question: q.question,
+        user_answer: answers[idx] || "",
+        correct_answer: q.answer || "",
+      }));
+
       const submitResponse = await axios.post(
         `${API_BASE}/submit-test`,
         {
-          topic: decodeURIComponent(topic),
-          difficulty: difficulty,
-          answers: answers,
-          tabSwitches: tabSwitchCount,
-          timeSpent: questions.length * 60 - (timeLeft || 0),
+          session_id: sessionId,
+          answers: answersPayload,
         },
         {
           headers: {
@@ -419,78 +519,11 @@ const Test = () => {
           },
         }
       );
-      
-      if (submitResponse.data.success && submitResponse.data.testResultId) {
-        testResultId = submitResponse.data.testResultId;
-        localStorage.setItem("lastTestResultId", testResultId);
-      }
-      
-      // Step 2: Evaluate answers to get score (LLM), fallback to local score
-      let finalScore = localScore;
-      if (questions.length > 0 && testResultId) {
-        try {
-          // Build evaluation request format
-          const evaluationPayload = {
-            original: {
-              sections: [{
-                title: decodeURIComponent(topic),
-                questions: questions.map((q, idx) => ({
-                  id: idx.toString(),
-                  question: q.question,
-                  answer: q.answer || ""
-                }))
-              }]
-            },
-            questions: questions.map((q, idx) => ({
-              questionId: idx.toString(),
-              questionText: q.question,
-              referenceAnswer: q.answer || "",
-              studentAnswer: answers[idx] || ""
-            }))
-          };
 
-          console.log("Sending evaluation request:", evaluationPayload);
-          
-          const evaluationResponse = await axios.post(
-            `${API_BASE}/evaluate`,
-            evaluationPayload,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-
-          if (evaluationResponse.data && evaluationResponse.data.overallScore !== undefined) {
-            finalScore = Math.round(evaluationResponse.data.overallScore);
-            console.log("Evaluation score:", finalScore);
-          }
-        } catch (evalError) {
-          console.error("Error evaluating test, using local score:", evalError);
-        }
-
-        // Step 3: Store the score (LLM or fallback)
-        try {
-          const storeParams = new URLSearchParams();
-          storeParams.append("testResultId", testResultId);
-          storeParams.append("score", finalScore);
-
-          await axios.post(
-            `${API_BASE}/store-test-score?${storeParams.toString()}`,
-            {},
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          );
-
-          localStorage.setItem("lastTestScore", finalScore);
-          console.log("Score stored successfully");
-        } catch (storeError) {
-          console.error("Failed to store score:", storeError);
-        }
+      if (submitResponse.data && submitResponse.data.percentage !== undefined) {
+        localStorage.setItem("lastTestScore", submitResponse.data.percentage);
+      } else {
+        localStorage.setItem("lastTestScore", localScore);
       }
     } catch (error) {
       console.error("Error submitting test:", error);
@@ -844,9 +877,31 @@ const Test = () => {
 
         {/* Question */}
         <div style={{ marginBottom: "32px" }}>
-          <h2 style={{ fontSize: "20px", color: "#1e293b", marginBottom: "16px", lineHeight: "1.6" }}>
-            {currentQuestion.question}
-          </h2>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
+            <h2 style={{ fontSize: "20px", color: "#1e293b", margin: 0, lineHeight: "1.6", flex: 1 }}>
+              {currentQuestion.question}
+            </h2>
+            <button
+              onClick={() => speakQuestion(currentQuestion.question)}
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                backgroundColor: "#e0e7ff",
+                color: "#4f46e5",
+                border: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0
+              }}
+              title="Read Question"
+              aria-label="Read Question"
+            >
+              🔊
+            </button>
+          </div>
 
           {currentQuestion.difficulty && (
             <div style={{ marginBottom: "16px" }}>

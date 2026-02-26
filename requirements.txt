@@ -7,7 +7,12 @@ langchain
 langchain_core
 langchain_google_genai
 langchain_community
+langchain-openai
+langchain-anthropic
 python-dotenv
 jq
 pypdf
 pydantic
+python-jose[cryptography]
+passlib[bcrypt]>=1.7.4
+bcrypt<4

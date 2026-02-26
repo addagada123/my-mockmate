@@ -32,11 +32,12 @@ function SignUp() {
     setLoading(true);
 
     try {
-      await axios.post(`${API_BASE}/auth/signup`, { 
-        email, 
+      const username = email.split("@")[0];
+      await axios.post(`${API_BASE}/auth/register`, {
+        username,
+        email,
         password,
-        first_name: "",
-        last_name: ""
+        full_name: ""
       });
       setSuccess("Account created successfully. Please sign in.");
       setEmail("");

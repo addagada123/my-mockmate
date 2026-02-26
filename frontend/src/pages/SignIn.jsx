@@ -38,7 +38,7 @@ function SignIn() {
 
       // ✅ Store JWT
       localStorage.setItem("mockmate_token", res.data.access_token);
-      localStorage.setItem("mockmate_user", JSON.stringify(res.data.user));
+      localStorage.setItem("mockmate_user", JSON.stringify({ email }));
 
       // ✅ Redirect
       navigate("/dashboard");

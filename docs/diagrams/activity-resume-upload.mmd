@@ -1,0 +1,10 @@
+flowchart TD
+  A[Start] --> B[Select PDF Resume]
+  B --> C{Valid PDF?}
+  C -- No --> D[Show error]
+  C -- Yes --> E[Upload to API]
+  E --> F[Generate questions]
+  F --> G[Save session]
+  G --> H[Return topics + questions]
+  H --> I[Display dashboard]
+  D --> I

@@ -1,0 +1,56 @@
+@startuml
+title Endeavor RAG - "Take Test" Sequence Diagram
+autonumber
+
+actor "User" as U
+participant "Frontend (React)" as FE
+participant "API (FastAPI)" as API
+participant "AuthHandler" as Auth
+participant "DB (MongoDB)" as DB
+participant "LLM Service" as LLM
+
+group Authentication
+    U -> FE: Enter Credentials
+    FE -> API: POST /token
+    API -> Auth: verify_password()
+    Auth --> API: Valid
+    API -> API: create_access_token()
+    API --> FE: JWT Token
+    FE -> FE: Store Token
+    FE -> U: Show Dashboard
+end
+
+group Start Test
+    U -> FE: Click "Take Test"
+    FE -> U: Show Topic Selection
+    U -> FE: Select "React" (Medium)
+    FE -> API: POST /generate_questions (Topic, Diff)
+    API -> DB: get_session(user_id)
+    DB --> API: Session Data
+    API -> API: _generate_topic_questions()
+    alt Not in cache
+        API -> LLM: "Generate questions for React..."
+        LLM --> API: Question List
+    end
+    API -> DB: update_session(questions)
+    API --> FE: JSON [Questions]
+end
+
+group Submit & Grade
+    U -> FE: Answer Question (Voice/Text)
+    FE -> API: POST /submit_test
+    
+    loop For each Answer
+        API -> LLM: "Grade this answer..."
+        LLM --> API: Score & Feedback
+    end
+
+    API -> API: Calculate Total Score
+    API -> DB: user_session.push(test_attempts)
+    DB --> API: Success
+    API --> FE: Results & Feedback
+end
+
+FE -> U: Display Score & Charts
+
+@enduml

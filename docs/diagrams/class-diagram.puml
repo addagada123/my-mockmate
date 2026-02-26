@@ -1,0 +1,128 @@
+@startuml
+title Endeavor RAG - System Class Diagram
+
+' Skinparam for better visuals
+skinparam componentStyle uml2
+skinparam packageStyle rectangle
+
+package "Frontend (React)" {
+    class "App.jsx" as App {
+        +render()
+    }
+    
+    class "pages/Dashboard" as Dashboard {
+        +fileInput: Ref
+        +handleFileUpload()
+        +startTest()
+    }
+    
+    class "pages/Performance" as Performance {
+        +useEffect()
+        +renderCharts()
+    }
+    
+    class "pages/Jobs" as Jobs {
+        +jobList: Array
+        +fetchJobs()
+    }
+
+    class "pages/SignIn" as SignIn {
+        +username: String
+        +password: String
+        +handleSubmit()
+    }
+
+    App --> Dashboard
+    App --> Performance
+    App --> Jobs
+    App --> SignIn
+}
+
+package "Backend API (api.py)" {
+    class "APIController" as API {
+        +upload_resume(file: UploadFile)
+        +submit_test(submission: TestSubmission)
+        +get_performance(user: User)
+        +get_jobs()
+        +login_for_access_token()
+    }
+    
+    note right of API: Handles HTTP Requests\n& Orchestrates logic
+}
+
+package "Services (Business Logic)" {
+    class "RAGService" as RAG {
+        +interview_rag_pipeline(pdf_path)
+        +generate_questions(context)
+        +analyze_resume_skills()
+    }
+
+    class "AuthService" as Auth {
+        +verify_password(plain, hashed)
+        +create_access_token(data)
+        +get_current_user(token)
+    }
+
+    class "DBService" as DB {
+        +get_db()
+        +collection: MongoDB
+    }
+}
+
+package "Data Models (Pydantic/DB)" {
+    class User {
+        +username: String
+        +email: String
+        +full_name: String
+        +disabled: Boolean
+        +created_at: DateTime
+    }
+
+    class UserInDB {
+        +hashed_password: String
+    }
+
+    class UserSession {
+        +session_id: ObjectId
+        +user_id: String
+        +resume_text: String
+        +skills: List<String>
+        +questions: List<Question>
+        +test_attempts: List<TestAttempt>
+    }
+
+    class TestSubmission {
+        +session_id: String
+        +answers: List<QuestionAnswer>
+        +time_spent: Integer
+    }
+
+    class Question {
+        +id: String
+        +question_text: String
+        +topic: String
+        +difficulty: String
+        +suggested_answer: String
+    }
+
+    class TestAttempt {
+        +attempt_id: String
+        +score: Float
+        +timestamp: DateTime
+        +answers: List
+    }
+}
+
+' Relationships
+Frontend -down-> API : HTTP / JSON
+API -down-> RAG : Uses
+API -down-> Auth : Uses
+API -down-> DB : Persists Data
+
+UserInDB --|> User
+UserSession *-- Question
+UserSession *-- TestAttempt
+API ..> TestSubmission : Receives
+API ..> UserSession : Manages
+
+@enduml

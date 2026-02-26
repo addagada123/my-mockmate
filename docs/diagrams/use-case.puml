@@ -1,0 +1,85 @@
+@startuml
+skinparam actorStyle awesome
+left to right direction
+title Endeavor RAG - Use Case Diagram
+
+actor "Candidate" as User
+actor "Admin" as Admin
+actor "LLM Service" as LLM
+actor "Database" as DB
+
+package "Endeavor RAG System" {
+    
+    package "Authentication" {
+        usecase "Register Account" as UC01
+        usecase "Login" as UC02
+        usecase "Logout" as UC03
+    }
+    
+    package "Dashboard" {
+        usecase "View Dashboard" as UC04
+    }
+    
+    package "Resume Operations" {
+        usecase "Upload Resume" as UC05
+        usecase "Parse Resume" as UC06
+        usecase "Generate Questions" as UC07
+    }
+
+    package "Testing Module" {
+        usecase "Start New Test" as UC08
+        usecase "Select Topic/Difficulty" as UC09
+        usecase "View Question" as UC10
+        usecase "Submit Answer (Text/Voice)" as UC11
+        usecase "Auto-Grade Answer" as UC12
+        usecase "View Results" as UC13
+    }
+
+    package "Performance" {
+        usecase "View Analytics" as UC14
+        usecase "View Recent History" as UC15
+    }
+
+    package "Jobs" {
+        usecase "View Recommendations" as UC16
+    }
+}
+
+' Sequence Enforcement
+User --> UC01
+User --> UC02
+UC01 ..> UC02 : <<include>>
+UC02 --> UC04 : "Access Granted"
+
+' Dashboard Connections
+UC04 --> UC05
+UC04 --> UC08
+UC04 --> UC14
+UC04 --> UC16
+UC04 --> UC03
+
+' Resume Flow
+UC05 ..> UC06 : <<include>>
+UC06 ..> UC07 : <<include>>
+UC07 -- LLM
+
+' Testing Flow
+UC08 ..> UC09 : <<include>>
+UC09 ..> UC10 : <<include>>
+UC10 --> UC11
+UC11 ..> UC12 : <<include>>
+UC12 -- LLM
+UC12 ..> UC13 : <<include>>
+UC13 -- DB : "Save Attempt"
+
+' View Data
+UC14 --> UC15
+UC15 -- DB
+
+' Admin
+Admin --> UC02
+Admin --> UC04
+Admin --> (Manage Users)
+Admin --> (Manage Question Bank)
+
+@enduml

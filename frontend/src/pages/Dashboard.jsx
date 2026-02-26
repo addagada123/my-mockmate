@@ -64,7 +64,7 @@ function Dashboard() {
 
     try {
       const formData = new FormData();
-      formData.append("resume", file);
+      formData.append("file", file);
 
       const token = localStorage.getItem("mockmate_token");
       const response = await axios.post(

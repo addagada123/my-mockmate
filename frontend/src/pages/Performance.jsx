@@ -34,17 +34,20 @@ function Performance() {
           const stats = response.data.stats || {};
 
           // Transform results for display
-          const displayData = results.map((r) => {
-            const dt = new Date(r.submittedAt);
-            return {
-              date: dt.toLocaleDateString("en-IN"),
-              topic: r.topic,
-              score: r.score,
-              difficulty: r.difficulty,
-              timeSpent: Math.round(r.timeSpent / 60),
-              ts: dt.getTime(),
-            };
-          });
+          const displayData = results
+            .map((r) => {
+              const dt = new Date(r.submittedAt);
+              return {
+                date: dt.toLocaleDateString("en-IN"),
+                topic: r.topic,
+                score: r.score,
+                difficulty: r.difficulty,
+                timeSpent: Math.round(r.timeSpent / 60),
+                ts: dt.getTime(),
+              };
+            })
+            .filter((r) => !Number.isNaN(r.ts))
+            .sort((a, b) => b.ts - a.ts);
 
           setPerformanceData(displayData);
           setOverallStats([
@@ -95,7 +98,7 @@ function Performance() {
               style={{
                 padding: "10px 20px",
                 background: "white",
-                color: "#667eea",
+                  color: "#667eea",
                 border: "none",
                 borderRadius: "8px",
                 fontWeight: "600",
@@ -115,7 +118,7 @@ function Performance() {
               style={{
                 padding: "10px 20px",
                 background: "white",
-                color: "#667eea",
+                  color: "#667eea",
                 border: "none",
                 borderRadius: "8px",
                 fontWeight: "600",
@@ -183,7 +186,7 @@ function Performance() {
           }}
         >
           <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
-            📋 Recent Test Results
+            📋 All Test Results
           </h2>
           {loading ? (
             <p style={{ color: "#666", textAlign: "center" }}>Loading performance data...</p>

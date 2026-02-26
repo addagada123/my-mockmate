@@ -1,0 +1,90 @@
+flowchart LR
+  user((Candidate/User))
+  admin((Admin))
+  llm((LLM Provider))
+  db((MongoDB))
+
+  subgraph System[Endeavor RAG Platform]
+    UC01[Register Account]
+    UC02[Login]
+    UC03[Logout]
+    UC04[Upload Resume PDF]
+    UC05[Parse Resume]
+    UC06[Extract Skills/Topics]
+    UC07[Generate Resume-Based Questions]
+    UC08[View Dashboard]
+    UC09[Select Topic]
+    UC10[Select Difficulty]
+    UC11[Start Test]
+    UC12[View Questions]
+    UC13[Answer Questions]
+    UC14[Use Speech-to-Text]
+    UC15[Submit Answer]
+    UC16[Submit Test]
+    UC17[Auto-Grade Answers]
+    UC18[Store Test Attempt]
+    UC19[View Performance Overview]
+    UC20[View Recent Test Results]
+    UC21[View Skill Topics]
+    UC22[Generate Extra Questions]
+    UC23[Resume Questions by Topic]
+    UC24[View Job Recommendations]
+    UC25[View Job Details]
+    UC26[Update Profile Session]
+    UC27[Fetch Latest Session]
+    UC28[Manage Users]
+    UC29[Manage Question Bank]
+    UC30[Review Usage Logs]
+  end
+
+  % User Entry Points (Auth First)
+  user -- Register --> UC01
+  user -- Login --> UC02
+  UC01 -.-> UC02
+
+  % Critical Path: Login -> Dashboard
+  UC02 == Authorized ==> UC08
+
+  % Dashboard Options
+  UC08 -- "Upload Resume" --> UC04
+  UC08 -- "Take Test" --> UC11
+  UC08 -- "View Stats" --> UC19
+  UC08 -- "View Jobs" --> UC24
+  UC08 --> UC03
+
+  % Test Flow Details
+  UC11 --> UC09
+  UC11 --> UC10
+  UC09 & UC10 --> UC12
+  UC12 --> UC13
+  UC13 --> UC14
+  UC13 --> UC15
+  UC15 --> UC16
+  UC16 --> UC17
+  UC17 --> UC18
+
+  % Resume Pipe
+  UC04 --> UC05
+  UC05 --> UC06
+  UC06 --> UC07
+  UC07 --> UC22
+
+  % Performance Details
+  UC19 --> UC20
+  UC19 --> UC21
+
+  % Jobs Detail
+  UC24 --> UC25
+
+  % Admin Flows
+  admin --> UC28
+  admin --> UC29
+  admin --> UC30
+
+  % Backend Dependencies
+  UC07 -.-> llm
+  UC17 -.-> llm
+  UC22 -.-> llm
+  UC02 -.-> db
+  UC18 -.-> db
+  UC27 -.-> db
