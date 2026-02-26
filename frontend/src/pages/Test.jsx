@@ -938,24 +938,28 @@ const Test = () => {
           )}
         </div>
 
-        {/* Avatar + Answer Input */}
-        <div style={{ display: "flex", gap: "20px", marginBottom: "32px", alignItems: "flex-start" }}>
-          {/* Interviewer Avatar */}
+        {/* Interviewer Avatar */}
+        <div style={{
+          display: "flex",
+          justifyContent: "center",
+          marginBottom: "24px",
+        }}>
           <div style={{
-            flexShrink: 0,
             backgroundColor: "#f8fafc",
-            borderRadius: "12px",
-            padding: "12px",
+            borderRadius: "16px",
+            padding: "20px 32px",
             border: "1px solid #e0e7ff",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            boxShadow: "0 2px 8px rgba(102,126,234,0.08)",
           }}>
-            <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={110} />
+            <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={150} />
           </div>
+        </div>
 
-          {/* Answer area */}
-          <div style={{ flex: 1 }}>
+        {/* Answer Input */}
+        <div style={{ marginBottom: "32px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
             <label
               style={{
@@ -1018,7 +1022,6 @@ const Test = () => {
               🎙️ Listening... Speak now!
             </div>
           )}
-          </div>
         </div>
 
         {/* Per-Question Result */}
