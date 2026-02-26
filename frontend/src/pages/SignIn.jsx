@@ -1,17 +1,68 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import "./SignIn.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "337501057744-o9c42tgqbkejjbsm1ddn5rj4h8rag1st.apps.googleusercontent.com";
 
 function SignIn() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const googleBtnRef = useRef(null);
 
   const navigate = useNavigate();
+
+  const handleGoogleResponse = useCallback(async (response) => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API_BASE}/auth/google`, {
+        credential: response.credential,
+      });
+      localStorage.setItem("mockmate_token", res.data.access_token);
+      localStorage.setItem("mockmate_user", JSON.stringify({ email: "google-user" }));
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err.response?.data?.detail || "Google sign-in failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    const initGoogle = () => {
+      if (window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleResponse,
+        });
+        if (googleBtnRef.current) {
+          window.google.accounts.id.renderButton(googleBtnRef.current, {
+            theme: "outline",
+            size: "large",
+            width: "100%",
+            text: "signin_with",
+            shape: "pill",
+          });
+        }
+      }
+    };
+    // Google script may load after component mount
+    if (window.google?.accounts?.id) {
+      initGoogle();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          clearInterval(interval);
+          initGoogle();
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [handleGoogleResponse]);
 
   const handleSignin = async (e) => {
     e.preventDefault();
@@ -160,6 +211,23 @@ function SignIn() {
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
+
+        {/* Divider */}
+        <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0', gap: '12px' }}>
+          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+          <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>or</span>
+          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+        </div>
+
+        {/* Google Sign-In Button */}
+        <div
+          ref={googleBtnRef}
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            minHeight: '44px',
+          }}
+        />
 
         {error && <p className="signin-error" style={{ marginTop: '16px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{error}</p>}
 
