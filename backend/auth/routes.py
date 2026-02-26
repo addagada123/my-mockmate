@@ -13,6 +13,8 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 import logging
 import asyncio
+import os
+import httpx
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -182,4 +184,108 @@ async def signin(request: SignInRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during sign in"
+        )
+
+
+# ─── Google OAuth ───────────────────────────────────────────────
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+
+class GoogleAuthRequest(BaseModel):
+    credential: str  # Google ID token from frontend
+
+@router.post("/google", response_model=Token)
+async def google_auth(request: GoogleAuthRequest):
+    """Authenticate via Google Sign-In (verify ID token, auto-register if new)"""
+    try:
+        # Verify the Google ID token using Google's tokeninfo endpoint
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={request.credential}"
+            )
+        
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token"
+            )
+        
+        payload = resp.json()
+        
+        # Verify audience matches our client ID (if configured)
+        if GOOGLE_CLIENT_ID and payload.get("aud") != GOOGLE_CLIENT_ID:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token not intended for this application"
+            )
+        
+        google_email = payload.get("email")
+        if not google_email or payload.get("email_verified") != "true":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google email not verified"
+            )
+        
+        google_name = payload.get("name", "")
+        google_picture = payload.get("picture", "")
+        
+        db = get_db()
+        
+        # Check if user already exists
+        user = db.users.find_one({"email": google_email})
+        
+        if not user:
+            # Auto-register Google user
+            username = google_email.split("@")[0]
+            # Ensure unique username
+            base_username = username
+            counter = 1
+            while db.users.find_one({"username": username}):
+                username = f"{base_username}{counter}"
+                counter += 1
+            
+            user_dict = {
+                "username": username,
+                "email": google_email,
+                "full_name": google_name,
+                "picture": google_picture,
+                "hashed_password": "",  # No password for Google users
+                "auth_provider": "google",
+                "disabled": False,
+                "created_at": datetime.now()
+            }
+            result = db.users.insert_one(user_dict)
+            user_id = str(result.inserted_id)
+            logger.info(f"New Google user registered: {google_email}")
+        else:
+            user_id = str(user["_id"])
+            username = user.get("username") or google_email.split("@")[0]
+            # Update picture if changed
+            if google_picture and user.get("picture") != google_picture:
+                db.users.update_one(
+                    {"_id": user["_id"]},
+                    {"$set": {"picture": google_picture}}
+                )
+            logger.info(f"Existing user signed in via Google: {google_email}")
+        
+        # Create JWT
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={
+                "sub": username,
+                "user_id": user_id,
+                "email": google_email
+            },
+            expires_delta=access_token_expires
+        )
+        
+        return {"access_token": access_token, "token_type": "bearer"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Google auth error: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google authentication failed"
         )
