@@ -293,8 +293,8 @@ const Test = () => {
       if (document.hidden) {
         setTabSwitchCount((prev) => {
           const next = prev + 1;
-          showWarning(`⚠️ Tab switch detected! (${next}/3)`);
-          if (next >= 3) {
+          showWarning(`⚠️ Tab switch detected! (${next}/5)`);
+          if (next >= 5) {
             showWarning("❌ Test submitted due to excessive tab switches!");
             setTimeout(() => submitTest(), 500);
           }
@@ -307,8 +307,8 @@ const Test = () => {
       if (e.type === "blur") {
         setTabSwitchCount((prev) => {
           const next = prev + 1;
-          showWarning(`⚠️ Window switch detected! (${next}/3)`);
-          if (next >= 3) {
+          showWarning(`⚠️ Window switch detected! (${next}/5)`);
+          if (next >= 5) {
             showWarning("❌ Test submitted due to excessive tab switches!");
             setTimeout(() => submitTest(), 500);
           }
@@ -712,7 +712,7 @@ const Test = () => {
               <strong>Questions:</strong> {questions.length}
             </p>
             <p style={{ margin: "8px 0", color: tabSwitchCount > 0 ? "#dc2626" : "#1e293b" }}>
-              <strong>Tab Switches:</strong> {tabSwitchCount}/3
+              <strong>Tab Switches:</strong> {tabSwitchCount}/5
             </p>
           </div>
 
@@ -837,7 +837,7 @@ const Test = () => {
             {isFullscreen ? "✅ Fullscreen" : "⚠️ Not in fullscreen"}
           </p>
           <p style={{ margin: 0, color: "#666", fontSize: "12px" }}>
-            Tab switches: {tabSwitchCount}/3
+            Tab switches: {tabSwitchCount}/5
           </p>
           <p style={{ margin: 0, color: "#666", fontSize: "12px" }}>
             Score: {currentScore}%
@@ -1175,7 +1175,7 @@ const Test = () => {
           }}
         >
           <strong>🔒 Proctoring Status:</strong> {isFullscreen ? "✅ Fullscreen Active" : "⚠️ Not in Fullscreen"} •
-          Tab Switches: {tabSwitchCount}/3 {tabSwitchCount >= 3 && "⛔"}
+          Tab Switches: {tabSwitchCount}/5 {tabSwitchCount >= 5 && "⛔"}
         </div>
       </div>
     </div>
