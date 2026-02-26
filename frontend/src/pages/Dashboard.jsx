@@ -146,13 +146,20 @@ function Dashboard() {
             boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
           }}
         >
-          <div>
-            <h1 style={{ margin: 0, fontSize: "28px", color: "#667eea" }}>
-              📚 Practice Dashboard
-            </h1>
-            <p style={{ margin: "8px 0 0 0", color: "#666" }}>
-              Welcome, {user?.email}
-            </p>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "32px" }}>🎯</span>
+              <span style={{ fontSize: "24px", fontWeight: "800", color: "#667eea" }}>Mockmate</span>
+            </div>
+            <div style={{ width: "1px", height: "36px", backgroundColor: "#e0e7ff" }}></div>
+            <div>
+              <h1 style={{ margin: 0, fontSize: "22px", color: "#1e293b" }}>
+                Practice Dashboard
+              </h1>
+              <p style={{ margin: "4px 0 0 0", color: "#666", fontSize: "14px" }}>
+                Welcome, {user?.email}
+              </p>
+            </div>
           </div>
           <button
             onClick={handleLogout}
