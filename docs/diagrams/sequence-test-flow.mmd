@@ -1,0 +1,17 @@
+sequenceDiagram
+  actor User
+  participant FE as Frontend
+  participant API as FastAPI
+  participant DB as MongoDB
+
+  User->>FE: Start test (topic/difficulty)
+  FE->>API: POST /generate-test-questions
+  API->>DB: fetch session & questions
+  API-->>FE: questions + session_id
+  User->>FE: Submit answers
+  FE->>API: POST /submit-test
+  API->>DB: update session + push test_attempt
+  API-->>FE: score/percentage
+  FE->>API: GET /performance
+  API->>DB: fetch attempts
+  API-->>FE: stats + recent results

@@ -1,0 +1,51 @@
+@startuml
+title Endeavor RAG - User Activity Flow
+
+start
+
+:Open Application;
+
+if (Has Account?) then (no)
+    :Register;
+else (yes)
+endif
+
+:Login;
+note right: JWT Token Issue
+
+:View Dashboard;
+
+fork
+    :Upload Resume;
+    :Parse PDF;
+    :Extract Skills;
+fork again
+    :View Performance;
+    :Check Recent Scores;
+fork again
+    :Take Test;
+    :Select Topic & Difficulty;
+    :Get Questions;
+    
+    repeat
+        :Read Question;
+        if (Input Method?) then (Text)
+            :Type Answer;
+        else (Voice)
+            :Record Speech;
+            :Convert to Text;
+        endif
+        :Next Question;
+    repeat while (More questions?)
+
+    :Submit Test;
+    :Auto-Grade (LLM);
+    :View Feedback;
+fork again
+    :View Jobs;
+end fork
+
+:Logout;
+
+stop
+@enduml

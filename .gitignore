@@ -1,7 +1,11 @@
 venv/
+.venv/
 __pycache__/
 .env
 uploads/
 uvicorn.log
 *.pyc
 .DS_Store
+node_modules/
+frontend/dist/
+*.log

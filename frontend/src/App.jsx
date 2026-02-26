@@ -1,4 +1,6 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import axios from "axios";
 import SignUp from "./pages/SignUp";
 import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
@@ -7,6 +9,30 @@ import Jobs from "./pages/Jobs";
 import Test from "./pages/Test";
 
 function App() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Add a response interceptor
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response && error.response.status === 401) {
+          // Verify if it's a "Could not validate credentials" error or similar auth issue
+          // Clear local storage and redirect to signin
+          localStorage.removeItem("mockmate_token");
+          localStorage.removeItem("mockmate_user");
+          navigate("/signin");
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    // Clean up interceptor on unmount
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, [navigate]);
+
   return (
     <Routes>
       <Route path="/" element={<SignIn />} />

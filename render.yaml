@@ -1,0 +1,38 @@
+services:
+  # Backend API (FastAPI)
+  - type: web
+    name: mockmate-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: MONGO_URI
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: google
+      - key: GOOGLE_MODEL
+        value: gemini-1.5-flash
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://mockmate.onrender.com
+
+  # Frontend (React static site)
+  - type: web
+    name: mockmate
+    runtime: static
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE
+        value: https://mockmate-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
