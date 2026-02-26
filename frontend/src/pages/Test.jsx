@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
+import InterviewerAvatar from "./InterviewerAvatar";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
@@ -24,6 +25,7 @@ const Test = () => {
   const [timeLeft, setTimeLeft] = useState(null);
   const [testSubmitted, setTestSubmitted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
+  const [isTalking, setIsTalking] = useState(false);
   const testContainerRef = useRef(null);
   const tabSwitchWarningRef = useRef(null);
 
@@ -31,6 +33,7 @@ const Test = () => {
   const stopSpeech = () => {
     if ("speechSynthesis" in window) {
       window.speechSynthesis.cancel();
+      setIsTalking(false);
     }
   };
 
@@ -39,11 +42,10 @@ const Test = () => {
       stopSpeech(); // Stop previous speech
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = "en-US";
-      utterance.rate = 1.0; 
-      // Optional: Select a specific voice if available (e.g., Google US English)
-      // const voices = window.speechSynthesis.getVoices();
-      // const preferredVoice = voices.find(voice => voice.name.includes("Google US English"));
-      // if (preferredVoice) utterance.voice = preferredVoice;
+      utterance.rate = 1.0;
+      utterance.onstart = () => setIsTalking(true);
+      utterance.onend = () => setIsTalking(false);
+      utterance.onerror = () => setIsTalking(false);
       
       window.speechSynthesis.speak(utterance);
     }
@@ -875,8 +877,11 @@ const Test = () => {
           </div>
         </div>
 
-        {/* Question */}
+        {/* Interviewer Avatar + Question */}
         <div style={{ marginBottom: "32px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "16px" }}>
+            <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={100} />
+            <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
             <h2 style={{ fontSize: "20px", color: "#1e293b", margin: 0, lineHeight: "1.6", flex: 1 }}>
               {currentQuestion.question}
@@ -934,6 +939,8 @@ const Test = () => {
               </span>
             </div>
           )}
+            </div>
+          </div>
         </div>
 
         {/* Answer Input */}
