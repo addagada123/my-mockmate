@@ -142,7 +142,7 @@ const Test = () => {
 
       recognitionRef.current.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
-        showWarning(`Ã°Å¸Å½â„¢Ã¯Â¸Â Error: ${event.error}`);
+        showWarning(`🎙 Error: ${event.error}`);
       };
     }
   }, [currentQuestionIndex]);
@@ -274,7 +274,7 @@ const Test = () => {
       }, 1000);
 
       if (timeLeft === 60 || timeLeft === 300) {
-        showWarning(`Ã¢ÂÂ° ${timeLeft} seconds remaining!`);
+        showWarning(`⏰ ${timeLeft} seconds remaining!`);
       }
 
       if (timeLeft === 0) {
@@ -293,9 +293,9 @@ const Test = () => {
       if (document.hidden) {
         setTabSwitchCount((prev) => {
           const next = prev + 1;
-          showWarning(`Ã¢Å¡Â Ã¯Â¸Â Tab switch detected! (${next}/5)`);
+          showWarning(`⚠️ Tab switch detected! (${next}/5)`);
           if (next >= 5) {
-            showWarning("Ã¢ÂÅ’ Test submitted due to excessive tab switches!");
+            showWarning("❌ Test submitted due to excessive tab switches!");
             setTimeout(() => submitTest(), 500);
           }
           return next;
@@ -307,9 +307,9 @@ const Test = () => {
       if (e.type === "blur") {
         setTabSwitchCount((prev) => {
           const next = prev + 1;
-          showWarning(`Ã¢Å¡Â Ã¯Â¸Â Window switch detected! (${next}/5)`);
+          showWarning(`⚠️ Window switch detected! (${next}/5)`);
           if (next >= 5) {
-            showWarning("Ã¢ÂÅ’ Test submitted due to excessive tab switches!");
+            showWarning("❌ Test submitted due to excessive tab switches!");
             setTimeout(() => submitTest(), 500);
           }
           return next;
@@ -449,12 +449,12 @@ const Test = () => {
     };
     setQuestionResults(updated);
     setCurrentScore(calculateAverageScore(updated));
-    showWarning(result.correct ? "Ã¢Å“â€¦ Answer marked correct" : "Ã¢ÂÅ’ Answer marked incorrect");
+    showWarning(result.correct ? "✅ Answer marked correct" : "❌ Answer marked incorrect");
   };
 
   const toggleMicrophone = () => {
     if (!recognitionRef.current) {
-      showWarning("Ã°Å¸Å½â„¢Ã¯Â¸Â Speech recognition not supported in your browser");
+      showWarning("🎙 Speech recognition not supported in your browser");
       return;
     }
 
@@ -565,7 +565,7 @@ const Test = () => {
           }}
         >
           <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b" }}>
-            Ã°Å¸â€œÂ Select Difficulty
+            📝 Select Difficulty
           </h1>
           <p style={{ color: "#666", marginBottom: "32px", lineHeight: "1.6" }}>
             Choose your difficulty level for the <strong>{decodeURIComponent(topic)}</strong> test.
@@ -594,9 +594,9 @@ const Test = () => {
                 onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
                 onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
               >
-                {level === "Easy" && "Ã°Å¸Å¸Â¢"}
-                {level === "Medium" && "Ã°Å¸Å¸Â¡"}
-                {level === "Hard" && "Ã°Å¸â€Â´"} {level}
+                {level === "Easy" && "🟢"}
+                {level === "Medium" && "🟡"}
+                {level === "Hard" && "🔴"} {level}
               </button>
             ))}
           </div>
@@ -624,7 +624,7 @@ const Test = () => {
               e.target.color = "#0073e6";
             }}
           >
-            Ã¢â€ Â Back to Dashboard
+            ← Back to Dashboard
           </button>
         </div>
       </div>
@@ -655,7 +655,7 @@ const Test = () => {
             textAlign: "center",
           }}
         >
-          <h1 style={{ fontSize: "40px", margin: "0 0 16px 0" }}>Ã¢Å“â€¦</h1>
+          <h1 style={{ fontSize: "40px", margin: "0 0 16px 0" }}>✅</h1>
           <h2 style={{ fontSize: "28px", margin: "0 0 16px 0", color: "#1e293b" }}>
             Test Submitted!
           </h2>
@@ -688,7 +688,7 @@ const Test = () => {
                 {testScore}%
               </p>
               <p style={{ margin: "8px 0 0 0", color: "#666", fontSize: "13px" }}>
-                {testScore >= 80 ? "Ã°Å¸Å½â€° Excellent Performance!" : testScore >= 70 ? "Ã°Å¸â€˜Â Good Job!" : "Ã°Å¸â€™Âª Keep Practicing!"}
+                {testScore >= 80 ? "🎉 Excellent Performance!" : testScore >= 70 ? "👍 Good Job!" : "💪 Keep Practicing!"}
               </p>
             </div>
           )}
@@ -753,7 +753,7 @@ const Test = () => {
         }}
       >
         <div style={{ color: "#334155", textAlign: "center" }}>
-          <p style={{ fontSize: "18px" }}>Ã¢ÂÂ³ Loading test questions...</p>
+          <p style={{ fontSize: "18px" }}>⏳ Loading test questions...</p>
         </div>
       </div>
     );
@@ -814,7 +814,7 @@ const Test = () => {
         </div>
         <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
           <div style={{ fontSize: "24px", fontWeight: "700", color: "#1e293b" }}>
-            Ã¢ÂÂ±Ã¯Â¸Â {formatTime(timeLeft || 0)}
+            ⏱️ {formatTime(timeLeft || 0)}
           </div>
           <button
             onClick={requestFullscreen}
@@ -834,7 +834,7 @@ const Test = () => {
             {isFullscreen ? "Fullscreen on" : "Enter Fullscreen"}
           </button>
           <p style={{ margin: 0, color: "#666", fontSize: "12px" }}>
-            {isFullscreen ? "Ã¢Å“â€¦ Fullscreen" : "Ã¢Å¡Â Ã¯Â¸Â Not in fullscreen"}
+            {isFullscreen ? "✅ Fullscreen" : "⚠️ Not in fullscreen"}
           </p>
           <p style={{ margin: 0, color: "#666", fontSize: "12px" }}>
             Tab switches: {tabSwitchCount}/5
@@ -901,7 +901,7 @@ const Test = () => {
               title="Read Question"
               aria-label="Read Question"
             >
-              Ã°Å¸â€Å 
+              🔊
             </button>
           </div>
 
@@ -929,10 +929,10 @@ const Test = () => {
                 }}
               >
                 {currentQuestion.difficulty === "easy"
-                  ? "Ã°Å¸Å¸Â¢ Easy"
+                  ? "🟢 Easy"
                   : currentQuestion.difficulty === "medium"
-                    ? "Ã°Å¸Å¸Â¡ Medium"
-                    : "Ã°Å¸â€Â´ Hard"}
+                    ? "🟡 Medium"
+                    : "🔴 Hard"}
               </span>
             </div>
           )}
@@ -994,9 +994,9 @@ const Test = () => {
               }}
             >
               {isListening ? (
-                <>Ã°Å¸â€ºâ€˜ Stop Recording</>
+                <>🛑 Stop Recording</>
               ) : (
-                <>Ã°Å¸Å½â„¢Ã¯Â¸Â Speak Answer</>
+                <>🎙 Speak Answer</>
               )}
             </button>
           </div>
@@ -1019,7 +1019,7 @@ const Test = () => {
           />
           {isListening && (
             <div style={{ marginTop: "8px", padding: "8px 12px", backgroundColor: "#fee2e2", borderRadius: "6px", color: "#991b1b", fontSize: "12px", fontWeight: "600" }}>
-              Ã°Å¸Å½â„¢Ã¯Â¸Â Listening... Speak now!
+              🎙 Listening... Speak now!
             </div>
           )}
         </div>
@@ -1036,7 +1036,7 @@ const Test = () => {
               border: `2px solid ${currentResult.correct ? "#6ee7b7" : "#fca5a5"}`,
             }}
           >
-            <strong>{currentResult.correct ? "Ã¢Å“â€¦ Correct" : "Ã¢ÂÅ’ Incorrect"}</strong>
+            <strong>{currentResult.correct ? "✅ Correct" : "❌ Incorrect"}</strong>
             <div style={{ marginTop: "6px", color: "#334155" }}>
               Score for this question: {currentResult.score}%
             </div>
@@ -1056,7 +1056,7 @@ const Test = () => {
             }}
           >
             <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#1e293b" }}>
-              Ã°Å¸â€œÅ¡ Reference Answer:
+              📚 Reference Answer:
             </p>
             <p style={{ margin: 0, color: "#334155", lineHeight: "1.6" }}>
               {currentQuestion.answer}
@@ -1096,7 +1096,7 @@ const Test = () => {
               }
             }}
           >
-            Ã¢â€ Â Previous
+            ← Previous
           </button>
 
           <button
@@ -1125,7 +1125,7 @@ const Test = () => {
               }
             }}
           >
-            Next Ã¢â€ â€™
+            Next →
           </button>
 
           <button
@@ -1161,7 +1161,7 @@ const Test = () => {
             onMouseEnter={(e) => (e.target.style.backgroundColor = "#047857")}
             onMouseLeave={(e) => (e.target.style.backgroundColor = "#059669")}
           >
-            Ã¢Å“â€¦ Submit Test
+            ✅ Submit Test
           </button>
         </div>
 
@@ -1177,8 +1177,8 @@ const Test = () => {
             borderLeft: "4px solid #f59e0b",
           }}
         >
-          <strong>Ã°Å¸â€â€™ Proctoring Status:</strong> {isFullscreen ? "Ã¢Å“â€¦ Fullscreen Active" : "Ã¢Å¡Â Ã¯Â¸Â Not in Fullscreen"} Ã¢â‚¬Â¢
-          Tab Switches: {tabSwitchCount}/5 {tabSwitchCount >= 5 && "Ã¢â€ºâ€"}
+          <strong>🛡️ Proctoring Status:</strong> {isFullscreen ? "✅ Fullscreen Active" : "⚠️ Not in Fullscreen"} •
+          Tab Switches: {tabSwitchCount}/5 {tabSwitchCount >= 5 && "⛔"}
         </div>
       </div>
     </div>

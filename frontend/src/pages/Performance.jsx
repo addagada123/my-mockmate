@@ -128,7 +128,7 @@ function Performance() {
         >
           <div>
             <h1 style={{ color: "#1e293b", fontSize: "28px", fontWeight: "800", margin: 0 }}>
-              Ã°Å¸â€œÅ  Performance Analytics
+              📊 Performance Analytics
             </h1>
             <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
               {user?.email}
@@ -150,7 +150,7 @@ function Performance() {
               onMouseEnter={(e) => (e.target.style.opacity = "0.9")}
               onMouseLeave={(e) => (e.target.style.opacity = "1")}
             >
-              Ã¢â€ Â Back to Dashboard
+              ← Back to Dashboard
             </button>
             <button
               onClick={() => {
@@ -231,7 +231,7 @@ function Performance() {
           }}
         >
           <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
-            Ã°Å¸â€œË† Overall Statistics
+            📈 Overall Statistics
           </h2>
           <div
             style={{
@@ -273,7 +273,7 @@ function Performance() {
           }}
         >
           <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
-            Ã°Å¸â€œâ€¹ All Test Results
+            📋 All Test Results
           </h2>
           {loading ? (
             <p style={{ color: "#666", textAlign: "center" }}>Loading performance data...</p>
@@ -352,7 +352,7 @@ function Performance() {
                         {record.timeSpent}
                       </td>
                       <td style={{ padding: "12px", fontSize: "13px" }}>
-                        {record.score >= 80 ? "Ã¢Å“â€¦ Excellent" : record.score >= 70 ? "Ã¢Å¡Â Ã¯Â¸Â Good" : "Ã¢ÂÅ’ Needs Work"}
+                        {record.score >= 80 ? "✅ Excellent" : record.score >= 70 ? "⚠️ Good" : "❌ Needs Work"}
                       </td>
                     </tr>
                   ))}
@@ -372,7 +372,7 @@ function Performance() {
           }}
         >
           <h2 style={{ color: "#1e293b", marginBottom: "12px", fontSize: "20px", fontWeight: "700" }}>
-            Ã°Å¸â€œÅ  Score Trend
+            📊 Score Trend
           </h2>
           {performanceData.length === 0 ? (
             <div
@@ -399,7 +399,7 @@ function Performance() {
               const points = sorted.map((r, idx) => {
                 const x = padding.left + idx * step;
                 const y = padding.top + (1 - Math.min(Math.max(r.score, 0), 100) / 100) * usableH;
-                return { x, y, label: `${r.date} Ã¢â‚¬Â¢ ${r.topic} Ã¢â‚¬Â¢ ${r.score}%` };
+                return { x, y, label: `${r.date} • ${r.topic} • ${r.score}%` };
               });
 
               const pathD = points
