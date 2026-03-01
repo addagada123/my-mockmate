@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import shutil
 import json as json_mod
 import hashlib
+import random
 import openai  # type: ignore
 from endeavor_rag_service import (
     interview_rag_pipeline,
@@ -209,6 +210,16 @@ def _generate_topic_questions(
             "Describe a basic workflow or process in {topic}.",
             "List key concepts in {topic} and how you used them.",
             "Walk through a simple {topic} task you completed.",
+            "What tools or technologies did you use for {topic}?",
+            "Explain {topic} as if teaching it to a beginner.",
+            "What are the prerequisites for working with {topic}?",
+            "Describe the input and output of a typical {topic} task.",
+            "What common mistakes should a beginner avoid in {topic}?",
+            "How did you first learn {topic} and what was your initial project?",
+            "What resources or documentation did you rely on for {topic}?",
+            "Give a real-world analogy that explains {topic} simply.",
+            "What is the difference between {topic} and a closely related concept?",
+            "Describe the basic architecture or structure used in {topic}.",
         ],
         "medium": [
             "Compare two approaches in {topic} and explain why you chose one.",
@@ -216,6 +227,16 @@ def _generate_topic_questions(
             "How do you measure success or quality in {topic}?",
             "Explain trade-offs you considered when working on {topic}.",
             "Describe how you would improve a {topic} solution from your resume.",
+            "How would you debug a common issue in {topic}?",
+            "Explain how you tested or validated your {topic} implementation.",
+            "What design patterns or best practices do you follow in {topic}?",
+            "How does {topic} integrate with other components in your project?",
+            "Describe a performance bottleneck you encountered in {topic} and how you fixed it.",
+            "How would you refactor a legacy {topic} implementation?",
+            "What metrics would you track to monitor a {topic} system in production?",
+            "Explain how you handled edge cases in your {topic} project.",
+            "Describe the deployment process for your {topic} solution.",
+            "How would you onboard a new team member to your {topic} codebase?",
         ],
         "hard": [
             "Design an end-to-end solution for a complex {topic} problem.",
@@ -223,6 +244,16 @@ def _generate_topic_questions(
             "Describe a failure scenario in {topic} and how you would prevent it.",
             "Discuss advanced techniques or optimizations you would use in {topic}.",
             "Propose a migration or refactor plan for a {topic} project.",
+            "How would you design a fault-tolerant {topic} architecture?",
+            "Explain how you would handle millions of concurrent users in a {topic} system.",
+            "Describe a security vulnerability in {topic} and how you would mitigate it.",
+            "How would you implement automated testing at scale for {topic}?",
+            "Design a CI/CD pipeline for a complex {topic} project.",
+            "How would you architect {topic} for a multi-region global deployment?",
+            "Explain how you would reduce costs while maintaining quality in a {topic} system.",
+            "Describe how you would lead a technical review of a {topic} implementation.",
+            "How would you handle backward compatibility while evolving a {topic} system?",
+            "Propose a disaster recovery strategy for a mission-critical {topic} service.",
         ],
     }
 
@@ -438,12 +469,20 @@ async def upload_resume(
 
         if cached_resume:
             logger.info(f"Resume cache HIT for hash={resume_hash[:12]}... (user={current_user['id']})")
-            questions = cached_resume.get("questions", [])
+            all_cached_questions = cached_resume.get("questions", [])
             limited_topics = cached_resume.get("skills", [])
             all_skills = cached_resume.get("all_skills", [])
             experience = cached_resume.get("experience", "")
             question_version = cached_resume.get("questionVersion", 3)
             questions_source = cached_resume.get("questionsSource", "cached-resume")
+
+            # --- Serve a RANDOM SUBSET each session for variety ---
+            # Pool has ~15 questions; serve 8 random ones so each session feels fresh
+            QUESTIONS_PER_SESSION = 8
+            if len(all_cached_questions) > QUESTIONS_PER_SESSION:
+                questions = random.sample(all_cached_questions, QUESTIONS_PER_SESSION)
+            else:
+                questions = list(all_cached_questions)
 
             # Increment cache hit counter
             db.resume_question_cache.update_one(
@@ -470,7 +509,7 @@ async def upload_resume(
             session_result = db.user_sessions.insert_one(session_data)
             session_id = str(session_result.inserted_id)
 
-            logger.info(f"Session created from cache: {session_id} with {len(questions)} questions")
+            logger.info(f"Session created from cache: {session_id} with {len(questions)}/{len(all_cached_questions)} questions (random subset)")
 
             return {
                 "success": True,
@@ -481,8 +520,8 @@ async def upload_resume(
                 "experience": experience,
                 "questions": questions,
                 "questionVersion": question_version,
-                "questionsSource": "cached-resume",
-                "message": f"Loaded {len(questions)} questions from cache (instant!)"
+                "questionsSource": "cached-resume-shuffled",
+                "message": f"Loaded {len(questions)} of {len(all_cached_questions)} questions (fresh mix from cache!)"
             }
 
         # --- Cache MISS: generate questions via AI pipeline ---

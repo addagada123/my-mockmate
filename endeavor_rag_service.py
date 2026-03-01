@@ -683,16 +683,16 @@ Return a single JSON object only (no surrounding commentary). The JSON MUST matc
         "key_projects": [string]
     }},
     "easy_medium": [
-        {{"q": string, "a": string}},  // exactly 2 items
+        {{"q": string, "a": string}},  // exactly 5 items
     ],
     "hard": [
-        {{"q": string, "a": string}},  // exactly 1 item
+        {{"q": string, "a": string}},  // exactly 4 items
     ],
     "dsa": [
-        {{"difficulty": "Medium"|"Hard", "q": string, "a": string, "examples": string, "constraints": string, "complexity": string, "code": string}},  // exactly 1 item
+        {{"difficulty": "Medium"|"Hard", "q": string, "a": string, "examples": string, "constraints": string, "complexity": string, "code": string}},  // exactly 3 items
     ],
     "behavioral": [
-        {{"q": string, "a": string}},  // exactly 2 items
+        {{"q": string, "a": string}},  // exactly 3 items
     ]
 }}
 
@@ -700,12 +700,13 @@ ENHANCED REQUIREMENTS:
 - Output must be valid JSON parseable by json.loads()
 - Use the exact keys shown above.
 - Keep code blocks and examples as strings.
+- Generate a LARGE question pool so the user gets variety each session.
 
-QUESTION DISTRIBUTION:
-- easy_medium: 2 questions (1 Project + 1 Technical)
-- hard: 1 advanced technical question
-- dsa: 1 Medium difficulty problem with examples/constraints
-- behavioral: 2 questions (1 Scenario + 1 Collaboration)
+QUESTION DISTRIBUTION (15 total):
+- easy_medium: 5 questions (mix of Project-based + Technical concepts)
+- hard: 4 advanced technical questions (system design, optimization, trade-offs)
+- dsa: 3 problems (1 Medium, 1 Medium-Hard, 1 Hard) with examples/constraints
+- behavioral: 3 questions (Scenario + Collaboration + Leadership)
 
 All questions must be grounded in these scenarios: {', '.join(scenario_contexts['scenarios'][:3])}
 - Focus approach: {persona_approaches[persona]}
@@ -739,15 +740,15 @@ QUESTION GENERATION GUIDELINES:
 INTERVIEW STRUCTURE - QUICK START:
 
 SECTION 1 - TECHNICAL CORE (easy_medium + hard):
-- easy_medium: 2 questions (1 Project-based, 1 Technical concept)
-- hard: 1 advanced technical question
+- easy_medium: 5 questions (mix of Project-based, Technical concept, and Applied knowledge)
+- hard: 4 advanced technical questions (system design, optimization, debugging, trade-offs)
 
 SECTION 2 - PROBLEM SOLVING (dsa):
-- 1 algorithmic/analytical question (Medium difficulty)
-- Include clean problem statement and complexity
+- 3 algorithmic/analytical questions (1 Medium, 1 Medium-Hard, 1 Hard)
+- Include clean problem statements, examples, constraints, and complexity
 
 SECTION 3 - BEHAVIORAL:
-- 2 behavioral questions about teamwork and challenges
+- 3 behavioral questions about teamwork, leadership, and challenges
 
 Generate interview content STRICTLY as JSON following the schema below:
 {json_schema_instructions}
@@ -831,10 +832,10 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
 
         class LLMOutput(BaseModel):
             metadata: Metadata
-            easy_medium: List[QAItem] = Field(min_length=2, max_length=5)
-            hard: List[QAItem] = Field(min_length=1, max_length=4)
-            dsa: List[DSAItem] = Field(min_length=1, max_length=4)
-            behavioral: List[QAItem] = Field(min_length=2, max_length=4)
+            easy_medium: List[QAItem] = Field(min_length=2, max_length=8)
+            hard: List[QAItem] = Field(min_length=1, max_length=6)
+            dsa: List[DSAItem] = Field(min_length=1, max_length=5)
+            behavioral: List[QAItem] = Field(min_length=2, max_length=5)
 
         # Try robust extraction of JSON-like content
         def extract_json_from_text(s: str):
