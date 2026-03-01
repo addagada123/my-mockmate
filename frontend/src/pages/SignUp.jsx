@@ -6,6 +6,8 @@ import { useNavigate } from "react-router-dom";
 
 import "./SignUp.css";
 
+import mockmateLogoVideo from "../assets/mockmate-logo.mp4";
+
 
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
@@ -284,7 +286,14 @@ function SignUp() {
 
       >
 
-        <span className="signup-logo" style={{ fontSize: '34px' }}>🎯</span>
+        <video
+          src={mockmateLogoVideo}
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{ width: '44px', height: '44px', objectFit: 'contain', borderRadius: '8px' }}
+        />
 
         <span className="signup-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
 
