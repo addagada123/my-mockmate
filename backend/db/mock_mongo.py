@@ -32,22 +32,30 @@ class MockCursor:
         self.results = results
         self._sort_key: Optional[str] = None
         self._sort_direction = 1
+        self._limit: Optional[int] = None
     
     def sort(self, key: str, direction: int = 1):
         """Sort results by key and direction"""
         self._sort_key = key
         self._sort_direction = direction
         return self
+
+    def limit(self, count: int):
+        """Limit the number of results returned"""
+        self._limit = count
+        return self
     
     def __iter__(self):
+        results = self.results
         if self._sort_key:
-            sorted_results = sorted(
-                self.results,
+            results = sorted(
+                results,
                 key=lambda x: x.get(self._sort_key or "", ""),
                 reverse=(self._sort_direction == -1)
             )
-            return iter(sorted_results)
-        return iter(self.results)
+        if self._limit is not None:
+            results = results[:self._limit]
+        return iter(results)
     
     def __next__(self):
         return next(iter(self))
