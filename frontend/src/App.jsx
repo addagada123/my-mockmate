@@ -8,6 +8,8 @@ import Performance from "./pages/Performance";
 import Jobs from "./pages/Jobs";
 import Test from "./pages/Test";
 import CommunicationTest from "./pages/CommunicationTest";
+import TopicDashboard from "./pages/TopicDashboard";
+import SectionTestWrapper from "./pages/SectionTestWrapper";
 
 function App() {
   const navigate = useNavigate();
@@ -44,6 +46,8 @@ function App() {
       <Route path="/jobs" element={<Jobs />} />
       <Route path="/test/:topic" element={<Test />} />
       <Route path="/communication-test" element={<CommunicationTest />} />
+      <Route path="/topic-dashboard/:sessionId" element={<TopicDashboard />} />
+      <Route path="/section-test/:sessionId/:topic/:difficulty" element={<SectionTestWrapper />} />
     </Routes>
   );
 }

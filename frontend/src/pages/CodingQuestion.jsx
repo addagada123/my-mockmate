@@ -27,6 +27,7 @@ const CodingQuestion = ({
   const [results, setResults] = useState(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
+  const [execTime, setExecTime] = useState(null);
   const editorRef = useRef(null);
 
   const testCases = question.test_cases || [];
@@ -48,6 +49,8 @@ const CodingQuestion = ({
     setRunning(true);
     setError(null);
     setResults(null);
+    setExecTime(null);
+    const t0 = performance.now();
     try {
       const token = localStorage.getItem("mockmate_token");
       const resp = await axios.post(
@@ -57,14 +60,17 @@ const CodingQuestion = ({
           code,
           test_cases: testCases.length > 0 ? testCases : undefined,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
       );
+      const elapsed = Math.round(performance.now() - t0);
+      setExecTime(resp.data.execution_time_ms || elapsed);
       setResults(resp.data);
       if (onRunResult) onRunResult(resp.data);
     } catch (err) {
       const msg =
         err.response?.data?.detail || err.message || "Failed to execute code";
       setError(msg);
+      setExecTime(Math.round(performance.now() - t0));
     } finally {
       setRunning(false);
     }
@@ -286,6 +292,25 @@ const CodingQuestion = ({
               Score: {results.score}%
             </span>
           </div>
+
+          {/* Execution time badge */}
+          {execTime != null && (
+            <div
+              style={{
+                padding: "6px 16px",
+                backgroundColor: "#f1f5f9",
+                borderBottom: "1px solid #e2e8f0",
+                fontSize: "12px",
+                color: "#64748b",
+                fontFamily: "monospace",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              ⚡ Executed in {execTime < 1000 ? `${execTime}ms` : `${(execTime / 1000).toFixed(1)}s`}
+            </div>
+          )}
 
           {/* Per-Test-Case Results */}
           <div style={{ padding: "12px 16px", backgroundColor: "white" }}>

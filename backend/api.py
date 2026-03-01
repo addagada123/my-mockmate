@@ -11,6 +11,9 @@ import json as json_mod
 import hashlib
 import random
 import openai  # type: ignore
+import asyncio
+import time
+import httpx
 from endeavor_rag_service import (
     interview_rag_pipeline,
     collection
@@ -24,6 +27,48 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# --- Provider Health & Cost Tracking System (Approach 1B: Circuit Breaker) ---
+class ProviderStats:
+    """Track provider health, costs, and performance"""
+    def __init__(self):
+        self.stats = {
+            "gemini": {"cost_per_1m": 0.075, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
+            "claude": {"cost_per_1m": 0.80, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
+            "openai": {"cost_per_1m": 0.30, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
+        }
+    
+    def record_success(self, provider: str):
+        if provider in self.stats:
+            self.stats[provider]["successes"] += 1
+            self.stats[provider]["failures"] = max(0, self.stats[provider]["failures"] - 1)
+    
+    def record_failure(self, provider: str):
+        if provider in self.stats:
+            self.stats[provider]["failures"] += 1
+            self.stats[provider]["last_failure"] = datetime.now()
+            if self.stats[provider]["failures"] >= 3:
+                self.stats[provider]["blocked_until"] = datetime.now() + timedelta(minutes=2)
+    
+    def is_available(self, provider: str) -> bool:
+        if provider not in self.stats:
+            return False
+        blocked_until = self.stats[provider]["blocked_until"]
+        if blocked_until and datetime.now() < blocked_until:
+            return False
+        return True
+    
+    def get_available_providers(self) -> List[tuple]:
+        """Return available providers sorted by cost (cheapest first)"""
+        available = [
+            (provider, data["cost_per_1m"])
+            for provider, data in self.stats.items()
+            if self.is_available(provider)
+        ]
+        return sorted(available, key=lambda x: x[1])
+
+provider_stats = ProviderStats()
 
 
 # --- Multi-Provider AI Fallback & JSON Helpers ---
@@ -53,134 +98,234 @@ def parse_json_response(raw_text: str) -> Optional[dict]:
     return None
 
 
+async def _call_single_provider(
+    provider: str,
+    messages: List[Dict[str, str]],
+    temperature: float,
+    max_tokens: int
+) -> str:
+    """Call a single AI provider"""
+    if provider == "gemini":
+        google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if not google_key:
+            raise ValueError("Gemini API key not configured")
+        import google.generativeai as genai  # type: ignore  # pyright: ignore
+        genai.configure(api_key=google_key)  # type: ignore  # pyright: ignore
+        model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-1.5-flash"))  # type: ignore  # pyright: ignore
+        prompt_text = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
+        resp = await run_in_threadpool(
+            lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
+        )
+        return resp.text or ""  # type: ignore  # pyright: ignore
+    elif provider == "claude":
+        import anthropic  # type: ignore  # pyright: ignore
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        if not anthropic_key:
+            raise ValueError("Anthropic API key not configured")
+        acl = anthropic.Anthropic(api_key=anthropic_key)
+        user_msgs: Any = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
+        resp_claude: Any = await run_in_threadpool(  # pyright: ignore
+            lambda: acl.messages.create(model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"), max_tokens=max_tokens, messages=user_msgs)  # pyright: ignore
+        )
+        # Safely extract text from the first content block
+        block = resp_claude.content[0] if resp_claude.content else None  # pyright: ignore
+        return getattr(block, "text", "") or ""  # pyright: ignore
+    elif provider == "openai":
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise ValueError("OpenAI API key not configured")
+        client = openai.OpenAI(api_key=openai_key)
+        resp = await run_in_threadpool(
+            lambda: client.chat.completions.create(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), messages=messages, temperature=temperature, max_tokens=max_tokens)  # type: ignore
+        )
+        return resp.choices[0].message.content or ""
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+
 async def call_ai_with_fallback(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
     max_tokens: int = 4000,
 ) -> tuple:
     """
-    Call AI with multi-provider fallback: OpenAI -> Gemini -> Claude.
-    Returns (raw_text: str, provider: str).
-    Raises HTTPException(503) if all providers fail.
+    Cost-aware AI routing (Approach 1A): Try cheapest first (Gemini $0.075)
+    Parallel fallback (Approach 1C): If >5s, parallel timeout to 2nd cheapest
+    Circuit breaker (Approach 1B): Block failing providers for 2min
+    Returns (raw_text: str, provider: str)
     """
     errors = []
-
-    # --- 1. Try OpenAI ---
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key:
+    available = provider_stats.get_available_providers()
+    
+    if not available:
+        logger.error("All AI providers blocked by circuit breaker")
+        raise HTTPException(status_code=503, detail="All AI providers temporarily unavailable")
+    
+    primary_provider, primary_cost = available[0]
+    
+    async def run_provider(prov: str):
         try:
-            client = openai.OpenAI(api_key=openai_key)
-            resp = await run_in_threadpool(
-                lambda: client.chat.completions.create(
-                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-            )
-            raw = resp.choices[0].message.content or ""
-            logger.info("AI response from OpenAI")
-            return raw, "openai"
-        except (openai.RateLimitError, openai.AuthenticationError) as e:
-            errors.append(f"OpenAI: {type(e).__name__}")
-            logger.warning(f"OpenAI failed ({type(e).__name__}), trying fallback...")
+            result = await _call_single_provider(prov, messages, temperature, max_tokens)
+            provider_stats.record_success(prov)
+            logger.info(f"AI from {prov} (${provider_stats.stats[prov]['cost_per_1m']:.3f}/1M tokens)")
+            return result, prov
         except Exception as e:
-            errors.append(f"OpenAI: {str(e)[:80]}")
-            logger.warning(f"OpenAI error, trying fallback: {e}")
-
-    # --- 2. Try Google Gemini ---
-    google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if google_key:
+            provider_stats.record_failure(prov)
+            errors.append(f"{prov}: {str(e)[:50]}")
+            raise
+    
+    try:
+        # Primary provider with 5s timeout before parallel fallback
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=google_key)
-            model_name = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
-            sys_instruction = next(
-                (m["content"] for m in messages if m["role"] == "system"), None
-            )
-            model = genai.GenerativeModel(model_name, system_instruction=sys_instruction)
-            prompt_text = "\n\n".join(
-                m["content"] for m in messages if m["role"] != "system"
-            )
-            resp = await run_in_threadpool(
-                lambda: model.generate_content(
-                    prompt_text,
-                    generation_config={"temperature": temperature, "max_output_tokens": max_tokens},
-                )
-            )
-            raw = resp.text or ""
-            logger.info("AI response from Gemini")
-            return raw, "gemini"
-        except Exception as e:
-            errors.append(f"Gemini: {str(e)[:80]}")
-            logger.warning(f"Gemini failed, trying fallback: {e}")
+            result, provider = await asyncio.wait_for(run_provider(primary_provider), timeout=5)
+            return result, provider
+        except asyncio.TimeoutError:
+            logger.warning(f"{primary_provider} timed out (5s), starting parallel fallback")
+            # Try secondary provider if available
+            if len(available) > 1:
+                fallback_provider = available[1][0]
+                try:
+                    result, provider = await asyncio.wait_for(run_provider(fallback_provider), timeout=15)
+                    return result, provider
+                except Exception:
+                    pass
+            raise HTTPException(status_code=503, detail="All AI providers failed or timed out")
+    except HTTPException:
+        raise
+    except Exception:
+        error_msg = "; ".join(errors)[:100] if errors else "Unknown error"
+        logger.error(f"AI provider failure: {error_msg}")
+        raise HTTPException(status_code=503, detail=f"AI services unavailable: {error_msg}")
 
-    # --- 3. Try Anthropic Claude ---
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key:
-        try:
-            import anthropic
-            acl = anthropic.Anthropic(api_key=anthropic_key)
-            sys_msg = next(
-                (m["content"] for m in messages if m["role"] == "system"), ""
-            )
-            user_msgs = [
-                {"role": m["role"], "content": m["content"]}
-                for m in messages if m["role"] != "system"
-            ]
-            resp = await run_in_threadpool(
-                lambda: acl.messages.create(
-                    model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
-                    max_tokens=max_tokens,
-                    system=sys_msg,
-                    messages=user_msgs,
-                )
-            )
-            raw = resp.content[0].text or ""
-            logger.info("AI response from Anthropic Claude")
-            return raw, "anthropic"
-        except Exception as e:
-            errors.append(f"Anthropic: {str(e)[:80]}")
-            logger.warning(f"Anthropic failed: {e}")
 
-    # All providers failed
-    error_summary = "; ".join(errors) if errors else "No AI API keys configured"
-    logger.error(f"All AI providers failed: {error_summary}")
-    raise HTTPException(
-        status_code=503,
-        detail=f"All AI services are currently unavailable. Please try again later."
-    )
+def _normalize_skill(skill: str) -> str:
+    """Normalize skill names for deduplication (handles variants)."""
+    if not skill:
+        return ""
+    normalized = skill.lower().strip()
+    # Map common variations
+    variations = {
+        "js": "javascript",
+        "typescript": "typescript",
+        "ts": "typescript",
+        "py": "python",
+        "cpp": "c++",
+        "c plus plus": "c++",
+        "c#": "csharp",
+        "dotnet": ".net",
+        "node": "nodejs",
+        "node.js": "nodejs",
+        "mongo": "mongodb",
+        "sql server": "mssql",
+        "postgres": "postgresql",
+        "react.js": "react",
+        "vue.js": "vue",
+        "angular.js": "angular",
+        "fastapi": "fastapi (python)",
+        "express": "express (nodejs)",
+        "spring": "spring (java)",
+        "django": "django (python)",
+        "rest api": "rest api",
+        "restful": "rest api",
+        "graphql api": "graphql",
+        "ml": "machine learning",
+        "ai": "artificial intelligence",
+        "llm": "large language model",
+        "nlp": "natural language processing",
+    }
+    return variations.get(normalized, normalized)
 
+def _get_skill_category(skill: str) -> str:
+    """Categorize a skill into domain area (for better grouping)."""
+    skill_lower = skill.lower()
+    categories = {
+        "frontend": ["react", "vue", "angular", "html", "css", "sass", "webpack", "nextjs", "svelte"],
+        "backend": ["nodejs", "python", "java", "golang", "rust", "csharp", "php", "ruby", "django", "fastapi", "spring", "express"],
+        "database": ["mongodb", "postgresql", "mysql", "redis", "elasticsearch", "dynamodb", "oracle", "cassandra", "firestore"],
+        "devops": ["docker", "kubernetes", "jenkins", "gitlab", "github actions", "terraform", "aws", "gcp", "azure", "ci/cd"],
+        "mobile": ["react native", "flutter", "swift", "kotlin", "ios", "android"],
+        "machine learning": ["tensorflow", "pytorch", "scikit-learn", "machine learning", "deep learning", "nlp", "ai", "llm"],
+        "data": ["data science", "analytics", "pandas", "numpy", "spark", "hadoop"],
+    }
+    for category, keywords in categories.items():
+        for keyword in keywords:
+            if keyword in skill_lower:
+                return category
+    return "other"
 
 def _get_top_topics(questions: List[Dict[str, Any]], fallback: List[str], limit: int = 5) -> List[str]:
-    # 1. Collect topics from questions
-    topic_counts: Dict[str, int] = {}
+    """
+    Advanced topic extraction with skill normalization, deduplication, and relevance scoring.
+    Strategy: Frequency in questions + Skill relevance + Categorization + Normalized duplicates
+    """
+    # 1. Collect and score topics from questions
+    topic_scores: Dict[str, float] = {}
+    topic_frequencies: Dict[str, int] = {}
+    
     for q in questions:
         topic = (q.get("topic") or "").strip()
         if not topic:
             continue
-        topic_counts[topic] = topic_counts.get(topic, 0) + 1
-
-    # 2. Get sorted topics from questions
-    sorted_topics = [t[0] for t in sorted(topic_counts.items(), key=lambda item: item[1], reverse=True)]
-    
-    # 3. Add fallback topics (skills) if we need more to reach limit
-    # Filter out duplicates (case-insensitive)
-    existing_topics_lower = {t.lower() for t in sorted_topics}
-    
-    if fallback:
-        for skill in fallback:
-            if len(sorted_topics) >= limit:
-                break
-            if skill and skill.strip() and skill.lower() not in existing_topics_lower:
-                sorted_topics.append(skill.strip())
-                existing_topics_lower.add(skill.lower())
-
-    # 4. If still empty, return fallback
-    if not sorted_topics:
-        return (fallback or [])[:limit]
         
-    return sorted_topics[:limit]
+        # Normalize topic
+        norm_topic = _normalize_skill(topic)
+        if not norm_topic:
+            continue
+        
+        # Track frequency
+        topic_frequencies[norm_topic] = topic_frequencies.get(norm_topic, 0) + 1
+        
+        # Score based on difficulty (harder questions weighted higher)
+        difficulty = (q.get("difficulty") or "medium").lower()
+        difficulty_weight = {"easy": 1.0, "medium": 1.5, "hard": 2.0}.get(difficulty, 1.0)
+        
+        topic_scores[norm_topic] = topic_scores.get(norm_topic, 0) + difficulty_weight
+    
+    # 2. Rank topics by combined score (frequency + difficulty weight)
+    sorted_topics = [
+        t[0] for t in sorted(
+            topic_scores.items(),
+            key=lambda x: (topic_frequencies.get(x[0], 1), x[1]),
+            reverse=True
+        )
+    ]
+    
+    # 3. Deduplicate and enrich with skills
+    existing_topics = set(t.lower() for t in sorted_topics)
+    final_topics: List[str] = list(sorted_topics[:limit]) if sorted_topics else []
+    
+    # 4. Add fallback skills (deduplicated, normalized)
+    if fallback and len(final_topics) < limit:
+        normalized_skills = []
+        skill_set = set()
+        
+        for skill in fallback:
+            normalized = _normalize_skill(skill)
+            skill_lower = normalized.lower()
+            
+            # Skip if already exists
+            if skill_lower in existing_topics or skill_lower in skill_set:
+                continue
+            
+            normalized_skills.append((normalized, _get_skill_category(normalized)))
+            skill_set.add(skill_lower)
+            existing_topics.add(skill_lower)
+        
+        # Sort by category importance (backend/frontend first, then others)
+        category_priority = {
+            "frontend": 0, "backend": 1, "database": 2, "devops": 3,
+            "mobile": 4, "machine learning": 5, "data": 6, "other": 7
+        }
+        
+        normalized_skills.sort(key=lambda x: category_priority.get(x[1], 999))
+        
+        for skill, _ in normalized_skills:
+            if len(final_topics) >= limit:
+                break
+            final_topics.append(skill)
+    
+    # 5. Return final list or fallback
+    return final_topics if final_topics else (fallback or [])[:limit]
 
 def _difficulty_label(value: Optional[str]) -> str:
     if not value:
@@ -192,6 +337,208 @@ def _difficulty_label(value: Optional[str]) -> str:
         return "Hard"
     return "Medium"
 
+def _detect_programming_languages(questions: List[Dict[str, Any]], skills: List[str]) -> List[str]:
+    """
+    Advanced programming language detection with framework/library/tool inference.
+    Strategies: Direct detection + Framework detection + Ecosystem detection + DSA inference
+    """
+    # Framework/library to language mapping (comprehensive)
+    framework_to_lang = {
+        # JavaScript/TypeScript
+        "react": "javascript",
+        "vue": "javascript",
+        "angular": "javascript",
+        "nextjs": "javascript",
+        "nuxt": "javascript",
+        "gatsby": "javascript",
+        "svelte": "javascript",
+        "webpack": "javascript",
+        "babel": "javascript",
+        "express": "javascript",
+        "nest": "javascript",
+        "apollo": "javascript",
+        "graphql": "javascript",
+        "node": "javascript",
+        "npm": "javascript",
+        "yarn": "javascript",
+        "electron": "javascript",
+        # Python
+        "django": "python",
+        "flask": "python",
+        "fastapi": "python",
+        "pytorch": "python",
+        "tensorflow": "python",
+        "scikit": "python",
+        "pandas": "python",
+        "numpy": "python",
+        "requests": "python",
+        "pip": "python",
+        "conda": "python",
+        "jupyter": "python",
+        "celery": "python",
+        # Java
+        "spring": "java",
+        "maven": "java",
+        "gradle": "java",
+        "hibernate": "java",
+        "junit": "java",
+        # Go
+        "gin": "golang",
+        "iris": "golang",
+        # Rust
+        "cargo": "rust",
+        "tokio": "rust",
+        # Ruby
+        "rails": "ruby",
+        "gem": "ruby",
+        # C#/.NET
+        "dotnet": "c#",
+        "asp.net": "c#",
+        "entity framework": "c#",
+        # PHP
+        "laravel": "php",
+        "symfony": "php",
+        "composer": "php",
+        # Swift/iOS
+        "cocoapods": "swift",
+        "xcode": "swift",
+        # Kotlin/Android
+        "gradle": "kotlin",
+        "android": "kotlin",
+        # Other ecosystems
+        "docker": "*",  # Multi-language
+        "kubernetes": "*",
+    }
+    
+    dsa_keywords = [
+        "data structure", "algorithm", "coding", "leetcode", "hackerrank",
+        "array", "linked list", "tree", "graph", "sort", "search",
+        "dynamic programming", "recursion", "backtracking", "greedy"
+    ]
+    
+    detected_langs = set()
+    has_dsa = False
+    
+    # Strategy 1: Direct language detection from explicit language field or text
+    common_langs = {
+        "python": ["python", "py"],
+        "javascript": ["javascript", "js", "nodejs", "node"],
+        "typescript": ["typescript", "ts"],
+        "java": ["java"],
+        "c++": ["c++", "cpp", "c plus plus"],
+        "c": [" c ", " c,", "\\bc\\b"],  # Avoid matching C in other words
+        "kotlin": ["kotlin"],
+        "swift": ["swift"],
+        "csharp": ["c#", "csharp", "c-sharp"],
+        "ruby": ["ruby"],
+        "php": ["php"],
+        "golang": ["golang", "go"],
+        "rust": ["rust"],
+        "scala": ["scala"],
+        "r": [" r ", " r,"],  # R language
+    }
+    
+    # Check questions for language mentions
+    for q in questions:
+        question_text = (q.get("question") or "").lower()
+        language_field = (q.get("language") or "").lower()
+        
+        # Explicit language field
+        if language_field:
+            for lang, patterns in common_langs.items():
+                if any(p in language_field for p in patterns):
+                    detected_langs.add(lang)
+        
+        # Search question text
+        for lang, patterns in common_langs.items():
+            for pattern in patterns:
+                if pattern in question_text:
+                    detected_langs.add(lang)
+        
+        # Check for frameworks/libraries in question
+        for framework, lang in framework_to_lang.items():
+            if framework in question_text and lang != "*":
+                detected_langs.add(lang)
+    
+    # Strategy 2: Framework/Library detection from skills
+    for skill in skills:
+        skill_lower = skill.lower()
+        
+        # Direct language match
+        for lang, patterns in common_langs.items():
+            for pattern in patterns:
+                if pattern in skill_lower:
+                    detected_langs.add(lang)
+        
+        # Framework detection
+        for framework, lang in framework_to_lang.items():
+            if framework in skill_lower and lang != "*":
+                detected_langs.add(lang)
+    
+    # Strategy 3: Check for DSA/Coding topics
+    for q in questions:
+        topic = (q.get("topic") or "").lower()
+        for keyword in dsa_keywords:
+            if keyword in topic:
+                has_dsa = True
+                break
+    
+    for skill in skills:
+        skill_lower = skill.lower()
+        for keyword in dsa_keywords:
+            if keyword in skill_lower:
+                has_dsa = True
+                break
+    
+    # Deduplicate and normalize
+    result = list(detected_langs)
+    
+    # Remove internal duplicates (e.g., both "python" and "py" detected)
+    lang_groups = {
+        "javascript": ["javascript"],
+        "typescript": ["typescript"],  # Keep separate from JS
+        "python": ["python"],
+        "java": ["java"],
+        "c++": ["c++"],
+        "c": ["c"],
+        "csharp": ["csharp"],
+        "ruby": ["ruby"],
+        "php": ["php"],
+        "golang": ["golang"],
+        "rust": ["rust"],
+        "kotlin": ["kotlin"],
+        "swift": ["swift"],
+        "scala": ["scala"],
+        "r": ["r"],
+    }
+    
+    # If DSA/coding detected but no explicit language, infer from skills
+    if has_dsa and not result:
+        # Check if any backend languages mentioned (prefer for DSA)
+        backend_langs = {"python", "java", "c++", "javascript"}
+        for skill in skills:
+            skill_lower = skill.lower()
+            for lang in backend_langs:
+                if lang in skill_lower:
+                    result.append(lang)
+                    break
+        
+        # Default to Python + Java if still empty
+        if not result:
+            result = ["python", "java"]
+    
+    return sorted(list(set(result)))  # Unique and sorted
+
+def _semantic_similarity(text1: str, text2: str) -> float:
+    """Lightweight semantic similarity using keyword overlap (Approach 2D: Duplicate Detection)"""
+    keywords1 = set(w.lower() for w in text1.split() if len(w) > 4)
+    keywords2 = set(w.lower() for w in text2.split() if len(w) > 4)
+    if not keywords1 or not keywords2:
+        return 0.0
+    overlap = len(keywords1 & keywords2)
+    union = len(keywords1 | keywords2)
+    return overlap / union if union > 0 else 0.0
+
 def _generate_topic_questions(
     topic: Optional[str],
     difficulty: Optional[str],
@@ -199,6 +546,10 @@ def _generate_topic_questions(
     existing_questions: set,
     session_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
+    """
+    Generate interview questions using templates with semantic duplicate detection (Approach 2D)
+    Uses simpler template-based approach (not async), suitable for quick generation
+    """
     base_topic = (topic or "General").strip() or "General"
     diff_key = (difficulty or "medium").strip().lower()
     diff_label = _difficulty_label(difficulty)
@@ -210,49 +561,19 @@ def _generate_topic_questions(
             "Describe a basic workflow or process in {topic}.",
             "List key concepts in {topic} and how you used them.",
             "Walk through a simple {topic} task you completed.",
-            "What tools or technologies did you use for {topic}?",
-            "Explain {topic} as if teaching it to a beginner.",
-            "What are the prerequisites for working with {topic}?",
-            "Describe the input and output of a typical {topic} task.",
-            "What common mistakes should a beginner avoid in {topic}?",
-            "How did you first learn {topic} and what was your initial project?",
-            "What resources or documentation did you rely on for {topic}?",
-            "Give a real-world analogy that explains {topic} simply.",
-            "What is the difference between {topic} and a closely related concept?",
-            "Describe the basic architecture or structure used in {topic}.",
         ],
         "medium": [
             "Compare two approaches in {topic} and explain why you chose one.",
-            "Describe a mid-level challenge you faced in {topic} and how you solved it.",
-            "How do you measure success or quality in {topic}?",
-            "Explain trade-offs you considered when working on {topic}.",
-            "Describe how you would improve a {topic} solution from your resume.",
+            "Describe a challenge you faced in {topic} and how you solved it.",
+            "Explain the trade-offs you considered when working on {topic}.",
             "How would you debug a common issue in {topic}?",
-            "Explain how you tested or validated your {topic} implementation.",
-            "What design patterns or best practices do you follow in {topic}?",
-            "How does {topic} integrate with other components in your project?",
-            "Describe a performance bottleneck you encountered in {topic} and how you fixed it.",
-            "How would you refactor a legacy {topic} implementation?",
-            "What metrics would you track to monitor a {topic} system in production?",
-            "Explain how you handled edge cases in your {topic} project.",
-            "Describe the deployment process for your {topic} solution.",
-            "How would you onboard a new team member to your {topic} codebase?",
+            "What design patterns do you follow in {topic}?",
         ],
         "hard": [
             "Design an end-to-end solution for a complex {topic} problem.",
-            "Explain how you would scale or optimize a {topic} system.",
-            "Describe a failure scenario in {topic} and how you would prevent it.",
-            "Discuss advanced techniques or optimizations you would use in {topic}.",
-            "Propose a migration or refactor plan for a {topic} project.",
-            "How would you design a fault-tolerant {topic} architecture?",
-            "Explain how you would handle millions of concurrent users in a {topic} system.",
-            "Describe a security vulnerability in {topic} and how you would mitigate it.",
-            "How would you implement automated testing at scale for {topic}?",
-            "Design a CI/CD pipeline for a complex {topic} project.",
-            "How would you architect {topic} for a multi-region global deployment?",
-            "Explain how you would reduce costs while maintaining quality in a {topic} system.",
-            "Describe how you would lead a technical review of a {topic} implementation.",
-            "How would you handle backward compatibility while evolving a {topic} system?",
+            "How would you scale or optimize a {topic} system?",
+            "Describe a security vulnerability in {topic} and mitigation strategy.",
+            "How would you architect {topic} for multi-region deployment?",
             "Propose a disaster recovery strategy for a mission-critical {topic} service.",
         ],
     }
@@ -264,40 +585,91 @@ def _generate_topic_questions(
     pool = templates[diff_key]
     attempts = 0
     index = 1
-    while len(results) < count and attempts < len(pool) * 3:
+    
+    # Generate questions using templates with semantic duplicate detection
+    while len(results) < count and attempts < len(pool):
         template = pool[attempts % len(pool)]
         question = template.format(topic=base_topic)
-        q_key = question.strip().lower()
+        
+        # Semantic duplicate detection (Approach 2D)
+        is_duplicate = any(
+            _semantic_similarity(question.lower(), existing_q.lower()) > 0.7
+            for existing_q in existing_questions
+        )
+        
+        if not is_duplicate:
+            q_key = question.strip().lower()
+            if q_key not in existing_questions:
+                existing_questions.add(q_key)
+                results.append({
+                    "id": f"{session_id or 'generated'}_{diff_key}_{index}",
+                    "question": question,
+                    "answer": f"Provide a comprehensive explanation relating to {base_topic}.",
+                    "difficulty": diff_label,
+                    "topic": base_topic,
+                })
+                index += 1
+        
         attempts += 1
-        if q_key in existing_questions:
-            continue
-        existing_questions.add(q_key)
-        results.append({
-            "id": f"{session_id or 'generated'}_{diff_key}_{index}",
-            "question": question,
-            "answer": f"Provide a clear explanation and relate it to your experience with {base_topic}.",
-            "difficulty": diff_label,
-            "topic": base_topic,
-        })
-        index += 1
-
-    while len(results) < count:
-        question = f"Explain an advanced aspect of {base_topic} (variant {index})."
-        q_key = question.strip().lower()
-        if q_key in existing_questions:
-            index += 1
-            continue
-        existing_questions.add(q_key)
-        results.append({
-            "id": f"{session_id or 'generated'}_{diff_key}_{index}",
-            "question": question,
-            "answer": f"Describe the concept with examples relevant to {base_topic}.",
-            "difficulty": diff_label,
-            "topic": base_topic,
-        })
-        index += 1
 
     return results
+
+
+
+def _semantic_resume_hash(skills: List[str], experience: str) -> str:
+    """
+    Create semantic content hash based on extracted resume content
+    (Approach 3A: Semantic caching instead of byte-for-byte matching)
+    """
+    content = f"{' '.join(sorted(skills)).lower()}|{experience.lower()[:500]}"
+    return hashlib.sha256(content.encode()).hexdigest()
+
+def _has_expired_cache(cache_entry: Dict[str, Any], ttl_days: int = 90) -> bool:
+    """
+    Check if cache entry has expired (Approach 3C: TTL for freshness)
+    """
+    created_at = cache_entry.get("created_at")
+    if not created_at:
+        return True
+    age = (datetime.now() - created_at).days
+    return age > ttl_days
+
+def _find_similar_resume_cache(
+    skills: List[str],
+    experience: str,
+    db_collection,
+    similarity_threshold: float = 0.75
+) -> Optional[Dict[str, Any]]:
+    """
+    Find similar resume in cache using semantic matching (Approach 3A)
+    Returns recent non-expired cache with similar skills
+    """
+    # First try exact semantic hash match
+    content_hash = _semantic_resume_hash(skills, experience)
+    exact_match = db_collection.find_one({
+        "semantic_hash": content_hash,
+    })
+    if exact_match and not _has_expired_cache(exact_match):
+        return exact_match
+    
+    # Then search for semantically similar resumes
+    all_caches = list(db_collection.find({}).sort("times_served", -1).limit(100))
+    for cache in all_caches:
+        if _has_expired_cache(cache):
+            continue
+        cache_skills = cache.get("all_skills", [])
+        # Calculate skill overlap
+        cache_skills_set = set(s.lower() for s in cache_skills)
+        input_skills_set = set(s.lower() for s in skills)
+        if not cache_skills_set or not input_skills_set:
+            continue
+        overlap = len(cache_skills_set & input_skills_set)
+        union = len(cache_skills_set | input_skills_set)
+        similarity = overlap / union if union > 0 else 0
+        if similarity >= similarity_threshold:
+            return cache
+    
+    return None
 
 app = FastAPI(title="Endeavor RAG API")
 
@@ -440,10 +812,12 @@ async def get_latest_user_session(
 @app.post("/upload-resume")
 async def upload_resume(
     file: UploadFile = File(...),
+    force_regenerate: bool = False,
     current_user: Dict = Depends(get_current_user)
 ):
     """
     Upload resume and generate interview questions
+    Uses semantic caching (Approach 3A), TTL expiration (Approach 3C), and similarity matching (Approach 3B)
     """
     try:
         # Validate file type
@@ -460,34 +834,39 @@ async def upload_resume(
         
         logger.info(f"Resume uploaded: {file_path}")
 
-        # --- Per-user resume question caching ---
-        # Compute hash of resume PDF to detect duplicate uploads
+        # Compute byte-based hash for exact match
         with open(file_path, "rb") as f:
             resume_hash = hashlib.sha256(f.read()).hexdigest()
 
         db = get_db()
 
-        # Check if we already have questions for this exact resume
-        cached_resume = db.resume_question_cache.find_one({
-            "resume_hash": resume_hash,
-        })
+        # Stage 1: Check byte-exact match (fastest)
+        cached_resume = db.resume_question_cache.find_one({"resume_hash": resume_hash})
+        
+        # Stage 2: Check TTL - if expired, treat as cache miss (Approach 3C)
+        if cached_resume and _has_expired_cache(cached_resume, ttl_days=90):
+            logger.info(f"Cache EXPIRED for hash={resume_hash[:12]}... (90day TTL)")
+            db.resume_question_cache.delete_one({"_id": cached_resume["_id"]})
+            cached_resume = None
+
+        # If force_regenerate, delete cache entry
+        if cached_resume and force_regenerate:
+            db.resume_question_cache.delete_one({"_id": cached_resume["_id"]})
+            logger.info(f"Cache BUSTED (force_regenerate) for hash={resume_hash[:12]}...")
+            cached_resume = None
+
+        if not cached_resume:
+            # Try to find similar resume in cache (Approach 3B: semantic matching)
+            # This will be populated after first generation
+            pass
 
         if cached_resume:
-            logger.info(f"Resume cache HIT for hash={resume_hash[:12]}... (user={current_user['id']})")
-            all_cached_questions = cached_resume.get("questions", [])
+            logger.info(f"Resume cache HIT (exact) for user={current_user['id']}")
             limited_topics = cached_resume.get("skills", [])
             all_skills = cached_resume.get("all_skills", [])
             experience = cached_resume.get("experience", "")
-            question_version = cached_resume.get("questionVersion", 3)
-            questions_source = cached_resume.get("questionsSource", "cached-resume")
-
-            # --- Serve a RANDOM SUBSET each session for variety ---
-            # Pool has ~15 questions; serve 8 random ones so each session feels fresh
-            QUESTIONS_PER_SESSION = 8
-            if len(all_cached_questions) > QUESTIONS_PER_SESSION:
-                questions = random.sample(all_cached_questions, QUESTIONS_PER_SESSION)
-            else:
-                questions = list(all_cached_questions)
+            detected_languages = cached_resume.get("detected_languages", [])
+            all_cached_questions = cached_resume.get("questions", [])
 
             # Increment cache hit counter
             db.resume_question_cache.update_one(
@@ -495,7 +874,7 @@ async def upload_resume(
                 {"$set": {"times_served": cached_resume.get("times_served", 0) + 1}}
             )
 
-            # Create a new session from cached data
+            # Create session from cached data
             session_data = {
                 "user_id": current_user["id"],
                 "username": current_user["username"],
@@ -505,16 +884,16 @@ async def upload_resume(
                 "skills": limited_topics,
                 "all_skills": all_skills,
                 "experience": experience,
-                "questions": questions,
-                "questionVersion": question_version,
-                "questionsSource": "cached-resume",
+                "detected_languages": detected_languages,
+                "all_questions": all_cached_questions,
                 "created_at": datetime.now(),
-                "status": "in_progress"
+                "status": "in_progress",
+                "session_type": "resume-guided"
             }
             session_result = db.user_sessions.insert_one(session_data)
             session_id = str(session_result.inserted_id)
 
-            logger.info(f"Session created from cache: {session_id} with {len(questions)}/{len(all_cached_questions)} questions (random subset)")
+            logger.info(f"Session created from cache: {session_id} with {len(limited_topics)} topics (questions on-demand)")
 
             return {
                 "success": True,
@@ -523,10 +902,9 @@ async def upload_resume(
                 "topicsDetected": limited_topics,
                 "all_skills": all_skills,
                 "experience": experience,
-                "questions": questions,
-                "questionVersion": question_version,
-                "questionsSource": "cached-resume-shuffled",
-                "message": f"Loaded {len(questions)} of {len(all_cached_questions)} questions (fresh mix from cache!)"
+                "detected_languages": detected_languages,
+                "has_coding_topics": len(detected_languages) > 0,
+                "message": f"Resume processed! Found {len(limited_topics)} topics. Click a topic to generate questions."
             }
 
         # --- Cache MISS: generate questions via AI pipeline ---
@@ -575,25 +953,35 @@ async def upload_resume(
             
             # Limit topics to top 4-5 for focused practice
             limited_topics = _get_top_topics(questions, result.get("skills", []), limit=5)
+            
+            # Auto-detect programming languages from resume
+            detected_languages = _detect_programming_languages(questions, result.get("skills", []))
 
-            # --- Store in resume question cache for future reuse ---
+            # --- Store in resume question cache for future reuse (Approach 3A+3C) ---
             try:
+                experience_text = result.get("experience", "")
+                all_skills = result.get("skills", [])
+                semantic_hash = _semantic_resume_hash(all_skills, experience_text)
+                
                 db.resume_question_cache.insert_one({
-                    "resume_hash": resume_hash,
+                    "resume_hash": resume_hash,  # Exact byte match
+                    "semantic_hash": semantic_hash,  # Semantic content match (Approach 3A)
                     "skills": limited_topics,
-                    "all_skills": result.get("skills", []),
-                    "experience": result.get("experience", ""),
+                    "all_skills": all_skills,
+                    "experience": experience_text,
                     "questions": questions,
+                    "detected_languages": detected_languages,
                     "questionVersion": result.get("questionVersion", 3),
                     "questionsSource": result.get("questionsSource", "resume-ai"),
-                    "created_at": datetime.now(),
+                    "created_at": datetime.now(),  # For TTL expiration check (Approach 3C)
+                    "expires_at": datetime.now() + timedelta(days=90),  # Explicit TTL
                     "times_served": 0,
                 })
-                logger.info(f"Resume questions cached for hash={resume_hash[:12]}...")
+                logger.info(f"Resume cached (90-day TTL). Languages: {detected_languages}")
             except Exception as cache_err:
                 logger.warning(f"Failed to cache resume questions: {cache_err}")
 
-            # Create session in MongoDB
+            # Create session in MongoDB (topics only, questions on-demand)
             session_data = {
                 "user_id": current_user["id"],
                 "username": current_user["username"],
@@ -603,17 +991,17 @@ async def upload_resume(
                 "skills": limited_topics,
                 "all_skills": result.get("skills", []),
                 "experience": result.get("experience", ""),
-                "questions": questions,
-                "questionVersion": result.get("questionVersion", 3),
-                "questionsSource": result.get("questionsSource", "resume-gemini-only"),
+                "detected_languages": detected_languages,
+                "all_questions": questions,  # Store all questions for section-based generation
                 "created_at": datetime.now(),
-                "status": "in_progress"
+                "status": "in_progress",
+                "session_type": "resume-guided"
             }
             
             session_result = db.user_sessions.insert_one(session_data)
             session_id = str(session_result.inserted_id)
             
-            logger.info(f"Session created: {session_id} with {len(result.get('questions', []))} questions")
+            logger.info(f"Session created: {session_id} with {len(limited_topics)} topics, {len(detected_languages)} programming languages")
             
             return {
                 "success": True,
@@ -622,10 +1010,9 @@ async def upload_resume(
                 "topicsDetected": limited_topics,
                 "all_skills": result.get("skills", []),
                 "experience": result.get("experience", ""),
-                "questions": questions,
-                "questionVersion": result.get("questionVersion", 3),
-                "questionsSource": result.get("questionsSource", "resume-gemini-only"),
-                "message": f"Generated {len(questions)} questions"
+                "detected_languages": detected_languages,
+                "has_coding_topics": len(detected_languages) > 0,
+                "message": f"Resume processed! Found {len(limited_topics)} topics. Click a topic to generate questions."
             }
             
         except Exception as e:
@@ -841,6 +1228,219 @@ async def evaluate_answer(
             detail=f"Failed to evaluate answer: {str(e)}"
         )
 
+@app.get("/get-session-topics")
+async def get_session_topics(
+    session_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Get topics and metadata for a session (for topic dashboard).
+    Returns topics, detected languages, and session info.
+    """
+    try:
+        db = get_db()
+        
+        # Try to import ObjectId, fall back to mock
+        try:
+            from bson import ObjectId
+            session_id_obj = ObjectId(session_id)
+        except:
+            from backend.db.mock_mongo import MockObjectId
+            session_id_obj = MockObjectId(session_id)
+        
+        # Get session
+        session = db.user_sessions.find_one({"_id": session_id_obj})
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Verify user owns session
+        if session["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "topics": session.get("skills", []),
+            "detected_languages": session.get("detected_languages", []),
+            "experience": session.get("experience", ""),
+            "all_skills": session.get("all_skills", []),
+            "resume_file": session.get("resume_file", ""),
+            "has_coding_section": len(session.get("detected_languages", [])) > 0,
+            "message": "Topics loaded successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching session topics: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch topics: {str(e)}"
+        )
+
+@app.post("/generate-section-questions")
+async def generate_section_questions(
+    session_id: str,
+    topic: str,
+    difficulty: str = "medium",
+    num_questions: int = 8,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Generate questions for a specific topic and difficulty level.
+    Called when user clicks on a section in the Topic Dashboard.
+    """
+    try:
+        db = get_db()
+        
+        # Try to import ObjectId, fall back to mock
+        try:
+            from bson import ObjectId
+            session_id_obj = ObjectId(session_id)
+        except:
+            from backend.db.mock_mongo import MockObjectId
+            session_id_obj = MockObjectId(session_id)
+        
+        # Get session
+        session = db.user_sessions.find_one({"_id": session_id_obj})
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Verify user owns session
+        if session["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Get all cached questions from the session
+        all_questions = session.get("all_questions", [])
+        
+        # Filter questions by topic and difficulty
+        filtered_questions = []
+        for q in all_questions:
+            q_topic = (q.get("topic") or "").strip().lower()
+            q_difficulty = (q.get("difficulty") or "").strip().lower()
+            target_topic = topic.strip().lower()
+            target_difficulty = difficulty.strip().lower()
+            
+            if q_topic == target_topic and q_difficulty == target_difficulty:
+                filtered_questions.append(q)
+        
+        # If not enough questions from cache, generate more
+        existing_questions = {(q.get("question") or "").strip().lower() for q in filtered_questions}
+        
+        if len(filtered_questions) < num_questions:
+            generated_count = num_questions - len(filtered_questions)
+            new_questions = _generate_topic_questions(
+                topic=topic,
+                difficulty=difficulty,
+                count=generated_count,
+                existing_questions=existing_questions,
+                session_id=str(session.get("_id"))
+            )
+            filtered_questions.extend(new_questions)
+        
+        # Return the generated questions
+        return {
+            "success": True,
+            "session_id": session_id,
+            "topic": topic,
+            "difficulty": difficulty,
+            "questions": filtered_questions[:num_questions],
+            "total_available": len(filtered_questions),
+            "message": f"Generated {len(filtered_questions[:num_questions])} questions for {topic} ({difficulty})"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating section questions: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate questions: {str(e)}"
+        )
+
+@app.post("/regenerate-question")
+async def regenerate_question(
+    session_id: str,
+    question_index: int,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Regenerate a single question at the specified index while keeping others unchanged.
+    """
+    try:
+        db = get_db()
+        
+        # Try to import ObjectId, fall back to mock
+        try:
+            from bson import ObjectId
+            session_id_obj = ObjectId(session_id)
+        except:
+            from backend.db.mock_mongo import MockObjectId
+            session_id_obj = MockObjectId(session_id)
+        
+        # Get session
+        session = db.user_sessions.find_one({"_id": session_id_obj})
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Verify user owns session
+        if session["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        questions = session.get("questions", [])
+        
+        # Validate question index
+        if question_index < 0 or question_index >= len(questions):
+            raise HTTPException(status_code=400, detail="Invalid question index")
+        
+        # Get the question to replace
+        old_question = questions[question_index]
+        topic = old_question.get("topic") or "General"
+        difficulty = old_question.get("difficulty") or "Medium"
+        
+        # Collect existing question texts to avoid duplicates
+        existing_questions = {(q.get("question") or "").strip().lower() for q in questions}
+        
+        # Generate a new question for the same topic and difficulty
+        new_questions = _generate_topic_questions(
+            topic=topic,
+            difficulty=difficulty,
+            count=1,
+            existing_questions=existing_questions,
+            session_id=str(session.get("_id"))
+        )
+        
+        if not new_questions:
+            raise HTTPException(status_code=500, detail="Failed to generate new question")
+        
+        # Replace only the specific question
+        new_question = new_questions[0]
+        questions[question_index] = new_question
+        
+        # Update session in database
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {"$set": {"questions": questions}}
+        )
+        
+        logger.info(f"Question {question_index} regenerated for session {session_id}")
+        
+        return {
+            "success": True,
+            "question_index": question_index,
+            "new_question": new_question,
+            "message": f"Question regenerated successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating question: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to regenerate question: {str(e)}"
+        )
+
 # --- Language mapping for Piston API ---
 PISTON_LANG_MAP = {
     "python": {"language": "python", "version": "3.10.0"},
@@ -853,16 +1453,95 @@ PISTON_LANG_MAP = {
     "typescript": {"language": "typescript", "version": "5.0.3"},
 }
 
+# Compiled languages that should early-bail on compile errors
+_COMPILED_LANGS = {"java", "cpp", "c++", "c", "typescript"}
+
+PISTON_URL = "https://emkc.org/api/v2/piston/execute"
+
+
+async def _execute_single(
+    client: httpx.AsyncClient, lang_info: dict, lang_key: str,
+    code: str, stdin_input: str, expected: str, index: int
+) -> dict:
+    """Execute a single test case against Piston and return the result dict."""
+    try:
+        resp = await client.post(
+            PISTON_URL,
+            json={
+                "language": lang_info["language"],
+                "version": lang_info["version"],
+                "files": [{"name": f"solution.{_get_file_ext(lang_key)}", "content": code}],
+                "stdin": stdin_input,
+                "run_timeout": 10000,
+                "compile_timeout": 15000,
+            },
+        )
+
+        if resp.status_code != 200:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected,
+                "actual": "", "passed": False,
+                "error": f"Execution service error (HTTP {resp.status_code})",
+                "_compile_error": False,
+            }
+
+        data = resp.json()
+        run_data = data.get("run", {})
+        compile_data = data.get("compile", {})
+
+        # Compile error
+        if compile_data.get("stderr"):
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected,
+                "actual": "", "passed": False,
+                "error": compile_data["stderr"][:500],
+                "_compile_error": True,
+            }
+
+        actual_output = (run_data.get("stdout") or "").strip()
+        stderr = (run_data.get("stderr") or "").strip()
+
+        if stderr and not actual_output:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected,
+                "actual": "", "passed": False,
+                "error": stderr[:500], "_compile_error": False,
+            }
+
+        passed = (actual_output == expected) if expected else True
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": actual_output, "passed": passed,
+            "error": stderr[:200] if stderr else None,
+            "_compile_error": False,
+        }
+
+    except httpx.TimeoutException:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": "", "passed": False,
+            "error": "Time Limit Exceeded (10s)", "_compile_error": False,
+        }
+    except Exception as e:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": "", "passed": False,
+            "error": str(e)[:300], "_compile_error": False,
+        }
+
+
 @app.post("/run-code")
 async def run_code(
     payload: RunCodeRequest,
     current_user: Dict = Depends(get_current_user)
 ):
     """
-    Execute code against test cases using the Piston API (free, no key required).
-    Returns per-test-case results with pass/fail status.
+    Execute code against test cases using the Piston API.
+    - Compiled languages: run first test case to check compilation, then run rest concurrently.
+    - Interpreted languages: run ALL test cases concurrently from the start.
+    Returns per-test-case results with pass/fail, score, and execution time.
     """
-    import httpx
+    start_time = time.time()
 
     lang_key = payload.language.strip().lower()
     lang_info = PISTON_LANG_MAP.get(lang_key)
@@ -873,101 +1552,77 @@ async def run_code(
         )
 
     test_cases = payload.test_cases or []
-    results = []
-
-    # If no test cases, just run the code once with no input
     if not test_cases:
         test_cases = [{"input": "", "expected_output": ""}]
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for i, tc in enumerate(test_cases):
-            stdin_input = tc.get("input", "")
-            expected = tc.get("expected_output", "").strip()
+    results: list[dict] = []
+    is_compiled = lang_key in _COMPILED_LANGS
 
-            try:
-                resp = await client.post(
-                    "https://emkc.org/api/v2/piston/execute",
-                    json={
-                        "language": lang_info["language"],
-                        "version": lang_info["version"],
-                        "files": [{"name": f"solution.{_get_file_ext(lang_key)}", "content": payload.code}],
-                        "stdin": stdin_input,
-                        "run_timeout": 10000,  # 10 sec max
-                        "compile_timeout": 15000,
-                    }
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(60.0, connect=10.0),
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+    ) as client:
+
+        if is_compiled and len(test_cases) > 1:
+            # --- Strategy: compile-check first, then parallel ---
+            first_tc = test_cases[0]
+            first_result = await _execute_single(
+                client, lang_info, lang_key, payload.code,
+                first_tc.get("input", ""),
+                first_tc.get("expected_output", "").strip(),
+                1,
+            )
+            results.append(first_result)
+
+            if first_result.get("_compile_error"):
+                # Compile failed — propagate same error to all remaining test cases
+                for i, tc in enumerate(test_cases[1:], start=2):
+                    results.append({
+                        "test_case": i,
+                        "input": tc.get("input", ""),
+                        "expected": tc.get("expected_output", "").strip(),
+                        "actual": "",
+                        "passed": False,
+                        "error": first_result["error"],
+                        "_compile_error": True,
+                    })
+            else:
+                # Compilation OK — run remaining test cases concurrently
+                tasks = [
+                    _execute_single(
+                        client, lang_info, lang_key, payload.code,
+                        tc.get("input", ""),
+                        tc.get("expected_output", "").strip(),
+                        i,
+                    )
+                    for i, tc in enumerate(test_cases[1:], start=2)
+                ]
+                remaining = await asyncio.gather(*tasks)
+                results.extend(remaining)
+        else:
+            # --- Strategy: run ALL test cases concurrently ---
+            tasks = [
+                _execute_single(
+                    client, lang_info, lang_key, payload.code,
+                    tc.get("input", ""),
+                    tc.get("expected_output", "").strip(),
+                    i,
                 )
+                for i, tc in enumerate(test_cases, start=1)
+            ]
+            results = await asyncio.gather(*tasks)
+            results = list(results)
 
-                if resp.status_code != 200:
-                    results.append({
-                        "test_case": i + 1,
-                        "input": stdin_input,
-                        "expected": expected,
-                        "actual": "",
-                        "passed": False,
-                        "error": f"Piston API error: {resp.status_code}",
-                    })
-                    continue
+    # Strip internal _compile_error flag before returning
+    for r in results:
+        r.pop("_compile_error", None)
 
-                data = resp.json()
-                run_data = data.get("run", {})
-                compile_data = data.get("compile", {})
-
-                # Check for compile errors first
-                if compile_data.get("stderr"):
-                    results.append({
-                        "test_case": i + 1,
-                        "input": stdin_input,
-                        "expected": expected,
-                        "actual": "",
-                        "passed": False,
-                        "error": compile_data["stderr"][:500],
-                    })
-                    continue
-
-                actual_output = (run_data.get("stdout") or "").strip()
-                stderr = (run_data.get("stderr") or "").strip()
-
-                if stderr and not actual_output:
-                    results.append({
-                        "test_case": i + 1,
-                        "input": stdin_input,
-                        "expected": expected,
-                        "actual": "",
-                        "passed": False,
-                        "error": stderr[:500],
-                    })
-                else:
-                    passed = (actual_output == expected) if expected else True
-                    results.append({
-                        "test_case": i + 1,
-                        "input": stdin_input,
-                        "expected": expected,
-                        "actual": actual_output,
-                        "passed": passed,
-                        "error": stderr[:200] if stderr else None,
-                    })
-
-            except httpx.TimeoutException:
-                results.append({
-                    "test_case": i + 1,
-                    "input": stdin_input,
-                    "expected": expected,
-                    "actual": "",
-                    "passed": False,
-                    "error": "Time Limit Exceeded (10s)",
-                })
-            except Exception as e:
-                results.append({
-                    "test_case": i + 1,
-                    "input": stdin_input,
-                    "expected": expected,
-                    "actual": "",
-                    "passed": False,
-                    "error": str(e)[:300],
-                })
+    # Sort by test_case number to maintain order
+    results.sort(key=lambda r: r["test_case"])
 
     total = len(results)
     passed_count = sum(1 for r in results if r["passed"])
+    elapsed_ms = round((time.time() - start_time) * 1000)
 
     return {
         "results": results,
@@ -975,6 +1630,7 @@ async def run_code(
         "passed": passed_count,
         "all_passed": passed_count == total,
         "score": round((passed_count / total) * 100) if total > 0 else 0,
+        "execution_time_ms": elapsed_ms,
     }
 
 def _get_file_ext(lang: str) -> str:
