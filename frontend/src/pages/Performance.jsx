@@ -86,7 +86,7 @@ function Performance() {
         >
           <div>
             <h1 style={{ color: "#0073e6", fontSize: "28px", fontWeight: "800", margin: 0 }}>
-              📊 Performance Analytics
+              Ã°Å¸â€œÅ  Performance Analytics
             </h1>
             <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
               {user?.email}
@@ -108,7 +108,7 @@ function Performance() {
               onMouseEnter={(e) => (e.target.style.opacity = "0.9")}
               onMouseLeave={(e) => (e.target.style.opacity = "1")}
             >
-              ← Back to Dashboard
+              Ã¢â€ Â Back to Dashboard
             </button>
             <button
               onClick={() => {
@@ -143,8 +143,8 @@ function Performance() {
             marginBottom: "24px",
           }}
         >
-          <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
-            📈 Overall Statistics
+          <h2 style={{ color: "#0073e6", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
+            Ã°Å¸â€œË† Overall Statistics
           </h2>
           <div
             style={{
@@ -185,8 +185,8 @@ function Performance() {
             marginBottom: "24px",
           }}
         >
-          <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
-            📋 All Test Results
+          <h2 style={{ color: "#0073e6", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
+            Ã°Å¸â€œâ€¹ All Test Results
           </h2>
           {loading ? (
             <p style={{ color: "#666", textAlign: "center" }}>Loading performance data...</p>
@@ -230,13 +230,13 @@ function Performance() {
                       onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
                       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
-                      <td style={{ padding: "12px", color: "#1e293b", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
                         {record.date}
                       </td>
-                      <td style={{ padding: "12px", color: "#1e293b", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
                         {record.topic}
                       </td>
-                      <td style={{ padding: "12px", color: "#1e293b", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
                         <span style={{
                           padding: "4px 8px",
                           borderRadius: "4px",
@@ -261,11 +261,11 @@ function Performance() {
                           {record.score}%
                         </span>
                       </td>
-                      <td style={{ padding: "12px", color: "#1e293b", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
                         {record.timeSpent}
                       </td>
                       <td style={{ padding: "12px", fontSize: "13px" }}>
-                        {record.score >= 80 ? "✅ Excellent" : record.score >= 70 ? "⚠️ Good" : "❌ Needs Work"}
+                        {record.score >= 80 ? "Ã¢Å“â€¦ Excellent" : record.score >= 70 ? "Ã¢Å¡Â Ã¯Â¸Â Good" : "Ã¢ÂÅ’ Needs Work"}
                       </td>
                     </tr>
                   ))}
@@ -284,8 +284,8 @@ function Performance() {
             boxShadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
           }}
         >
-          <h2 style={{ color: "#1e293b", marginBottom: "12px", fontSize: "20px", fontWeight: "700" }}>
-            📊 Score Trend
+          <h2 style={{ color: "#0073e6", marginBottom: "12px", fontSize: "20px", fontWeight: "700" }}>
+            Ã°Å¸â€œÅ  Score Trend
           </h2>
           {performanceData.length === 0 ? (
             <div
@@ -312,7 +312,7 @@ function Performance() {
               const points = sorted.map((r, idx) => {
                 const x = padding.left + idx * step;
                 const y = padding.top + (1 - Math.min(Math.max(r.score, 0), 100) / 100) * usableH;
-                return { x, y, label: `${r.date} • ${r.topic} • ${r.score}%` };
+                return { x, y, label: `${r.date} Ã¢â‚¬Â¢ ${r.topic} Ã¢â‚¬Â¢ ${r.score}%` };
               });
 
               const pathD = points

@@ -90,14 +90,14 @@ function SignIn() {
         password,
       });
 
-      // ✅ Store JWT
+      // Ã¢Å“â€¦ Store JWT
       localStorage.setItem("mockmate_token", res.data.access_token);
       localStorage.setItem("mockmate_user", JSON.stringify({
         email: res.data.email || email,
         full_name: res.data.full_name || ""
       }));
 
-      // ✅ Redirect
+      // Ã¢Å“â€¦ Redirect
       navigate("/dashboard");
     } catch (err) {
       let errorMessage = "Sign in failed";
@@ -142,7 +142,7 @@ function SignIn() {
           marginBottom: '28px'
         }}
       >
-        <span className="signin-logo" style={{ fontSize: '34px' }}>🎯</span>
+        <span className="signin-logo" style={{ fontSize: '34px' }}>Ã°Å¸Å½Â¯</span>
         <span className="signin-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
       </div>
 
@@ -157,7 +157,7 @@ function SignIn() {
           boxShadow: '0 4px 24px rgba(0, 0, 0, 0.10)'
         }}
       >
-        <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Welcome back</h1>
+        <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#0073e6' }}>Welcome back</h1>
         <p className="signin-subtitle" style={{ fontSize: '14px', textAlign: 'center', color: '#64748b', marginBottom: '28px' }}>Sign in to continue your preparation</p>
 
         <form className="signin-form" onSubmit={handleSignin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
