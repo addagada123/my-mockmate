@@ -74,7 +74,7 @@ function Jobs() {
         >
           <div>
             <h1 style={{ color: "#0073e6", fontSize: "28px", fontWeight: "800", margin: 0 }}>
-              💼 Recommended Jobs
+              Ã°Å¸â€™Â¼ Recommended Jobs
             </h1>
             <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
               {user?.email}
@@ -96,7 +96,7 @@ function Jobs() {
               onMouseEnter={(e) => (e.target.style.opacity = "0.9")}
               onMouseLeave={(e) => (e.target.style.opacity = "1")}
             >
-              ← Back to Dashboard
+              Ã¢â€ Â Back to Dashboard
             </button>
             <button
               onClick={() => {
@@ -132,8 +132,8 @@ function Jobs() {
               boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
             }}
           >
-            <h2 style={{ color: "#1e293b", marginTop: 0, marginBottom: "12px", fontSize: "18px" }}>
-              🎯 Your Skills
+            <h2 style={{ color: "#0073e6", marginTop: 0, marginBottom: "12px", fontSize: "18px" }}>
+              Ã°Å¸Å½Â¯ Your Skills
             </h2>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
               {userSkills.map((skill, idx) => (
@@ -166,7 +166,7 @@ function Jobs() {
               boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
             }}
           >
-            <p style={{ color: "#666", fontSize: "16px" }}>⏳ Loading job recommendations...</p>
+            <p style={{ color: "#666", fontSize: "16px" }}>Ã¢ÂÂ³ Loading job recommendations...</p>
           </div>
         ) : jobs.length === 0 ? (
           <div
@@ -213,7 +213,7 @@ function Jobs() {
                 {/* Job Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
                   <div>
-                    <h3 style={{ margin: "0 0 4px 0", color: "#1e293b", fontSize: "18px", fontWeight: "700" }}>
+                    <h3 style={{ margin: "0 0 4px 0", color: "#0073e6", fontSize: "18px", fontWeight: "700" }}>
                       {job.title}
                     </h3>
                     <p style={{ margin: 0, color: "#0073e6", fontWeight: "600", fontSize: "14px" }}>
@@ -231,7 +231,7 @@ function Jobs() {
                       textAlign: "center",
                     }}
                   >
-                    {job.match_score === 3 && "Perfect Match ✓"}
+                    {job.match_score === 3 && "Perfect Match Ã¢Å“â€œ"}
                     {job.match_score === 2 && "Good Match"}
                     {job.match_score === 1 && "Partial Match"}
                   </div>
@@ -241,15 +241,15 @@ function Jobs() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "12px" }}>
                   <div>
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                      📍 Location
+                      Ã°Å¸â€œÂ Location
                     </p>
-                    <p style={{ margin: 0, color: "#1e293b", fontWeight: "500" }}>
+                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "500" }}>
                       {job.location}
                     </p>
                   </div>
                   <div>
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                      💰 CTC
+                      Ã°Å¸â€™Â° CTC
                     </p>
                     <p style={{ margin: 0, color: "#10b981", fontWeight: "700", fontSize: "14px" }}>
                       {formatCTC(job.ctc_min)} - {formatCTC(job.ctc_max)}
@@ -257,17 +257,17 @@ function Jobs() {
                   </div>
                   <div>
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                      📅 Experience
+                      Ã°Å¸â€œâ€¦ Experience
                     </p>
-                    <p style={{ margin: 0, color: "#1e293b", fontWeight: "500" }}>
+                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "500" }}>
                       {job.experience}
                     </p>
                   </div>
                   <div>
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                      🏢 Type
+                      Ã°Å¸ÂÂ¢ Type
                     </p>
-                    <p style={{ margin: 0, color: "#1e293b", fontWeight: "500" }}>
+                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "500" }}>
                       {job.job_type}
                     </p>
                   </div>
@@ -277,7 +277,7 @@ function Jobs() {
                 {job.matching_skills && job.matching_skills.length > 0 && (
                   <div style={{ marginBottom: "12px" }}>
                     <p style={{ margin: "0 0 6px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                      ✓ Matching Skills
+                      Ã¢Å“â€œ Matching Skills
                     </p>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                       {job.matching_skills.map((skill, idx) => (
@@ -310,16 +310,16 @@ function Jobs() {
                   >
                     <div style={{ marginBottom: "12px" }}>
                       <p style={{ margin: "0 0 6px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                        📋 Job Description
+                        Ã°Å¸â€œâ€¹ Job Description
                       </p>
-                      <p style={{ margin: 0, color: "#1e293b", lineHeight: "1.6", fontSize: "14px" }}>
+                      <p style={{ margin: 0, color: "#0073e6", lineHeight: "1.6", fontSize: "14px" }}>
                         {job.description}
                       </p>
                     </div>
 
                     <div>
                       <p style={{ margin: "0 0 6px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
-                        🎯 Required Skills
+                        Ã°Å¸Å½Â¯ Required Skills
                       </p>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                         {job.required_skills.map((skill, idx) => (

@@ -141,7 +141,7 @@ function SignUp() {
           marginBottom: '28px'
         }}
       >
-        <span className="signup-logo" style={{ fontSize: '34px' }}>🎯</span>
+        <span className="signup-logo" style={{ fontSize: '34px' }}>Ã°Å¸Å½Â¯</span>
         <span className="signup-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
       </div>
 
@@ -156,7 +156,7 @@ function SignUp() {
           boxShadow: '0 4px 24px rgba(0, 0, 0, 0.10)'
         }}
       >
-        <h1 className="signup-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Create your Mockmate account</h1>
+        <h1 className="signup-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#0073e6' }}>Create your Mockmate account</h1>
         <p className="signup-subtitle" style={{ fontSize: '14px', textAlign: 'center', color: '#64748b', marginBottom: '28px' }}>
           Practice interviews smarter with AI-driven feedback
         </p>
