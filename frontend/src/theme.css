@@ -1,0 +1,308 @@
+/* ═══════════════════════════════════════════════════════════════
+   MOCKMATE DESIGN SYSTEM — "Velvet Indigo" Theme
+   A modern, premium SaaS design with rich gradients, 
+   glass-morphism, and sophisticated color palette.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Google Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── CSS Custom Properties ── */
+:root {
+  /* Primary — Indigo/Violet */
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-dark: #4338ca;
+  --primary-light: #818cf8;
+  --primary-50: #eef2ff;
+  --primary-100: #e0e7ff;
+  --primary-200: #c7d2fe;
+  --primary-900: #312e81;
+
+  /* Accent — Amber/Orange */
+  --accent: #f59e0b;
+  --accent-hover: #d97706;
+  --accent-light: #fef3c7;
+
+  /* Teal / Cyan */
+  --teal: #14b8a6;
+  --teal-light: #ccfbf1;
+  --cyan: #06b6d4;
+
+  /* Rose */
+  --rose: #f43f5e;
+  --rose-light: #fff1f2;
+
+  /* Status Colors */
+  --success: #10b981;
+  --success-light: #d1fae5;
+  --success-dark: #065f46;
+  --warning: #f59e0b;
+  --warning-light: #fef3c7;
+  --warning-dark: #92400e;
+  --error: #ef4444;
+  --error-light: #fee2e2;
+  --error-dark: #991b1b;
+
+  /* Surfaces */
+  --bg-page: #f5f3ff;
+  --bg-subtle: #faf5ff;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --sidebar-bg: #0f172a;
+  --sidebar-hover: #1e293b;
+  --sidebar-text: #cbd5e1;
+  --sidebar-active: #818cf8;
+
+  /* Text */
+  --text-primary: #1e1b4b;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-on-primary: #ffffff;
+
+  /* Borders */
+  --border: #e0e7ff;
+  --border-muted: #f1f5f9;
+  --border-strong: #c7d2fe;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(99, 102, 241, 0.05);
+  --shadow-md: 0 4px 16px rgba(99, 102, 241, 0.08);
+  --shadow-lg: 0 8px 32px rgba(99, 102, 241, 0.12);
+  --shadow-xl: 0 20px 60px rgba(99, 102, 241, 0.15);
+  --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.25);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --gradient-hero: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-warm: linear-gradient(135deg, #f97316, #f59e0b);
+  --gradient-fresh: linear-gradient(135deg, #06b6d4, #14b8a6);
+  --gradient-rose: linear-gradient(135deg, #f43f5e, #ec4899);
+  --gradient-dark: linear-gradient(135deg, #0f172a, #1e293b);
+  --gradient-mesh: 
+    radial-gradient(at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(139, 92, 246, 0.12) 0%, transparent 50%),
+    radial-gradient(at 40% 60%, rgba(6, 182, 212, 0.08) 0%, transparent 50%);
+  --gradient-page: linear-gradient(180deg, #f5f3ff 0%, #ede9fe 30%, #f5f3ff 100%);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+
+/* ── Base Styles ── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  line-height: 1.6;
+}
+
+::selection {
+  background: var(--primary-200);
+  color: var(--primary-900);
+}
+
+/* ── Scrollbar Styling ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--border-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary-200);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-light);
+}
+
+
+/* ── Global Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes borderGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(99, 102, 241, 0.3); }
+  50%      { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+}
+
+
+/* ── Focus Styles ── */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--primary-hover);
+}
+
+
+/* ── Utility: Glassmorphism ── */
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+
+/* ── Utility: Gradient Text ── */
+.gradient-text {
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+
+/* ── Auth Pages Background ── */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: 
+    radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 60% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
+    linear-gradient(135deg, #f5f3ff 0%, #ede9fe 50%, #f0f9ff 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-page::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(circle at 30% 30%, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 70% 70%, rgba(236, 72, 153, 0.04) 0%, transparent 40%);
+  animation: gradientShift 15s ease-in-out infinite;
+  background-size: 200% 200%;
+  pointer-events: none;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 44px;
+  border-radius: var(--radius-xl);
+  box-shadow: 
+    0 4px 6px rgba(99, 102, 241, 0.04),
+    0 10px 40px rgba(99, 102, 241, 0.08),
+    0 0 0 1px rgba(99, 102, 241, 0.06);
+  position: relative;
+  z-index: 1;
+  animation: scaleIn 0.4s ease-out;
+}
+
+.auth-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gradient-primary);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
