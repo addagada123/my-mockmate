@@ -7,6 +7,8 @@ from typing import List, Optional, Dict, Any
 import os
 from datetime import datetime, timedelta
 import shutil
+import json as json_mod
+import openai  # type: ignore
 from endeavor_rag_service import (
     interview_rag_pipeline,
     collection
@@ -853,9 +855,6 @@ async def generate_comm_test(
     Grammar & Vocabulary, Situational Communication, Spoken English prompts.
     """
     try:
-        import openai
-        import json as json_mod
-
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
@@ -1093,8 +1092,6 @@ async def submit_comm_test(
 
         # Grade open-ended with GPT
         if open_ended_to_grade:
-            import openai
-            import json as json_mod
             openai_key = os.getenv("OPENAI_API_KEY")
             if openai_key:
                 client = openai.OpenAI(api_key=openai_key)
@@ -1269,9 +1266,6 @@ async def communication_feedback(
         )
 
         # Build GPT prompt
-        import openai
-        import json as json_mod
-
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
@@ -1455,7 +1449,6 @@ async def recommend_jobs(
                 logger.warning(f"Could not read resume PDF for university extraction: {pdf_err}")
 
         # --- Call GPT to generate real-time India-based job recommendations ---
-        import openai
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
@@ -1525,7 +1518,6 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
         raw_text = gpt_response.choices[0].message.content or ""
 
         # Parse JSON from GPT response
-        import json as json_mod
         parsed = None
         try:
             parsed = json_mod.loads(raw_text)
