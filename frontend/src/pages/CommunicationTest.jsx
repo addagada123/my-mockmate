@@ -1,8 +1,110 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+
+/* ── Animated loading screen ── */
+const loadingMessages = [
+  { icon: "🧠", text: "Warming up the AI engine..." },
+  { icon: "📝", text: "Crafting reading comprehension passage..." },
+  { icon: "📧", text: "Building email writing scenarios..." },
+  { icon: "🔤", text: "Preparing grammar & vocabulary questions..." },
+  { icon: "💼", text: "Designing situational communication challenges..." },
+  { icon: "🎤", text: "Setting up spoken English prompts..." },
+  { icon: "✨", text: "Polishing your personalised test..." },
+  { icon: "🚀", text: "Almost ready — hang tight!" },
+];
+
+const LoadingScreen = () => {
+  const [msgIdx, setMsgIdx] = useState(0);
+  const [dots, setDots] = useState(0);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const msgTimer = setInterval(() => setMsgIdx((p) => (p + 1) % loadingMessages.length), 2400);
+    const dotTimer = setInterval(() => setDots((p) => (p + 1) % 4), 500);
+    const progTimer = setInterval(() => setProgress((p) => Math.min(p + Math.random() * 6, 92)), 800);
+    return () => { clearInterval(msgTimer); clearInterval(dotTimer); clearInterval(progTimer); };
+  }, []);
+
+  const msg = loadingMessages[msgIdx];
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: "linear-gradient(135deg, #f0f4ff 0%, #e8f4f8 50%, #f8fafc 100%)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
+    }}>
+      <div style={{
+        backgroundColor: "white", borderRadius: "20px", padding: "50px 40px", maxWidth: "460px",
+        width: "100%", boxShadow: "0 20px 60px rgba(0,115,230,0.12)", textAlign: "center",
+        position: "relative", overflow: "hidden",
+      }}>
+        {/* Decorative top line */}
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, height: "4px",
+          background: "linear-gradient(90deg, #0073e6, #38bdf8, #0073e6)",
+          backgroundSize: "200% 100%",
+          animation: "shimmer 2s ease-in-out infinite",
+        }} />
+
+        {/* Bouncing icon */}
+        <div style={{
+          fontSize: "56px", marginBottom: "20px",
+          animation: "bounce 1.2s ease-in-out infinite",
+          display: "inline-block",
+        }}>
+          {msg.icon}
+        </div>
+
+        <h2 style={{
+          color: "#1e293b", fontSize: "22px", fontWeight: "700", margin: "0 0 8px 0",
+        }}>
+          Generating Your Assessment
+        </h2>
+
+        <p style={{
+          color: "#0073e6", fontSize: "15px", fontWeight: "600", margin: "0 0 6px 0",
+          minHeight: "22px", transition: "opacity 0.3s ease",
+        }}>
+          {msg.text}
+        </p>
+
+        <p style={{ color: "#94a3b8", fontSize: "13px", margin: "0 0 28px 0" }}>
+          AI is crafting 15 corporate communication questions{".".repeat(dots)}
+        </p>
+
+        {/* Progress bar */}
+        <div style={{
+          height: "8px", backgroundColor: "#e0f0ff", borderRadius: "4px",
+          overflow: "hidden", marginBottom: "16px",
+        }}>
+          <div style={{
+            height: "100%", borderRadius: "4px", transition: "width 0.8s ease",
+            width: `${progress}%`,
+            background: "linear-gradient(90deg, #0073e6, #38bdf8)",
+          }} />
+        </div>
+
+        <p style={{ color: "#94a3b8", fontSize: "12px", margin: 0 }}>
+          {Math.round(progress)}% — This typically takes 10–15 seconds
+        </p>
+
+        {/* CSS animations via style tag */}
+        <style>{`
+          @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-12px); }
+          }
+          @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+          }
+        `}</style>
+      </div>
+    </div>
+  );
+};
 
 const CommunicationTest = () => {
   const navigate = useNavigate();
@@ -38,42 +140,52 @@ const CommunicationTest = () => {
   const keepListeningRef = useRef(false);
   const pendingStopRef = useRef(false);
   const silenceTimeoutRef = useRef(null);
+  const sectionQIdxRef = useRef({ s: 0, q: 0 });
 
-  // Init speech recognition
+  // Keep ref in sync so speech recognition callback always has latest indices
+  useEffect(() => { sectionQIdxRef.current = { s: currentSectionIdx, q: currentQIdx }; }, [currentSectionIdx, currentQIdx]);
+
+  // Init speech recognition ONCE
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SR) {
-      recognitionRef.current = new SR();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.language = "en-US";
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.language = "en-US";
 
-      recognitionRef.current.onstart = () => setIsListening(true);
-      recognitionRef.current.onend = () => {
+      rec.onstart = () => setIsListening(true);
+      rec.onend = () => {
         if (pendingStopRef.current) { pendingStopRef.current = false; setIsListening(false); return; }
         if (keepListeningRef.current) {
-          try { recognitionRef.current.start(); } catch (e) { console.error(e); }
+          try { rec.start(); } catch (e) { console.error(e); }
         } else { setIsListening(false); }
       };
-      recognitionRef.current.onresult = (event) => {
+      rec.onresult = (event) => {
         let finalT = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           if (event.results[i].isFinal) finalT += event.results[i][0].transcript + " ";
         }
         if (finalT) {
-          const key = getQuestionKey(currentSectionIdx, currentQIdx);
+          const { s, q } = sectionQIdxRef.current;
+          const key = `${s}-${q}`;
           setAnswers((prev) => ({ ...prev, [key]: (prev[key] || "") + finalT }));
         }
         if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
         silenceTimeoutRef.current = setTimeout(() => {
           if (!keepListeningRef.current) return;
           keepListeningRef.current = false; pendingStopRef.current = true;
-          try { recognitionRef.current.stop(); } catch (e) {}
+          try { rec.stop(); } catch (e) {}
         }, 3000);
       };
-      recognitionRef.current.onerror = (e) => console.error("SR error:", e.error);
+      rec.onerror = (e) => console.error("SR error:", e.error);
+      recognitionRef.current = rec;
     }
-  }, [currentSectionIdx, currentQIdx]);
+    return () => {
+      if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch (e) {} }
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+    };
+  }, []);
 
   // Timer
   useEffect(() => {
@@ -132,13 +244,16 @@ const CommunicationTest = () => {
     return `${m}:${sec < 10 ? "0" : ""}${sec}`;
   };
 
-  // Flatten questions for global navigation
-  const allQuestions = [];
-  sections.forEach((sec, sIdx) => {
-    (sec.questions || []).forEach((q, qIdx) => {
-      allQuestions.push({ ...q, sectionIdx: sIdx, questionIdx: qIdx, sectionName: sec.name, sectionType: sec.type });
+  // Flatten questions for global navigation (memoized)
+  const allQuestions = useMemo(() => {
+    const result = [];
+    sections.forEach((sec, sIdx) => {
+      (sec.questions || []).forEach((q, qIdx) => {
+        result.push({ ...q, sectionIdx: sIdx, questionIdx: qIdx, sectionName: sec.name, sectionType: sec.type });
+      });
     });
-  });
+    return result;
+  }, [sections]);
   const globalIdx = allQuestions.findIndex((q) => q.sectionIdx === currentSectionIdx && q.questionIdx === currentQIdx);
   const currentQ = allQuestions[globalIdx] || null;
 
@@ -152,22 +267,28 @@ const CommunicationTest = () => {
       const res = await axios.post(
         `${API_BASE}/generate-comm-test`,
         { difficulty: level },
-        { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+        { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, timeout: 60000 }
       );
-      if (res.data.success) {
+      if (res.data.success && res.data.sections?.length) {
         setSessionId(res.data.session_id);
         setPassage(res.data.passage || "");
-        setSections(res.data.sections || []);
+        setSections(res.data.sections);
         setTotalQuestions(res.data.total_questions || 15);
-        setTimeLeft((res.data.total_questions || 15) * 90); // 1.5 min per question
-        await requestFullscreen();
+        setTimeLeft((res.data.total_questions || 15) * 90);
         setTestStarted(true);
+        // Fullscreen after state is committed — non-blocking
+        requestFullscreen();
       } else {
-        setError("Failed to generate test. Try again.");
+        setError("Failed to generate test — no questions returned. Please try again.");
+        setDifficulty(null);
       }
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.detail || "Failed to generate communication test");
+      const msg = err.code === "ECONNABORTED"
+        ? "Request timed out — the server may be starting up. Please try again in 30 seconds."
+        : err.response?.data?.detail || "Failed to generate communication test. Please try again.";
+      setError(msg);
+      setDifficulty(null);
     } finally {
       setLoading(false);
     }
@@ -296,15 +417,7 @@ const CommunicationTest = () => {
 
   // Loading
   if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "60px 40px", textAlign: "center", boxShadow: "0 4px 24px rgba(0,0,0,0.10)", maxWidth: "440px" }}>
-          <p style={{ fontSize: "40px", margin: "0 0 16px 0" }}>{"\ud83e\udde0"}</p>
-          <p style={{ color: "#1e293b", fontSize: "18px", fontWeight: "600", margin: "0 0 8px 0" }}>Generating your test...</p>
-          <p style={{ color: "#64748b", fontSize: "14px", margin: 0 }}>AI is crafting 15 corporate communication questions</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   // Results
@@ -375,13 +488,9 @@ const CommunicationTest = () => {
     );
   }
 
-  // Waiting for questions
+  // Waiting for questions (edge case — shouldn't normally show)
   if (!testStarted || allQuestions.length === 0) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ color: "#334155", fontSize: "18px" }}>{"\u23f3"} Loading questions...</p>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   // ====== MAIN TEST UI ======
