@@ -547,7 +547,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          background: "#f5f7fa",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -560,12 +560,7 @@ const Test = () => {
             borderRadius: "12px",
             padding: "40px",
             maxWidth: "500px",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-            textAlign: "center",
-          }}
-        >
-          <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b" }}>
-            📚 Select Difficulty
+            boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
           </h1>
           <p style={{ color: "#666", marginBottom: "32px", lineHeight: "1.6" }}>
             Choose your difficulty level for the <strong>{decodeURIComponent(topic)}</strong> test.
@@ -582,7 +577,7 @@ const Test = () => {
                 }}
                 style={{
                   padding: "16px",
-                  backgroundColor: "#667eea",
+                  backgroundColor: "#0073e6",
                   color: "white",
                   border: "none",
                   borderRadius: "8px",
@@ -591,8 +586,8 @@ const Test = () => {
                   fontWeight: "600",
                   transition: "all 0.3s ease",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#764ba2")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#667eea")}
+                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
               >
                 {level === "Easy" && "🟢"}
                 {level === "Medium" && "🟡"}
@@ -607,8 +602,8 @@ const Test = () => {
               marginTop: "20px",
               padding: "12px 24px",
               backgroundColor: "transparent",
-              color: "#667eea",
-              border: "2px solid #667eea",
+              color: "#0073e6",
+              border: "2px solid #0073e6",
               borderRadius: "8px",
               cursor: "pointer",
               fontSize: "14px",
@@ -616,12 +611,12 @@ const Test = () => {
               transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => {
-              e.target.backgroundColor = "#667eea";
+              e.target.backgroundColor = "#0073e6";
               e.target.color = "white";
             }}
             onMouseLeave={(e) => {
               e.target.backgroundColor = "transparent";
-              e.target.color = "#667eea";
+              e.target.color = "#0073e6";
             }}
           >
             ← Back to Dashboard
@@ -638,7 +633,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          background: "#f5f7fa",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -651,7 +646,7 @@ const Test = () => {
             borderRadius: "12px",
             padding: "40px",
             maxWidth: "500px",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
             textAlign: "center",
           }}
         >
@@ -721,7 +716,7 @@ const Test = () => {
             style={{
               width: "100%",
               padding: "12px",
-              backgroundColor: "#667eea",
+              backgroundColor: "#0073e6",
               color: "white",
               border: "none",
               borderRadius: "8px",
@@ -730,8 +725,8 @@ const Test = () => {
               fontWeight: "600",
               transition: "all 0.3s ease",
             }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#764ba2")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#667eea")}
+            onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
           >
             Back to Dashboard
           </button>
@@ -745,14 +740,14 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          background: "#f5f7fa",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           padding: "20px",
         }}
       >
-        <div style={{ color: "white", textAlign: "center" }}>
+        <div style={{ color: "#0073e6", textAlign: "center" }}>
           <p style={{ fontSize: "18px" }}>⏳ Loading test questions...</p>
         </div>
       </div>
@@ -768,7 +763,7 @@ const Test = () => {
       ref={testContainerRef}
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "#f5f7fa",
         padding: "20px",
       }}
     >
@@ -813,7 +808,7 @@ const Test = () => {
           </p>
         </div>
         <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-          <div style={{ fontSize: "24px", fontWeight: "700", color: "#667eea" }}>
+          <div style={{ fontSize: "24px", fontWeight: "700", color: "#0073e6" }}>
             ⏱️ {formatTime(timeLeft || 0)}
           </div>
           <button
@@ -821,7 +816,7 @@ const Test = () => {
             disabled={isFullscreen}
             style={{
               padding: "6px 10px",
-              backgroundColor: isFullscreen ? "#22c55e" : "#667eea",
+              backgroundColor: isFullscreen ? "#22c55e" : "#0073e6",
               color: "white",
               border: "none",
               borderRadius: "6px",
@@ -861,7 +856,7 @@ const Test = () => {
           <div
             style={{
               height: "6px",
-              backgroundColor: "#e0e7ff",
+              backgroundColor: "#e0f0ff",
               borderRadius: "3px",
               overflow: "hidden",
             }}
@@ -869,7 +864,7 @@ const Test = () => {
             <div
               style={{
                 height: "100%",
-                backgroundColor: "#667eea",
+                backgroundColor: "#0073e6",
                 width: `${progress}%`,
                 transition: "width 0.3s ease",
               }}
@@ -889,8 +884,8 @@ const Test = () => {
                 width: "40px",
                 height: "40px",
                 borderRadius: "50%",
-                backgroundColor: "#e0e7ff",
-                color: "#4f46e5",
+                backgroundColor: "#e0f0ff",
+                color: "#0073e6",
                 border: "none",
                 display: "flex",
                 alignItems: "center",
@@ -948,11 +943,11 @@ const Test = () => {
             backgroundColor: "#f8fafc",
             borderRadius: "16px",
             padding: "20px 32px",
-            border: "1px solid #e0e7ff",
+            border: "1px solid #cce0f5",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            boxShadow: "0 2px 8px rgba(102,126,234,0.08)",
+            boxShadow: "0 2px 8px rgba(0,115,230,0.08)",
           }}>
             <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={150} />
           </div>
@@ -974,7 +969,7 @@ const Test = () => {
               title={isListening ? "Click to stop recording" : "Click to start microphone"}
               style={{
                 padding: "8px 12px",
-                backgroundColor: isListening ? "#dc2626" : "#667eea",
+                backgroundColor: isListening ? "#dc2626" : "#0073e6",
                 color: "white",
                 border: "none",
                 borderRadius: "6px",
@@ -1008,7 +1003,7 @@ const Test = () => {
               width: "100%",
               height: "200px",
               padding: "12px",
-              border: isListening ? "2px solid #dc2626" : "1px solid #e0e7ff",
+              border: isListening ? "2px solid #dc2626" : "1px solid #cce0f5",
               borderRadius: "8px",
               fontSize: "14px",
               fontFamily: "monospace",
@@ -1052,10 +1047,10 @@ const Test = () => {
               padding: "16px",
               backgroundColor: "#f0f4ff",
               borderRadius: "8px",
-              borderLeft: "4px solid #667eea",
+              borderLeft: "4px solid #0073e6",
             }}
           >
-            <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#667eea" }}>
+            <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#0073e6" }}>
               📚 Reference Answer:
             </p>
             <p style={{ margin: 0, color: "#1e293b", lineHeight: "1.6" }}>
@@ -1077,7 +1072,7 @@ const Test = () => {
             disabled={currentQuestionIndex === 0}
             style={{
               padding: "12px 20px",
-              backgroundColor: currentQuestionIndex === 0 ? "#e0e7ff" : "#667eea",
+              backgroundColor: currentQuestionIndex === 0 ? "#e0f0ff" : "#0073e6",
               color: currentQuestionIndex === 0 ? "#999" : "white",
               border: "none",
               borderRadius: "8px",
@@ -1087,12 +1082,12 @@ const Test = () => {
             }}
             onMouseEnter={(e) => {
               if (currentQuestionIndex > 0) {
-                e.target.style.backgroundColor = "#764ba2";
+                e.target.style.backgroundColor = "#005bb5";
               }
             }}
             onMouseLeave={(e) => {
               if (currentQuestionIndex > 0) {
-                e.target.style.backgroundColor = "#667eea";
+                e.target.style.backgroundColor = "#0073e6";
               }
             }}
           >
@@ -1106,7 +1101,7 @@ const Test = () => {
             disabled={currentQuestionIndex === questions.length - 1}
             style={{
               padding: "12px 20px",
-              backgroundColor: currentQuestionIndex === questions.length - 1 ? "#e0e7ff" : "#667eea",
+              backgroundColor: currentQuestionIndex === questions.length - 1 ? "#e0f0ff" : "#0073e6",
               color: currentQuestionIndex === questions.length - 1 ? "#999" : "white",
               border: "none",
               borderRadius: "8px",
@@ -1116,12 +1111,12 @@ const Test = () => {
             }}
             onMouseEnter={(e) => {
               if (currentQuestionIndex < questions.length - 1) {
-                e.target.style.backgroundColor = "#764ba2";
+                e.target.style.backgroundColor = "#005bb5";
               }
             }}
             onMouseLeave={(e) => {
               if (currentQuestionIndex < questions.length - 1) {
-                e.target.style.backgroundColor = "#667eea";
+                e.target.style.backgroundColor = "#0073e6";
               }
             }}
           >

@@ -23,7 +23,10 @@ function SignIn() {
         credential: response.credential,
       });
       localStorage.setItem("mockmate_token", res.data.access_token);
-      localStorage.setItem("mockmate_user", JSON.stringify({ email: "google-user" }));
+      localStorage.setItem("mockmate_user", JSON.stringify({
+        email: res.data.email || "google-user",
+        full_name: res.data.full_name || ""
+      }));
       navigate("/dashboard");
     } catch (err) {
       setError(err.response?.data?.detail || "Google sign-in failed");
@@ -89,7 +92,10 @@ function SignIn() {
 
       // ✅ Store JWT
       localStorage.setItem("mockmate_token", res.data.access_token);
-      localStorage.setItem("mockmate_user", JSON.stringify({ email }));
+      localStorage.setItem("mockmate_user", JSON.stringify({
+        email: res.data.email || email,
+        full_name: res.data.full_name || ""
+      }));
 
       // ✅ Redirect
       navigate("/dashboard");
@@ -119,7 +125,7 @@ function SignIn() {
       className="signin-page"
       style={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: '#f5f7fa',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -137,7 +143,7 @@ function SignIn() {
         }}
       >
         <span className="signin-logo" style={{ fontSize: '34px' }}>🎯</span>
-        <span className="signin-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#fff' }}>Mockmate</span>
+        <span className="signin-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
       </div>
 
       <div 
@@ -148,7 +154,7 @@ function SignIn() {
           background: 'white',
           padding: '40px',
           borderRadius: '16px',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.10)'
         }}
       >
         <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Welcome back</h1>
@@ -199,7 +205,7 @@ function SignIn() {
               padding: '14px',
               borderRadius: '12px',
               border: 'none',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: '#0073e6',
               color: 'white',
               fontSize: '16px',
               fontWeight: '600',
@@ -236,7 +242,7 @@ function SignIn() {
           <span
             className="signin-link"
             onClick={() => navigate("/signup")}
-            style={{ color: '#667eea', fontWeight: '500', cursor: 'pointer' }}
+            style={{ color: '#0073e6', fontWeight: '500', cursor: 'pointer' }}
           >
             Create account
           </span>

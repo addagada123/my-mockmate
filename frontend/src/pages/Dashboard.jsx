@@ -128,7 +128,7 @@ function Dashboard() {
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "#f5f7fa",
         padding: "24px",
       }}
     >
@@ -143,21 +143,21 @@ function Dashboard() {
             backgroundColor: "white",
             padding: "20px",
             borderRadius: "12px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ fontSize: "32px" }}>🎯</span>
-              <span style={{ fontSize: "24px", fontWeight: "800", color: "#667eea" }}>Mockmate</span>
+              <span style={{ fontSize: "24px", fontWeight: "800", color: "#0073e6" }}>Mockmate</span>
             </div>
-            <div style={{ width: "1px", height: "36px", backgroundColor: "#e0e7ff" }}></div>
+            <div style={{ width: "1px", height: "36px", backgroundColor: "#cce0f5" }}></div>
             <div>
               <h1 style={{ margin: 0, fontSize: "22px", color: "#1e293b" }}>
                 Practice Dashboard
               </h1>
               <p style={{ margin: "4px 0 0 0", color: "#666", fontSize: "14px" }}>
-                Welcome, {user?.email}
+                Welcome, {user?.full_name ? user.full_name.split(" ")[0] : user?.email?.split("@")[0]}
               </p>
             </div>
           </div>
@@ -165,7 +165,7 @@ function Dashboard() {
             onClick={handleLogout}
             style={{
               padding: "10px 20px",
-              backgroundColor: "#667eea",
+              backgroundColor: "#0073e6",
               color: "white",
               border: "none",
               borderRadius: "8px",
@@ -173,17 +173,16 @@ function Dashboard() {
               fontWeight: "600",
               transition: "all 0.3s ease",
             }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#764ba2")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#667eea")}
+            onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
           >
-            Logout
           </button>
         </div>
 
         {/* Main Content - 2 Column SaaS Layout */}
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "24px" }}>
           {/* Left Sidebar */}
-          <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", height: "fit-content" }}>
+          <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", height: "fit-content" }}>
             <h2 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e293b" }}>
               Menu
             </h2>
@@ -196,16 +195,12 @@ function Dashboard() {
                   width: "100%",
                   padding: "12px",
                   textAlign: "left",
-                  backgroundColor: expandedTopics ? "#e0e7ff" : "transparent",
-                  border: "1px solid #e0e7ff",
+                  backgroundColor: expandedTopics ? "#e0f0ff" : "transparent",
+                  border: "1px solid #cce0f5",
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: "600",
-                  color: "#667eea",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                📖 Topics {expandedTopics ? "▼" : "▶"}
+                  color: "#0073e6", {expandedTopics ? "▼" : "▶"}
               </button>
               {expandedTopics && (
                 <div style={{ marginTop: "8px", paddingLeft: "16px" }}>
@@ -228,7 +223,7 @@ function Dashboard() {
                         transition: "all 0.2s ease",
                         fontWeight: generatedTopics.includes(topic) ? "600" : "400",
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f0f4ff")}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#e0f0ff")}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                     >
                       • {topic} {generatedTopics.includes(topic) ? "⭐" : ""}
@@ -239,14 +234,14 @@ function Dashboard() {
             </div>
 
             {/* Navigation Buttons */}
-            <div style={{ marginTop: "24px", borderTop: "1px solid #e0e7ff", paddingTop: "16px" }}>
+            <div style={{ marginTop: "24px", borderTop: "1px solid #cce0f5", paddingTop: "16px" }}>
               <button
                 onClick={() => navigate("/performance")}
                 style={{
                   width: "100%",
                   padding: "10px",
                   marginBottom: "8px",
-                  backgroundColor: "#667eea",
+                  backgroundColor: "#0073e6",
                   color: "white",
                   border: "none",
                   borderRadius: "8px",
@@ -255,8 +250,8 @@ function Dashboard() {
                   fontWeight: "600",
                   transition: "all 0.3s ease",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#764ba2")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#667eea")}
+                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
               >
                 📊 Performance
               </button>
@@ -265,7 +260,7 @@ function Dashboard() {
                 style={{
                   width: "100%",
                   padding: "10px",
-                  backgroundColor: "#667eea",
+                  backgroundColor: "#0073e6",
                   color: "white",
                   border: "none",
                   borderRadius: "8px",
@@ -274,8 +269,8 @@ function Dashboard() {
                   fontWeight: "600",
                   transition: "all 0.3s ease",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#764ba2")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#667eea")}
+                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
               >
                 💼 Jobs
               </button>
@@ -285,7 +280,7 @@ function Dashboard() {
           {/* Right Panel - Welcome / Resume Upload */}
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
             {/* Welcome Card */}
-            <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "32px", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+            <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "32px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
               <h2 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b", fontWeight: "800" }}>
                 👋 Welcome Back!
               </h2>
@@ -295,13 +290,13 @@ function Dashboard() {
               <div style={{ marginTop: "20px", display: "flex", gap: "12px" }}>
                 <div style={{ flex: 1 }}>
                   <p style={{ fontSize: "13px", color: "#999", margin: "0 0 8px 0" }}>Topics Available</p>
-                  <p style={{ fontSize: "24px", fontWeight: "700", color: "#667eea", margin: 0 }}>
+                  <p style={{ fontSize: "24px", fontWeight: "700", color: "#0073e6", margin: 0 }}>
                     {displayTopics.length}
                   </p>
                 </div>
                 <div style={{ flex: 1 }}>
                   <p style={{ fontSize: "13px", color: "#999", margin: "0 0 8px 0" }}>Personalized Questions</p>
-                  <p style={{ fontSize: "24px", fontWeight: "700", color: "#667eea", margin: 0 }}>
+                  <p style={{ fontSize: "24px", fontWeight: "700", color: "#0073e6", margin: 0 }}>
                     {resumeQuestions.length}
                   </p>
                 </div>
@@ -309,7 +304,7 @@ function Dashboard() {
             </div>
 
             {/* Resume Upload Card */}
-            <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+            <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
               <h3 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e293b", fontWeight: "700" }}>
                 📄 Upload Resume
               </h3>
@@ -323,7 +318,7 @@ function Dashboard() {
               <div
                 onClick={() => !uploadingResume && fileInputRef.current?.click()}
                 style={{
-                  border: "2px dashed #667eea",
+                  border: "2px dashed #0073e6",
                   borderRadius: "8px",
                   padding: "32px",
                   textAlign: "center",
@@ -334,21 +329,21 @@ function Dashboard() {
                 }}
                 onMouseEnter={(e) => {
                   if (!uploadingResume) {
-                    e.currentTarget.style.backgroundColor = "#f0f4ff";
-                    e.currentTarget.style.borderColor = "#764ba2";
+                    e.currentTarget.style.backgroundColor = "#e0f0ff";
+                    e.currentTarget.style.borderColor = "#005bb5";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!uploadingResume) {
                     e.currentTarget.style.backgroundColor = "#f8f9ff";
-                    e.currentTarget.style.borderColor = "#667eea";
+                    e.currentTarget.style.borderColor = "#0073e6";
                   }
                 }}
               >
                 <p style={{ fontSize: "40px", margin: "0 0 8px 0" }}>
                   {uploadingResume ? "⏳" : "📤"}
                 </p>
-                <p style={{ margin: "0 0 4px 0", color: "#667eea", fontWeight: "600", fontSize: "16px" }}>
+                <p style={{ margin: "0 0 4px 0", color: "#0073e6", fontWeight: "600", fontSize: "16px" }}>
                   {uploadingResume ? "Processing..." : "Drop your resume"}
                 </p>
                 <p style={{ margin: 0, fontSize: "14px", color: "#999" }}>
@@ -374,8 +369,8 @@ function Dashboard() {
                 </p>
               )}
               {generatedTopics.length > 0 && (
-                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #e0e7ff" }}>
-                  <p style={{ fontSize: "12px", color: "#667eea", fontWeight: "600", marginBottom: "8px" }}>
+                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #cce0f5" }}>
+                  <p style={{ fontSize: "12px", color: "#0073e6", fontWeight: "600", marginBottom: "8px" }}>
                     ✨ Generated Topics:
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
@@ -383,8 +378,8 @@ function Dashboard() {
                       <span
                         key={idx}
                         style={{
-                          backgroundColor: "#e0e7ff",
-                          color: "#667eea",
+                          backgroundColor: "#e0f0ff",
+                          color: "#0073e6",
                           padding: "4px 8px",
                           borderRadius: "4px",
                           fontSize: "11px",
@@ -413,8 +408,7 @@ function Dashboard() {
             backgroundColor: "white",
             padding: "32px",
             borderRadius: "12px",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-            zIndex: 1000,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
             textAlign: "center",
             maxWidth: "400px",
           }}
@@ -426,7 +420,7 @@ function Dashboard() {
           <p style={{ color: "#666", marginBottom: "16px", lineHeight: "1.6" }}>
             ✅ We've extracted your skills and generated interview questions!
           </p>
-          <p style={{ color: "#667eea", fontWeight: "600", margin: "16px 0", fontSize: "16px" }}>
+          <p style={{ color: "#0073e6", fontWeight: "600", margin: "16px 0", fontSize: "16px" }}>
             📖 Check out the <strong>Topics</strong> section on the left to start practicing!
           </p>
           <p style={{ color: "#999", fontSize: "13px", margin: "12px 0 0 0" }}>

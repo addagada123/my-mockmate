@@ -70,7 +70,7 @@ function Performance() {
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "#f5f7fa",
         padding: "24px",
       }}
     >
@@ -85,10 +85,10 @@ function Performance() {
           }}
         >
           <div>
-            <h1 style={{ color: "white", fontSize: "28px", fontWeight: "800", margin: 0 }}>
+            <h1 style={{ color: "#0073e6", fontSize: "28px", fontWeight: "800", margin: 0 }}>
               📊 Performance Analytics
             </h1>
-            <p style={{ color: "rgba(255,255,255,0.8)", margin: "4px 0 0 0" }}>
+            <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
               {user?.email}
             </p>
           </div>
@@ -98,7 +98,7 @@ function Performance() {
               style={{
                 padding: "10px 20px",
                 background: "white",
-                  color: "#667eea",
+                  color: "#0073e6",
                 border: "none",
                 borderRadius: "8px",
                 fontWeight: "600",
@@ -118,7 +118,7 @@ function Performance() {
               style={{
                 padding: "10px 20px",
                 background: "white",
-                  color: "#667eea",
+                  color: "#0073e6",
                 border: "none",
                 borderRadius: "8px",
                 fontWeight: "600",
@@ -139,7 +139,7 @@ function Performance() {
             background: "white",
             borderRadius: "16px",
             padding: "24px",
-            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
+            boxShadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
             marginBottom: "24px",
           }}
         >
@@ -157,7 +157,7 @@ function Performance() {
               <div
                 key={stat.label}
                 style={{
-                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: "#0073e6",
                   borderRadius: "12px",
                   padding: "20px",
                   color: "white",
@@ -181,7 +181,7 @@ function Performance() {
             background: "white",
             borderRadius: "16px",
             padding: "24px",
-            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
+            boxShadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
             marginBottom: "24px",
           }}
         >
@@ -281,7 +281,7 @@ function Performance() {
             background: "white",
             borderRadius: "16px",
             padding: "24px",
-            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)",
+            boxShadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
           }}
         >
           <h2 style={{ color: "#1e293b", marginBottom: "12px", fontSize: "20px", fontWeight: "700" }}>
@@ -339,12 +339,12 @@ function Performance() {
                     })}
 
                     {/* Line */}
-                    <path d={pathD} fill="none" stroke="#667eea" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+                    <path d={pathD} fill="none" stroke="#0073e6" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
 
                     {/* Points */}
                     {points.map((p, idx) => (
                       <g key={idx}>
-                        <circle cx={p.x} cy={p.y} r={5} fill="#667eea" stroke="white" strokeWidth={2} />
+                        <circle cx={p.x} cy={p.y} r={5} fill="#0073e6" stroke="white" strokeWidth={2} />
                         <title>{p.label}</title>
                       </g>
                     ))}

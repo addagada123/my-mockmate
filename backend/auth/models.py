@@ -18,6 +18,8 @@ class Token(BaseModel):
     """Token model"""
     access_token: str
     token_type: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
 
 class TokenData(BaseModel):
     """Token data model"""
