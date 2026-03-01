@@ -1,1 +1,0 @@
-{"autoDeploy":"yes","branch":"main","name":"mockmate-frontend","ownerId":"tea-d6fuvingi27c73ciuv6g","repo":"https://github.com/addagada123/my-mockmate","type":"static_site","serviceDetails":{"buildCommand":"cd frontend && npm install && npm run build","publishPath":"frontend/dist"}}
