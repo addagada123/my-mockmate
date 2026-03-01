@@ -104,6 +104,17 @@ function SignUp() {
 
     };
 
+    // Dynamically load Google script only on this page
+    const loadGoogleScript = () => {
+      if (document.querySelector('script[src*="accounts.google.com/gsi/client"]')) return;
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    };
+    loadGoogleScript();
+
     if (window.google?.accounts?.id) {
 
       initGoogle();
@@ -292,7 +303,7 @@ function SignUp() {
           loop
           muted
           playsInline
-          style={{ width: '38px', height: '38px', objectFit: 'contain', borderRadius: '8px' }}
+          style={{ width: '38px', height: '38px', objectFit: 'contain' }}
         />
 
         <span className="signup-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
