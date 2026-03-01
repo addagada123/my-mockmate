@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
+import CodingQuestion from "./CodingQuestion";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
@@ -16,6 +17,7 @@ const Test = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [questionResults, setQuestionResults] = useState({}); // per-question score/feedback
+  const [codingResults, setCodingResults] = useState({}); // per-question coding run results
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
   const keepListeningRef = useRef(false);
@@ -440,6 +442,33 @@ const Test = () => {
 
   const submitAnswer = () => {
     const question = questions[currentQuestionIndex];
+
+    // For coding questions, use the coding run result if available
+    if (question.type === "coding") {
+      const codeResult = codingResults[currentQuestionIndex];
+      if (!codeResult) {
+        showWarning("▶ Run your code first to submit this answer");
+        return;
+      }
+      const score = codeResult.score || 0;
+      const correct = codeResult.all_passed || false;
+      const result = {
+        score,
+        correct,
+        feedback: correct
+          ? `All ${codeResult.total} test cases passed!`
+          : `${codeResult.passed}/${codeResult.total} test cases passed.`,
+      };
+      const updated = {
+        ...questionResults,
+        [currentQuestionIndex]: result,
+      };
+      setQuestionResults(updated);
+      setCurrentScore(calculateAverageScore(updated));
+      showWarning(correct ? "✅ All test cases passed!" : `⚠️ ${codeResult.passed}/${codeResult.total} test cases passed`);
+      return;
+    }
+
     const answerText = answers[currentQuestionIndex] || "";
     const result = gradeAnswer(question, answerText);
 
@@ -450,6 +479,14 @@ const Test = () => {
     setQuestionResults(updated);
     setCurrentScore(calculateAverageScore(updated));
     showWarning(result.correct ? "✅ Answer marked correct" : "❌ Answer marked incorrect");
+  };
+
+  // Callback when coding question run completes
+  const handleCodingRunResult = (runResult) => {
+    setCodingResults((prev) => ({
+      ...prev,
+      [currentQuestionIndex]: runResult,
+    }));
   };
 
   const toggleMicrophone = () => {
@@ -852,7 +889,7 @@ const Test = () => {
           borderRadius: "12px",
           padding: "32px",
           boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-          maxWidth: "900px",
+          maxWidth: "1000px",
           margin: "0 auto",
         }}
       >
@@ -934,6 +971,22 @@ const Test = () => {
                     ? "🟡 Medium"
                     : "🔴 Hard"}
               </span>
+              {currentQuestion.type === "coding" && (
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "4px 12px",
+                    backgroundColor: "#e0f2fe",
+                    color: "#0369a1",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    marginLeft: "8px",
+                  }}
+                >
+                  💻 Coding Problem
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -960,67 +1013,92 @@ const Test = () => {
 
         {/* Answer Input */}
         <div style={{ marginBottom: "32px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-            <label
-              style={{
-                fontWeight: "600",
-                color: "#334155",
-              }}
-            >
-              Your Answer:
-            </label>
-            <button
-              onClick={toggleMicrophone}
-              title={isListening ? "Click to stop recording" : "Click to start microphone"}
-              style={{
-                padding: "8px 12px",
-                backgroundColor: isListening ? "#dc2626" : "#0073e6",
-                color: "white",
-                border: "none",
-                borderRadius: "6px",
-                cursor: "pointer",
-                fontWeight: "600",
-                fontSize: "12px",
-                transition: "all 0.3s ease",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.opacity = "0.9";
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.opacity = "1";
-              }}
-            >
-              {isListening ? (
-                <>🛑 Stop Recording</>
-              ) : (
-                <>🎙 Speak Answer</>
+          {currentQuestion.type === "coding" ? (
+            /* ---- Coding Question: Monaco Editor + Test Runner ---- */
+            <>
+              <label
+                style={{
+                  fontWeight: "600",
+                  color: "#334155",
+                  display: "block",
+                  marginBottom: "12px",
+                }}
+              >
+                💻 Write Your Code:
+              </label>
+              <CodingQuestion
+                question={currentQuestion}
+                initialCode={answers[currentQuestionIndex] || currentQuestion.starter_code || ""}
+                onCodeChange={(code) => handleAnswerChange(code)}
+                onRunResult={handleCodingRunResult}
+              />
+            </>
+          ) : (
+            /* ---- Regular Question: Textarea + Mic ---- */
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <label
+                  style={{
+                    fontWeight: "600",
+                    color: "#334155",
+                  }}
+                >
+                  Your Answer:
+                </label>
+                <button
+                  onClick={toggleMicrophone}
+                  title={isListening ? "Click to stop recording" : "Click to start microphone"}
+                  style={{
+                    padding: "8px 12px",
+                    backgroundColor: isListening ? "#dc2626" : "#0073e6",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: "600",
+                    fontSize: "12px",
+                    transition: "all 0.3s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.opacity = "0.9";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.opacity = "1";
+                  }}
+                >
+                  {isListening ? (
+                    <>🛑 Stop Recording</>
+                  ) : (
+                    <>🎙 Speak Answer</>
+                  )}
+                </button>
+              </div>
+              <textarea
+                value={answers[currentQuestionIndex] || ""}
+                onChange={(e) => handleAnswerChange(e.target.value)}
+                placeholder="Type your answer here... or click 'Speak Answer' to use microphone"
+                style={{
+                  width: "100%",
+                  height: "200px",
+                  padding: "12px",
+                  border: isListening ? "2px solid #dc2626" : "1px solid #cce0f5",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontFamily: "monospace",
+                  resize: "none",
+                  boxSizing: "border-box",
+                  backgroundColor: isListening ? "#fff5f5" : "white",
+                }}
+              />
+              {isListening && (
+                <div style={{ marginTop: "8px", padding: "8px 12px", backgroundColor: "#fee2e2", borderRadius: "6px", color: "#991b1b", fontSize: "12px", fontWeight: "600" }}>
+                  🎙 Listening... Speak now!
+                </div>
               )}
-            </button>
-          </div>
-          <textarea
-            value={answers[currentQuestionIndex] || ""}
-            onChange={(e) => handleAnswerChange(e.target.value)}
-            placeholder="Type your answer here... or click 'Speak Answer' to use microphone"
-            style={{
-              width: "100%",
-              height: "200px",
-              padding: "12px",
-              border: isListening ? "2px solid #dc2626" : "1px solid #cce0f5",
-              borderRadius: "8px",
-              fontSize: "14px",
-              fontFamily: "monospace",
-              resize: "none",
-              boxSizing: "border-box",
-              backgroundColor: isListening ? "#fff5f5" : "white",
-            }}
-          />
-          {isListening && (
-            <div style={{ marginTop: "8px", padding: "8px 12px", backgroundColor: "#fee2e2", borderRadius: "6px", color: "#991b1b", fontSize: "12px", fontWeight: "600" }}>
-              🎙 Listening... Speak now!
-            </div>
+            </>
           )}
         </div>
 

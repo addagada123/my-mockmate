@@ -689,7 +689,7 @@ Return a single JSON object only (no surrounding commentary). The JSON MUST matc
         {{"q": string, "a": string}},  // exactly 4 items
     ],
     "dsa": [
-        {{"difficulty": "Medium"|"Hard", "q": string, "a": string, "examples": string, "constraints": string, "complexity": string, "code": string}},  // exactly 3 items
+        {{"difficulty": "Medium"|"Hard", "q": string, "a": string, "examples": string, "constraints": string, "complexity": string, "code": string, "type": "coding"|"analytical", "language": "python"|"java"|"cpp"|"javascript"|"c", "starter_code": string, "test_cases": [{{"input": string, "expected_output": string}}]}},  // exactly 3 items
     ],
     "behavioral": [
         {{"q": string, "a": string}},  // exactly 3 items
@@ -705,7 +705,7 @@ ENHANCED REQUIREMENTS:
 QUESTION DISTRIBUTION (15 total):
 - easy_medium: 5 questions (mix of Project-based + Technical concepts)
 - hard: 4 advanced technical questions (system design, optimization, trade-offs)
-- dsa: 3 problems (1 Medium, 1 Medium-Hard, 1 Hard) with examples/constraints
+- dsa: 3 problems (1 Medium, 1 Medium-Hard, 1 Hard) with examples/constraints. If the candidate has programming skills (Python, Java, C++, JavaScript, C, etc.), generate CODING problems with type="coding", starter_code (function signature), test_cases (array of input/expected_output pairs, at least 3 per problem), and language matching the candidate's resume skills. If the candidate is NOT in CS/programming, use type="analytical" instead.
 - behavioral: 3 questions (Scenario + Collaboration + Leadership)
 
 All questions must be grounded in these scenarios: {', '.join(scenario_contexts['scenarios'][:3])}
@@ -746,6 +746,8 @@ SECTION 1 - TECHNICAL CORE (easy_medium + hard):
 SECTION 2 - PROBLEM SOLVING (dsa):
 - 3 algorithmic/analytical questions (1 Medium, 1 Medium-Hard, 1 Hard)
 - Include clean problem statements, examples, constraints, and complexity
+- For CS/programming candidates: set type="coding", include starter_code (function signature with parameters and return type), test_cases (at least 3 per problem with input and expected_output strings), and language (python/java/cpp/javascript/c based on resume skills)
+- For non-CS candidates: set type="analytical" with domain-relevant problems
 
 SECTION 3 - BEHAVIORAL:
 - 3 behavioral questions about teamwork, leadership, and challenges
@@ -823,6 +825,10 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
             complexity: str = ""
             examples: str = ""
             constraints: str = ""
+            type: Optional[str] = None  # "coding" or "analytical"
+            language: Optional[str] = None  # "python", "java", "cpp", etc.
+            starter_code: Optional[str] = None  # function signature
+            test_cases: Optional[List[dict]] = None  # [{input, expected_output}]
 
         class Metadata(BaseModel):
             experience_level: str
@@ -924,6 +930,16 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
                         item_obj['examples'] = getattr(it, 'examples')
                     if hasattr(it, 'constraints') and getattr(it, 'constraints', None):
                         item_obj['constraints'] = getattr(it, 'constraints')
+
+                    # Coding question extras
+                    if hasattr(it, 'type') and getattr(it, 'type', None):
+                        item_obj['type'] = getattr(it, 'type')
+                    if hasattr(it, 'language') and getattr(it, 'language', None):
+                        item_obj['language'] = getattr(it, 'language')
+                    if hasattr(it, 'starter_code') and getattr(it, 'starter_code', None):
+                        item_obj['starter_code'] = getattr(it, 'starter_code')
+                    if hasattr(it, 'test_cases') and getattr(it, 'test_cases', None):
+                        item_obj['test_cases'] = getattr(it, 'test_cases')
 
                     questions.append(item_obj)
 

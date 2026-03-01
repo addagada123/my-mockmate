@@ -352,6 +352,11 @@ class CommTestSubmission(BaseModel):
     answers: List[Dict[str, Any]]  # [{question_id, question, user_answer, correct_answer, section}]
     time_spent: Optional[int] = None
 
+class RunCodeRequest(BaseModel):
+    language: str  # "python", "java", "cpp", "javascript", "c"
+    code: str
+    test_cases: Optional[List[Dict[str, str]]] = None  # [{input, expected_output}]
+
 # Upload directory
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -556,6 +561,10 @@ async def upload_resume(
                             "complexity": q.get("complexity"),
                             "examples": q.get("examples"),
                             "constraints": q.get("constraints"),
+                            "type": q.get("type"),  # "coding" or "analytical"
+                            "language": q.get("language"),  # "python", "java", etc.
+                            "starter_code": q.get("starter_code"),
+                            "test_cases": q.get("test_cases"),  # [{input, expected_output}]
                         })
 
             if not questions:
@@ -831,6 +840,150 @@ async def evaluate_answer(
             status_code=500,
             detail=f"Failed to evaluate answer: {str(e)}"
         )
+
+# --- Language mapping for Piston API ---
+PISTON_LANG_MAP = {
+    "python": {"language": "python", "version": "3.10.0"},
+    "java": {"language": "java", "version": "15.0.2"},
+    "cpp": {"language": "c++", "version": "10.2.0"},
+    "c++": {"language": "c++", "version": "10.2.0"},
+    "javascript": {"language": "javascript", "version": "18.15.0"},
+    "js": {"language": "javascript", "version": "18.15.0"},
+    "c": {"language": "c", "version": "10.2.0"},
+    "typescript": {"language": "typescript", "version": "5.0.3"},
+}
+
+@app.post("/run-code")
+async def run_code(
+    payload: RunCodeRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Execute code against test cases using the Piston API (free, no key required).
+    Returns per-test-case results with pass/fail status.
+    """
+    import httpx
+
+    lang_key = payload.language.strip().lower()
+    lang_info = PISTON_LANG_MAP.get(lang_key)
+    if not lang_info:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported language: {payload.language}. Supported: {', '.join(PISTON_LANG_MAP.keys())}"
+        )
+
+    test_cases = payload.test_cases or []
+    results = []
+
+    # If no test cases, just run the code once with no input
+    if not test_cases:
+        test_cases = [{"input": "", "expected_output": ""}]
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for i, tc in enumerate(test_cases):
+            stdin_input = tc.get("input", "")
+            expected = tc.get("expected_output", "").strip()
+
+            try:
+                resp = await client.post(
+                    "https://emkc.org/api/v2/piston/execute",
+                    json={
+                        "language": lang_info["language"],
+                        "version": lang_info["version"],
+                        "files": [{"name": f"solution.{_get_file_ext(lang_key)}", "content": payload.code}],
+                        "stdin": stdin_input,
+                        "run_timeout": 10000,  # 10 sec max
+                        "compile_timeout": 15000,
+                    }
+                )
+
+                if resp.status_code != 200:
+                    results.append({
+                        "test_case": i + 1,
+                        "input": stdin_input,
+                        "expected": expected,
+                        "actual": "",
+                        "passed": False,
+                        "error": f"Piston API error: {resp.status_code}",
+                    })
+                    continue
+
+                data = resp.json()
+                run_data = data.get("run", {})
+                compile_data = data.get("compile", {})
+
+                # Check for compile errors first
+                if compile_data.get("stderr"):
+                    results.append({
+                        "test_case": i + 1,
+                        "input": stdin_input,
+                        "expected": expected,
+                        "actual": "",
+                        "passed": False,
+                        "error": compile_data["stderr"][:500],
+                    })
+                    continue
+
+                actual_output = (run_data.get("stdout") or "").strip()
+                stderr = (run_data.get("stderr") or "").strip()
+
+                if stderr and not actual_output:
+                    results.append({
+                        "test_case": i + 1,
+                        "input": stdin_input,
+                        "expected": expected,
+                        "actual": "",
+                        "passed": False,
+                        "error": stderr[:500],
+                    })
+                else:
+                    passed = (actual_output == expected) if expected else True
+                    results.append({
+                        "test_case": i + 1,
+                        "input": stdin_input,
+                        "expected": expected,
+                        "actual": actual_output,
+                        "passed": passed,
+                        "error": stderr[:200] if stderr else None,
+                    })
+
+            except httpx.TimeoutException:
+                results.append({
+                    "test_case": i + 1,
+                    "input": stdin_input,
+                    "expected": expected,
+                    "actual": "",
+                    "passed": False,
+                    "error": "Time Limit Exceeded (10s)",
+                })
+            except Exception as e:
+                results.append({
+                    "test_case": i + 1,
+                    "input": stdin_input,
+                    "expected": expected,
+                    "actual": "",
+                    "passed": False,
+                    "error": str(e)[:300],
+                })
+
+    total = len(results)
+    passed_count = sum(1 for r in results if r["passed"])
+
+    return {
+        "results": results,
+        "total": total,
+        "passed": passed_count,
+        "all_passed": passed_count == total,
+        "score": round((passed_count / total) * 100) if total > 0 else 0,
+    }
+
+def _get_file_ext(lang: str) -> str:
+    """Return file extension for a language."""
+    ext_map = {
+        "python": "py", "java": "java", "cpp": "cpp", "c++": "cpp",
+        "javascript": "js", "js": "js", "c": "c", "typescript": "ts",
+    }
+    return ext_map.get(lang, "txt")
 
 @app.post("/submit-test")
 async def submit_test(
