@@ -258,6 +258,26 @@ function Dashboard() {
                 Ã°Å¸â€œÅ  Performance
               </button>
               <button
+                onClick={() => navigate("/communication-test")}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  marginBottom: "8px",
+                  backgroundColor: "#0073e6",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  transition: "all 0.3s ease",
+                }}
+                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+              >
+                {"\ud83d\udde3\ufe0f"} Communication Test
+              </button>
+              <button
                 onClick={() => navigate("/jobs")}
                 style={{
                   width: "100%",

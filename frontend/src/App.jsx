@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Performance from "./pages/Performance";
 import Jobs from "./pages/Jobs";
 import Test from "./pages/Test";
+import CommunicationTest from "./pages/CommunicationTest";
 
 function App() {
   const navigate = useNavigate();
@@ -42,6 +43,7 @@ function App() {
       <Route path="/performance" element={<Performance />} />
       <Route path="/jobs" element={<Jobs />} />
       <Route path="/test/:topic" element={<Test />} />
+      <Route path="/communication-test" element={<CommunicationTest />} />
     </Routes>
   );
 }
