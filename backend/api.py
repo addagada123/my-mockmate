@@ -1197,6 +1197,223 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
         raise HTTPException(status_code=500, detail=f"Failed to submit comm test: {str(e)}")
 
 
+@app.get("/communication-feedback")
+async def communication_feedback(
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Generate a GPT-powered communication feedback report based on all
+    completed communication tests. Analyzes section-wise performance and
+    provides personalised improvement advice.
+    """
+    try:
+        db = get_db()
+
+        # Fetch all completed communication test sessions for this user
+        comm_sessions = list(db.user_sessions.find(
+            {
+                "user_id": current_user["id"],
+                "type": "communication_test",
+                "status": "completed",
+            },
+            {
+                "_id": 0,
+                "difficulty": 1,
+                "percentage": 1,
+                "section_scores": 1,
+                "evaluated_answers": 1,
+                "completed_at": 1,
+                "time_spent": 1,
+            }
+        ).sort("completed_at", -1).limit(10))  # last 10 tests
+
+        if not comm_sessions:
+            return {
+                "success": True,
+                "has_data": False,
+                "message": "No completed communication tests found. Take a communication test first to get your feedback report.",
+            }
+
+        # Build a summary for GPT
+        test_summaries = []
+        all_section_scores = {}
+        all_open_answers = []
+
+        for idx, sess in enumerate(comm_sessions):
+            diff = sess.get("difficulty", "medium")
+            pct = sess.get("percentage", 0)
+            ts = sess.get("time_spent", 0)
+            test_summaries.append(f"Test {idx+1}: difficulty={diff}, score={pct}%, time={round(ts/60, 1)}min")
+
+            for sec, data in (sess.get("section_scores") or {}).items():
+                if sec not in all_section_scores:
+                    all_section_scores[sec] = []
+                all_section_scores[sec].append(data.get("percentage", 0))
+
+            for ev in (sess.get("evaluated_answers") or []):
+                if ev.get("type") == "open":
+                    all_open_answers.append({
+                        "section": ev.get("section", ""),
+                        "question": ev.get("question", ""),
+                        "answer": (ev.get("user_answer") or "")[:500],
+                        "score": ev.get("score", 0),
+                        "feedback": ev.get("feedback", ""),
+                    })
+
+        section_avg = {}
+        for sec, scores in all_section_scores.items():
+            section_avg[sec] = round(sum(scores) / len(scores), 1)
+
+        overall_avg = round(
+            sum(s.get("percentage", 0) for s in comm_sessions) / len(comm_sessions), 1
+        )
+
+        # Build GPT prompt
+        import openai
+        import json as json_mod
+
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+        client = openai.OpenAI(api_key=openai_key)
+
+        open_answers_text = ""
+        for oa in all_open_answers[:12]:
+            open_answers_text += f"\n- Section: {oa['section']}, Q: {oa['question'][:100]}, Answer: {oa['answer'][:200]}, Score: {oa['score']}/100, Feedback: {oa['feedback']}"
+
+        prompt = f"""You are an expert corporate communication coach. Analyze this candidate's communication test performance and provide a detailed, actionable feedback report.
+
+PERFORMANCE DATA:
+- Tests taken: {len(comm_sessions)}
+- Overall average: {overall_avg}%
+- Section averages: {json_mod.dumps(section_avg)}
+- Test history: {'; '.join(test_summaries)}
+
+OPEN-ENDED ANSWERS (writing & speaking responses):
+{open_answers_text if open_answers_text else "No open-ended answers available yet."}
+
+Generate a comprehensive feedback report in ONLY valid JSON (no markdown, no explanation):
+{{
+  "overall_rating": "Excellent|Good|Average|Needs Improvement|Poor",
+  "overall_summary": "2-3 sentence overall assessment of the candidate's communication skills",
+  "strengths": [
+    {{"area": "Strength area name", "detail": "Specific evidence-based explanation"}},
+    {{"area": "...", "detail": "..."}}
+  ],
+  "weaknesses": [
+    {{"area": "Weakness area name", "detail": "Specific evidence-based explanation"}},
+    {{"area": "...", "detail": "..."}}
+  ],
+  "section_feedback": [
+    {{
+      "section": "Reading Comprehension",
+      "score": <average score>,
+      "rating": "Excellent|Good|Average|Needs Improvement",
+      "feedback": "2-3 sentences of specific feedback",
+      "tips": ["Actionable tip 1", "Actionable tip 2"]
+    }},
+    {{
+      "section": "Email Writing",
+      "score": <average score>,
+      "rating": "...",
+      "feedback": "...",
+      "tips": ["...", "..."]
+    }},
+    {{
+      "section": "Grammar & Vocabulary",
+      "score": <average score>,
+      "rating": "...",
+      "feedback": "...",
+      "tips": ["...", "..."]
+    }},
+    {{
+      "section": "Situational Communication",
+      "score": <average score>,
+      "rating": "...",
+      "feedback": "...",
+      "tips": ["...", "..."]
+    }},
+    {{
+      "section": "Spoken English",
+      "score": <average score>,
+      "rating": "...",
+      "feedback": "...",
+      "tips": ["...", "..."]
+    }}
+  ],
+  "speaking_analysis": {{
+    "fluency": "Brief assessment of writing/speaking fluency based on open-ended answers",
+    "grammar_accuracy": "Assessment of grammatical correctness in responses",
+    "vocabulary_range": "Assessment of vocabulary usage",
+    "professionalism": "Assessment of professional tone and register",
+    "confidence_indicators": "Assessment of confidence shown in responses"
+  }},
+  "improvement_plan": [
+    {{"week": "Week 1-2", "focus": "Focus area", "activities": ["Activity 1", "Activity 2"]}},
+    {{"week": "Week 3-4", "focus": "Focus area", "activities": ["Activity 1", "Activity 2"]}},
+    {{"week": "Week 5-6", "focus": "Focus area", "activities": ["Activity 1", "Activity 2"]}}
+  ],
+  "recommended_resources": [
+    {{"type": "Book|Video|Practice|Course", "title": "Resource name", "why": "Why this helps"}}
+  ]
+}}"""
+
+        gpt_response = await run_in_threadpool(
+            lambda: client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                messages=[
+                    {"role": "system", "content": "You are a corporate communication coach. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.6,
+                max_tokens=3000,
+            )
+        )
+
+        raw_text = gpt_response.choices[0].message.content or ""
+
+        # Parse JSON
+        parsed = None
+        try:
+            parsed = json_mod.loads(raw_text)
+        except Exception:
+            import re
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
+            if m:
+                try:
+                    parsed = json_mod.loads(m.group(1))
+                except Exception:
+                    pass
+            if not parsed:
+                start = raw_text.find("{")
+                end = raw_text.rfind("}")
+                if start != -1 and end > start:
+                    try:
+                        parsed = json_mod.loads(raw_text[start:end + 1])
+                    except Exception:
+                        pass
+
+        if not parsed:
+            logger.error(f"GPT feedback parse fail: {raw_text[:500]}")
+            raise HTTPException(status_code=500, detail="Failed to generate feedback report")
+
+        return {
+            "success": True,
+            "has_data": True,
+            "tests_analyzed": len(comm_sessions),
+            "overall_average": overall_avg,
+            "section_averages": section_avg,
+            "report": parsed,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Communication feedback error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate feedback: {str(e)}")
+
+
 @app.get("/recommend-jobs")
 async def recommend_jobs(
     current_user: Dict = Depends(get_current_user)
