@@ -547,7 +547,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "#f5f7fa",
+          background: "#f8fafc",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -564,7 +564,7 @@ const Test = () => {
             textAlign: "center",
           }}
         >
-          <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#0073e6" }}>
+          <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b" }}>
             Ã°Å¸â€œÂ Select Difficulty
           </h1>
           <p style={{ color: "#666", marginBottom: "32px", lineHeight: "1.6" }}>
@@ -638,7 +638,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "#f5f7fa",
+          background: "#f8fafc",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -656,7 +656,7 @@ const Test = () => {
           }}
         >
           <h1 style={{ fontSize: "40px", margin: "0 0 16px 0" }}>Ã¢Å“â€¦</h1>
-          <h2 style={{ fontSize: "28px", margin: "0 0 16px 0", color: "#0073e6" }}>
+          <h2 style={{ fontSize: "28px", margin: "0 0 16px 0", color: "#1e293b" }}>
             Test Submitted!
           </h2>
           <p style={{ color: "#666", marginBottom: "24px" }}>
@@ -702,16 +702,16 @@ const Test = () => {
               textAlign: "left",
             }}
           >
-            <p style={{ margin: "8px 0", color: "#0073e6" }}>
+            <p style={{ margin: "8px 0", color: "#334155" }}>
               <strong>Topic:</strong> {decodeURIComponent(topic)}
             </p>
-            <p style={{ margin: "8px 0", color: "#0073e6" }}>
+            <p style={{ margin: "8px 0", color: "#334155" }}>
               <strong>Difficulty:</strong> {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
             </p>
-            <p style={{ margin: "8px 0", color: "#0073e6" }}>
+            <p style={{ margin: "8px 0", color: "#334155" }}>
               <strong>Questions:</strong> {questions.length}
             </p>
-            <p style={{ margin: "8px 0", color: tabSwitchCount > 0 ? "#dc2626" : "#0073e6" }}>
+            <p style={{ margin: "8px 0", color: tabSwitchCount > 0 ? "#dc2626" : "#334155" }}>
               <strong>Tab Switches:</strong> {tabSwitchCount}/5
             </p>
           </div>
@@ -745,14 +745,14 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "#f5f7fa",
+          background: "#f8fafc",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           padding: "20px",
         }}
       >
-        <div style={{ color: "#0073e6", textAlign: "center" }}>
+        <div style={{ color: "#334155", textAlign: "center" }}>
           <p style={{ fontSize: "18px" }}>Ã¢ÂÂ³ Loading test questions...</p>
         </div>
       </div>
@@ -768,7 +768,7 @@ const Test = () => {
       ref={testContainerRef}
       style={{
         minHeight: "100vh",
-        background: "#f5f7fa",
+        background: "#f8fafc",
         padding: "20px",
       }}
     >
@@ -805,7 +805,7 @@ const Test = () => {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, color: "#0073e6", fontSize: "20px" }}>
+          <h1 style={{ margin: 0, color: "#1e293b", fontSize: "20px" }}>
             {decodeURIComponent(topic)} - {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
           </h1>
           <p style={{ margin: "4px 0 0 0", color: "#666", fontSize: "13px" }}>
@@ -813,7 +813,7 @@ const Test = () => {
           </p>
         </div>
         <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-          <div style={{ fontSize: "24px", fontWeight: "700", color: "#0073e6" }}>
+          <div style={{ fontSize: "24px", fontWeight: "700", color: "#1e293b" }}>
             Ã¢ÂÂ±Ã¯Â¸Â {formatTime(timeLeft || 0)}
           </div>
           <button
@@ -880,7 +880,7 @@ const Test = () => {
         {/* Question */}
         <div style={{ marginBottom: "32px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
-            <h2 style={{ fontSize: "20px", color: "#0073e6", margin: 0, lineHeight: "1.6", flex: 1 }}>
+            <h2 style={{ fontSize: "20px", color: "#1e293b", margin: 0, lineHeight: "1.6", flex: 1 }}>
               {currentQuestion.question}
             </h2>
             <button
@@ -964,7 +964,7 @@ const Test = () => {
             <label
               style={{
                 fontWeight: "600",
-                color: "#0073e6",
+                color: "#334155",
               }}
             >
               Your Answer:
@@ -1037,7 +1037,7 @@ const Test = () => {
             }}
           >
             <strong>{currentResult.correct ? "Ã¢Å“â€¦ Correct" : "Ã¢ÂÅ’ Incorrect"}</strong>
-            <div style={{ marginTop: "6px", color: "#0073e6" }}>
+            <div style={{ marginTop: "6px", color: "#334155" }}>
               Score for this question: {currentResult.score}%
             </div>
             <div style={{ marginTop: "4px", color: "#374151" }}>{currentResult.feedback}</div>
@@ -1055,10 +1055,10 @@ const Test = () => {
               borderLeft: "4px solid #0073e6",
             }}
           >
-            <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#0073e6" }}>
+            <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#1e293b" }}>
               Ã°Å¸â€œÅ¡ Reference Answer:
             </p>
-            <p style={{ margin: 0, color: "#0073e6", lineHeight: "1.6" }}>
+            <p style={{ margin: 0, color: "#334155", lineHeight: "1.6" }}>
               {currentQuestion.answer}
             </p>
           </div>

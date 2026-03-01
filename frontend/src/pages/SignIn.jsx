@@ -125,7 +125,7 @@ function SignIn() {
       className="signin-page"
       style={{
         minHeight: '100vh',
-        background: '#f5f7fa',
+        background: '#f8fafc',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -157,7 +157,7 @@ function SignIn() {
           boxShadow: '0 4px 24px rgba(0, 0, 0, 0.10)'
         }}
       >
-        <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#0073e6' }}>Welcome back</h1>
+        <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Welcome back</h1>
         <p className="signin-subtitle" style={{ fontSize: '14px', textAlign: 'center', color: '#64748b', marginBottom: '28px' }}>Sign in to continue your preparation</p>
 
         <form className="signin-form" onSubmit={handleSignin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

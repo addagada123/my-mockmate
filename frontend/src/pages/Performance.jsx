@@ -70,7 +70,7 @@ function Performance() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#f5f7fa",
+        background: "#f8fafc",
         padding: "24px",
       }}
     >
@@ -85,7 +85,7 @@ function Performance() {
           }}
         >
           <div>
-            <h1 style={{ color: "#0073e6", fontSize: "28px", fontWeight: "800", margin: 0 }}>
+            <h1 style={{ color: "#1e293b", fontSize: "28px", fontWeight: "800", margin: 0 }}>
               Ã°Å¸â€œÅ  Performance Analytics
             </h1>
             <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
@@ -143,7 +143,7 @@ function Performance() {
             marginBottom: "24px",
           }}
         >
-          <h2 style={{ color: "#0073e6", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
+          <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
             Ã°Å¸â€œË† Overall Statistics
           </h2>
           <div
@@ -185,7 +185,7 @@ function Performance() {
             marginBottom: "24px",
           }}
         >
-          <h2 style={{ color: "#0073e6", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
+          <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
             Ã°Å¸â€œâ€¹ All Test Results
           </h2>
           {loading ? (
@@ -230,13 +230,13 @@ function Performance() {
                       onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
                       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
-                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#334155", fontSize: "13px" }}>
                         {record.date}
                       </td>
-                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#334155", fontSize: "13px" }}>
                         {record.topic}
                       </td>
-                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#334155", fontSize: "13px" }}>
                         <span style={{
                           padding: "4px 8px",
                           borderRadius: "4px",
@@ -261,7 +261,7 @@ function Performance() {
                           {record.score}%
                         </span>
                       </td>
-                      <td style={{ padding: "12px", color: "#0073e6", fontSize: "13px" }}>
+                      <td style={{ padding: "12px", color: "#334155", fontSize: "13px" }}>
                         {record.timeSpent}
                       </td>
                       <td style={{ padding: "12px", fontSize: "13px" }}>
@@ -284,7 +284,7 @@ function Performance() {
             boxShadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
           }}
         >
-          <h2 style={{ color: "#0073e6", marginBottom: "12px", fontSize: "20px", fontWeight: "700" }}>
+          <h2 style={{ color: "#1e293b", marginBottom: "12px", fontSize: "20px", fontWeight: "700" }}>
             Ã°Å¸â€œÅ  Score Trend
           </h2>
           {performanceData.length === 0 ? (

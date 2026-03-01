@@ -1,7 +1,7 @@
 /* Page layout */
 .signup-page {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -101,8 +101,8 @@
 }
 
 .signup-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px rgba(0, 115, 230, 0.35);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 115, 230, 0.3);
 }
 
 .signup-button:disabled {
