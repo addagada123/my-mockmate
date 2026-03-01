@@ -21,14 +21,11 @@ from typing import Literal, Optional
 load_dotenv()
 
 # --- LLM Factory ---
-def get_llm():
-    """Return an LLM based on environment configuration."""
-    provider = os.getenv("LLM_PROVIDER", "openai").lower()
-    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
-
-    if provider in {"openai", "gpt"}:
+def _create_llm_for_provider(provider: str, temperature: float = 0.8):
+    """Create an LLM instance for a specific provider."""
+    if provider == "openai":
         from langchain_openai import ChatOpenAI
-        model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set")
@@ -38,8 +35,14 @@ def get_llm():
             api_key=SecretStr(api_key),
             timeout=60,
         )
-
-    if provider in {"anthropic", "claude"}:
+    elif provider == "google":
+        model = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        kwargs = {"model": model, "temperature": temperature}
+        if api_key:
+            kwargs["google_api_key"] = api_key
+        return ChatGoogleGenerativeAI(**kwargs)
+    elif provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
         model = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -52,12 +55,103 @@ def get_llm():
             timeout=60,
             stop=None,
         )
+    raise RuntimeError(f"Unsupported provider: {provider}")
 
-    if provider in {"google", "gemini"}:
-        model = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
-        return ChatGoogleGenerativeAI(model=model, temperature=temperature)
 
-    raise RuntimeError(f"Unsupported LLM_PROVIDER: {provider}")
+def get_llm():
+    """Return an LLM with multi-provider fallback: OpenAI -> Gemini -> Claude."""
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
+
+    # Build ordered list of available providers
+    providers = []
+    primary = os.getenv("LLM_PROVIDER", "openai").lower()
+    if primary in {"openai", "gpt"}:
+        primary = "openai"
+    elif primary in {"google", "gemini"}:
+        primary = "google"
+    elif primary in {"anthropic", "claude"}:
+        primary = "anthropic"
+
+    # Primary first, then others
+    all_providers = ["openai", "google", "anthropic"]
+    if primary in all_providers:
+        providers.append(primary)
+    for p in all_providers:
+        if p not in providers:
+            providers.append(p)
+
+    # Filter to only providers with API keys configured
+    available = []
+    for p in providers:
+        if p == "openai" and os.getenv("OPENAI_API_KEY"):
+            available.append(p)
+        elif p == "google" and (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
+            available.append(p)
+        elif p == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
+            available.append(p)
+
+    last_error = None
+    for provider in available:
+        try:
+            llm = _create_llm_for_provider(provider, temperature)
+            print(f"[get_llm] Using provider: {provider}")
+            return llm
+        except Exception as e:
+            last_error = e
+            print(f"[get_llm] Provider {provider} init failed: {e}, trying next...")
+
+    if not available:
+        raise RuntimeError("No AI provider API keys configured (set OPENAI_API_KEY, GOOGLE_API_KEY, or ANTHROPIC_API_KEY)")
+    raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
+
+
+def call_llm_with_fallback(prompt: str) -> str:
+    """Call LLM with multi-provider fallback at invoke time. Returns raw text."""
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
+
+    providers = []
+    primary = os.getenv("LLM_PROVIDER", "openai").lower()
+    if primary in {"openai", "gpt"}:
+        primary = "openai"
+    elif primary in {"google", "gemini"}:
+        primary = "google"
+    elif primary in {"anthropic", "claude"}:
+        primary = "anthropic"
+
+    all_providers = ["openai", "google", "anthropic"]
+    if primary in all_providers:
+        providers.append(primary)
+    for p in all_providers:
+        if p not in providers:
+            providers.append(p)
+
+    available = []
+    for p in providers:
+        if p == "openai" and os.getenv("OPENAI_API_KEY"):
+            available.append(p)
+        elif p == "google" and (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
+            available.append(p)
+        elif p == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
+            available.append(p)
+
+    last_error = None
+    for provider in available:
+        try:
+            llm = _create_llm_for_provider(provider, temperature)
+            response = llm.invoke(prompt)
+            if hasattr(response, 'content'):
+                text = response.content
+            elif hasattr(response, 'text'):
+                text = response.text
+            else:
+                text = str(response)
+            print(f"[call_llm_with_fallback] Success with {provider}")
+            return text
+        except Exception as e:
+            last_error = e
+            print(f"[call_llm_with_fallback] Provider {provider} failed: {e}, trying next...")
+
+    raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
 # --- Connect to MongoDB ---
 # Prefer a full connection string in MONGO_URI. If not provided, build from parts.
@@ -703,19 +797,10 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
     # print("📝 Generating varied interview questions...")
     prompt = generate_dynamic_prompt(resume_text, skills, contexts, focus_analysis, session)
     
-    # Step 5: Call LLM with dynamic prompt
+    # Step 5: Call LLM with dynamic prompt (multi-provider fallback)
     llm_text = None  # Initialize to avoid unbound variable error
     try:
-        llm = get_llm()  # Provider-selected model for variety
-        response = llm.invoke(prompt)
-
-        # Normalize LLM text content
-        if hasattr(response, 'content'):
-            llm_text = response.content
-        elif hasattr(response, 'text'):
-            llm_text = response.text
-        else:
-            llm_text = str(response)
+        llm_text = call_llm_with_fallback(prompt)
 
         # print(f"\n🎯 Session {session.session_id} - Interview Questions Generated")
         # print("="*60)

@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 import shutil
 import json as json_mod
+import hashlib
 import openai  # type: ignore
 from endeavor_rag_service import (
     interview_rag_pipeline,
@@ -22,6 +23,133 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# --- Multi-Provider AI Fallback & JSON Helpers ---
+
+def parse_json_response(raw_text: str) -> Optional[dict]:
+    """Parse JSON from LLM response, handling markdown fences and raw text."""
+    if not raw_text:
+        return None
+    try:
+        return json_mod.loads(raw_text)
+    except Exception:
+        pass
+    import re
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
+    if m:
+        try:
+            return json_mod.loads(m.group(1))
+        except Exception:
+            pass
+    start = raw_text.find("{")
+    end = raw_text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json_mod.loads(raw_text[start:end + 1])
+        except Exception:
+            pass
+    return None
+
+
+async def call_ai_with_fallback(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.7,
+    max_tokens: int = 4000,
+) -> tuple:
+    """
+    Call AI with multi-provider fallback: OpenAI -> Gemini -> Claude.
+    Returns (raw_text: str, provider: str).
+    Raises HTTPException(503) if all providers fail.
+    """
+    errors = []
+
+    # --- 1. Try OpenAI ---
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            client = openai.OpenAI(api_key=openai_key)
+            resp = await run_in_threadpool(
+                lambda: client.chat.completions.create(
+                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            )
+            raw = resp.choices[0].message.content or ""
+            logger.info("AI response from OpenAI")
+            return raw, "openai"
+        except (openai.RateLimitError, openai.AuthenticationError) as e:
+            errors.append(f"OpenAI: {type(e).__name__}")
+            logger.warning(f"OpenAI failed ({type(e).__name__}), trying fallback...")
+        except Exception as e:
+            errors.append(f"OpenAI: {str(e)[:80]}")
+            logger.warning(f"OpenAI error, trying fallback: {e}")
+
+    # --- 2. Try Google Gemini ---
+    google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if google_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=google_key)
+            model_name = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+            sys_instruction = next(
+                (m["content"] for m in messages if m["role"] == "system"), None
+            )
+            model = genai.GenerativeModel(model_name, system_instruction=sys_instruction)
+            prompt_text = "\n\n".join(
+                m["content"] for m in messages if m["role"] != "system"
+            )
+            resp = await run_in_threadpool(
+                lambda: model.generate_content(
+                    prompt_text,
+                    generation_config={"temperature": temperature, "max_output_tokens": max_tokens},
+                )
+            )
+            raw = resp.text or ""
+            logger.info("AI response from Gemini")
+            return raw, "gemini"
+        except Exception as e:
+            errors.append(f"Gemini: {str(e)[:80]}")
+            logger.warning(f"Gemini failed, trying fallback: {e}")
+
+    # --- 3. Try Anthropic Claude ---
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        try:
+            import anthropic
+            acl = anthropic.Anthropic(api_key=anthropic_key)
+            sys_msg = next(
+                (m["content"] for m in messages if m["role"] == "system"), ""
+            )
+            user_msgs = [
+                {"role": m["role"], "content": m["content"]}
+                for m in messages if m["role"] != "system"
+            ]
+            resp = await run_in_threadpool(
+                lambda: acl.messages.create(
+                    model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
+                    max_tokens=max_tokens,
+                    system=sys_msg,
+                    messages=user_msgs,
+                )
+            )
+            raw = resp.content[0].text or ""
+            logger.info("AI response from Anthropic Claude")
+            return raw, "anthropic"
+        except Exception as e:
+            errors.append(f"Anthropic: {str(e)[:80]}")
+            logger.warning(f"Anthropic failed: {e}")
+
+    # All providers failed
+    error_summary = "; ".join(errors) if errors else "No AI API keys configured"
+    logger.error(f"All AI providers failed: {error_summary}")
+    raise HTTPException(
+        status_code=503,
+        detail=f"All AI services are currently unavailable. Please try again later."
+    )
+
 
 def _get_top_topics(questions: List[Dict[str, Any]], fallback: List[str], limit: int = 5) -> List[str]:
     # 1. Collect topics from questions
@@ -295,6 +423,70 @@ async def upload_resume(
             shutil.copyfileobj(file.file, buffer)
         
         logger.info(f"Resume uploaded: {file_path}")
+
+        # --- Per-user resume question caching ---
+        # Compute hash of resume PDF to detect duplicate uploads
+        with open(file_path, "rb") as f:
+            resume_hash = hashlib.sha256(f.read()).hexdigest()
+
+        db = get_db()
+
+        # Check if we already have questions for this exact resume
+        cached_resume = db.resume_question_cache.find_one({
+            "resume_hash": resume_hash,
+        })
+
+        if cached_resume:
+            logger.info(f"Resume cache HIT for hash={resume_hash[:12]}... (user={current_user['id']})")
+            questions = cached_resume.get("questions", [])
+            limited_topics = cached_resume.get("skills", [])
+            all_skills = cached_resume.get("all_skills", [])
+            experience = cached_resume.get("experience", "")
+            question_version = cached_resume.get("questionVersion", 3)
+            questions_source = cached_resume.get("questionsSource", "cached-resume")
+
+            # Increment cache hit counter
+            db.resume_question_cache.update_one(
+                {"_id": cached_resume["_id"]},
+                {"$set": {"times_served": cached_resume.get("times_served", 0) + 1}}
+            )
+
+            # Create a new session from cached data
+            session_data = {
+                "user_id": current_user["id"],
+                "username": current_user["username"],
+                "resume_file": file.filename,
+                "resume_path": file_path,
+                "resume_hash": resume_hash,
+                "skills": limited_topics,
+                "all_skills": all_skills,
+                "experience": experience,
+                "questions": questions,
+                "questionVersion": question_version,
+                "questionsSource": "cached-resume",
+                "created_at": datetime.now(),
+                "status": "in_progress"
+            }
+            session_result = db.user_sessions.insert_one(session_data)
+            session_id = str(session_result.inserted_id)
+
+            logger.info(f"Session created from cache: {session_id} with {len(questions)} questions")
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "skills": limited_topics,
+                "topicsDetected": limited_topics,
+                "all_skills": all_skills,
+                "experience": experience,
+                "questions": questions,
+                "questionVersion": question_version,
+                "questionsSource": "cached-resume",
+                "message": f"Loaded {len(questions)} questions from cache (instant!)"
+            }
+
+        # --- Cache MISS: generate questions via AI pipeline ---
+        logger.info(f"Resume cache MISS for hash={resume_hash[:12]}..., generating via AI pipeline")
         
         # Generate questions using interview_rag_pipeline off the main thread
         try:
@@ -336,13 +528,30 @@ async def upload_resume(
             # Limit topics to top 4-5 for focused practice
             limited_topics = _get_top_topics(questions, result.get("skills", []), limit=5)
 
+            # --- Store in resume question cache for future reuse ---
+            try:
+                db.resume_question_cache.insert_one({
+                    "resume_hash": resume_hash,
+                    "skills": limited_topics,
+                    "all_skills": result.get("skills", []),
+                    "experience": result.get("experience", ""),
+                    "questions": questions,
+                    "questionVersion": result.get("questionVersion", 3),
+                    "questionsSource": result.get("questionsSource", "resume-ai"),
+                    "created_at": datetime.now(),
+                    "times_served": 0,
+                })
+                logger.info(f"Resume questions cached for hash={resume_hash[:12]}...")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache resume questions: {cache_err}")
+
             # Create session in MongoDB
-            db = get_db()
             session_data = {
                 "user_id": current_user["id"],
                 "username": current_user["username"],
                 "resume_file": file.filename,
                 "resume_path": file_path,
+                "resume_hash": resume_hash,
                 "skills": limited_topics,
                 "all_skills": result.get("skills", []),
                 "experience": result.get("experience", ""),
@@ -859,11 +1068,6 @@ async def seed_comm_pool(
     if not admin_key or admin_key != expected_key:
         raise HTTPException(status_code=403, detail="Invalid admin key")
 
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
-
-    client = openai.OpenAI(api_key=openai_key)
     db = get_db()
     difficulties = [difficulty] if difficulty else ["easy", "medium", "hard"]
     results = {"generated": 0, "failed": 0, "details": []}
@@ -885,37 +1089,15 @@ Return ONLY valid JSON with "passage" and "sections" keys. Each question has: id
     for diff in difficulties:
         for i in range(count):
             try:
-                resp = await run_in_threadpool(
-                    lambda d=diff: client.chat.completions.create(
-                        model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                        messages=[
-                            {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
-                            {"role": "user", "content": comm_test_prompt.format(difficulty=d.capitalize())},
-                        ],
-                        temperature=0.9,
-                        max_tokens=4000,
-                    )
+                raw, provider = await call_ai_with_fallback(
+                    messages=[
+                        {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                        {"role": "user", "content": comm_test_prompt.format(difficulty=diff.capitalize())},
+                    ],
+                    temperature=0.9,
+                    max_tokens=4000,
                 )
-                raw = resp.choices[0].message.content or ""
-                parsed = None
-                try:
-                    parsed = json_mod.loads(raw)
-                except Exception:
-                    import re
-                    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.S)
-                    if m:
-                        try:
-                            parsed = json_mod.loads(m.group(1))
-                        except Exception:
-                            pass
-                    if not parsed:
-                        start = raw.find("{")
-                        end = raw.rfind("}")
-                        if start != -1 and end > start:
-                            try:
-                                parsed = json_mod.loads(raw[start:end + 1])
-                            except Exception:
-                                pass
+                parsed = parse_json_response(raw)
 
                 if parsed and "sections" in parsed:
                     db.comm_test_pool.insert_one({
@@ -1003,13 +1185,8 @@ async def generate_comm_test(
                 "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
             }
 
-        # --- Fallback: generate live via GPT ---
-        logger.info(f"No cached tests for difficulty={difficulty}, falling back to live GPT")
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
-
-        client = openai.OpenAI(api_key=openai_key)
+        # --- Fallback: generate live via AI (multi-provider fallback) ---
+        logger.info(f"No cached tests for difficulty={difficulty}, falling back to live AI")
         difficulty = (payload.difficulty or "medium").capitalize()
 
         prompt = f"""You are an expert corporate communication assessment designer used by top companies like TCS, Infosys, Wipro, Cognizant, and Accenture for hiring.
@@ -1120,46 +1297,22 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
   ]
 }}"""
 
-        gpt_response = await run_in_threadpool(
-            lambda: client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                messages=[
-                    {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=4000,
-            )
+        raw_text, provider = await call_ai_with_fallback(
+            messages=[
+                {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=4000,
         )
 
-        raw_text = gpt_response.choices[0].message.content or ""
-
-        # Parse JSON
-        parsed = None
-        try:
-            parsed = json_mod.loads(raw_text)
-        except Exception:
-            import re
-            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
-            if m:
-                try:
-                    parsed = json_mod.loads(m.group(1))
-                except Exception:
-                    pass
-            if not parsed:
-                start = raw_text.find("{")
-                end = raw_text.rfind("}")
-                if start != -1 and end > start:
-                    try:
-                        parsed = json_mod.loads(raw_text[start:end + 1])
-                    except Exception:
-                        pass
+        parsed = parse_json_response(raw_text)
 
         if not parsed or "sections" not in parsed:
-            logger.error(f"GPT comm test parse fail: {raw_text[:500]}")
+            logger.error(f"AI comm test parse fail ({provider}): {raw_text[:500]}")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
-        # Store in DB for later scoring (GPT-generated)
+        # Store in DB for later scoring
         comm_session = {
             "user_id": current_user["id"],
             "type": "communication_test",
@@ -1167,7 +1320,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
             "test_data": parsed,
             "created_at": datetime.now(),
             "status": "in_progress",
-            "source": "gpt_live",
+            "source": provider,
         }
         result = db.user_sessions.insert_one(comm_session)
         session_id = str(result.inserted_id)
@@ -1183,12 +1336,6 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 
     except HTTPException:
         raise
-    except openai.RateLimitError as e:
-        logger.error(f"OpenAI rate limit/quota error: {str(e)}")
-        raise HTTPException(status_code=503, detail="AI service temporarily unavailable due to high demand. Please try again in a few minutes.")
-    except openai.AuthenticationError as e:
-        logger.error(f"OpenAI auth error: {str(e)}")
-        raise HTTPException(status_code=503, detail="AI service configuration error. Please contact support.")
     except Exception as e:
         logger.error(f"Comm test generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate communication test: {str(e)}")
@@ -1246,13 +1393,10 @@ async def submit_comm_test(
             else:
                 open_ended_to_grade.append(ans)
 
-        # Grade open-ended with GPT
+        # Grade open-ended with AI (multi-provider fallback)
         if open_ended_to_grade:
-            openai_key = os.getenv("OPENAI_API_KEY")
-            if openai_key:
-                client = openai.OpenAI(api_key=openai_key)
-                for ans in open_ended_to_grade:
-                    grading_prompt = f"""Grade this communication test answer on a scale of 0-100.
+            for ans in open_ended_to_grade:
+                grading_prompt = f"""Grade this communication test answer on a scale of 0-100.
 
 Question: {ans.get('question')}
 Ideal Answer: {ans.get('correct_answer')}
@@ -1260,47 +1404,40 @@ Student Answer: {ans.get('user_answer')}
 
 Evaluate on: clarity, professionalism, grammar, relevance, and completeness.
 Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
-                    try:
-                        grade_resp = await run_in_threadpool(
-                            lambda p=grading_prompt: client.chat.completions.create(
-                                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                                messages=[{"role": "user", "content": p}],
-                                temperature=0.3,
-                                max_tokens=200,
-                            )
-                        )
-                        grade_text = grade_resp.choices[0].message.content or ""
-                        try:
-                            grade_data = json_mod.loads(grade_text)
-                        except Exception:
-                            start = grade_text.find("{")
-                            end = grade_text.rfind("}")
-                            grade_data = json_mod.loads(grade_text[start:end+1]) if start != -1 else {"score": 50, "feedback": "Could not parse grade"}
+                try:
+                    grade_text, _provider = await call_ai_with_fallback(
+                        messages=[{"role": "user", "content": grading_prompt}],
+                        temperature=0.3,
+                        max_tokens=200,
+                    )
+                    grade_data = parse_json_response(grade_text)
+                    if not grade_data:
+                        grade_data = {"score": 50, "feedback": "Could not parse grade"}
 
-                        score = min(100, max(0, int(grade_data.get("score", 50))))
-                        total_score += score
-                        evaluated.append({
-                            "question_id": ans.get("question_id"),
-                            "section": ans.get("section"),
-                            "question": ans.get("question"),
-                            "user_answer": ans.get("user_answer"),
-                            "correct_answer": ans.get("correct_answer"),
-                            "score": score,
-                            "feedback": grade_data.get("feedback", ""),
-                            "type": "open",
-                        })
-                    except Exception as ge:
-                        logger.warning(f"GPT grading error: {ge}")
-                        total_score += 50
-                        evaluated.append({
-                            "question_id": ans.get("question_id"),
-                            "section": ans.get("section"),
-                            "question": ans.get("question"),
-                            "user_answer": ans.get("user_answer"),
-                            "score": 50,
-                            "feedback": "Auto-graded (GPT unavailable)",
-                            "type": "open",
-                        })
+                    score = min(100, max(0, int(grade_data.get("score", 50))))
+                    total_score += score
+                    evaluated.append({
+                        "question_id": ans.get("question_id"),
+                        "section": ans.get("section"),
+                        "question": ans.get("question"),
+                        "user_answer": ans.get("user_answer"),
+                        "correct_answer": ans.get("correct_answer"),
+                        "score": score,
+                        "feedback": grade_data.get("feedback", ""),
+                        "type": "open",
+                    })
+                except Exception as ge:
+                    logger.warning(f"AI grading error: {ge}")
+                    total_score += 50
+                    evaluated.append({
+                        "question_id": ans.get("question_id"),
+                        "section": ans.get("section"),
+                        "question": ans.get("question"),
+                        "user_answer": ans.get("user_answer"),
+                        "score": 50,
+                        "feedback": "Auto-graded (AI unavailable)",
+                        "type": "open",
+                    })
 
         max_score = total_questions * 100
         percentage = round((total_score / max_score * 100), 2) if max_score > 0 else 0
@@ -1345,9 +1482,6 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
 
     except HTTPException:
         raise
-    except openai.RateLimitError as e:
-        logger.error(f"OpenAI rate limit/quota error during grading: {str(e)}")
-        raise HTTPException(status_code=503, detail="AI grading service temporarily unavailable. Please try again in a few minutes.")
     except Exception as e:
         logger.error(f"Comm test submit error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to submit comm test: {str(e)}")
@@ -1424,13 +1558,7 @@ async def communication_feedback(
             sum(s.get("percentage", 0) for s in comm_sessions) / len(comm_sessions), 1
         )
 
-        # Build GPT prompt
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
-
-        client = openai.OpenAI(api_key=openai_key)
-
+        # Build AI prompt
         open_answers_text = ""
         for oa in all_open_answers[:12]:
             open_answers_text += f"\n- Section: {oa['section']}, Q: {oa['question'][:100]}, Answer: {oa['answer'][:200]}, Score: {oa['score']}/100, Feedback: {oa['feedback']}"
@@ -1512,43 +1640,19 @@ Generate a comprehensive feedback report in ONLY valid JSON (no markdown, no exp
   ]
 }}"""
 
-        gpt_response = await run_in_threadpool(
-            lambda: client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                messages=[
-                    {"role": "system", "content": "You are a corporate communication coach. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.6,
-                max_tokens=3000,
-            )
+        raw_text, provider = await call_ai_with_fallback(
+            messages=[
+                {"role": "system", "content": "You are a corporate communication coach. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.6,
+            max_tokens=3000,
         )
 
-        raw_text = gpt_response.choices[0].message.content or ""
-
-        # Parse JSON
-        parsed = None
-        try:
-            parsed = json_mod.loads(raw_text)
-        except Exception:
-            import re
-            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
-            if m:
-                try:
-                    parsed = json_mod.loads(m.group(1))
-                except Exception:
-                    pass
-            if not parsed:
-                start = raw_text.find("{")
-                end = raw_text.rfind("}")
-                if start != -1 and end > start:
-                    try:
-                        parsed = json_mod.loads(raw_text[start:end + 1])
-                    except Exception:
-                        pass
+        parsed = parse_json_response(raw_text)
 
         if not parsed:
-            logger.error(f"GPT feedback parse fail: {raw_text[:500]}")
+            logger.error(f"AI feedback parse fail ({provider}): {raw_text[:500]}")
             raise HTTPException(status_code=500, detail="Failed to generate feedback report")
 
         return {
@@ -1562,9 +1666,6 @@ Generate a comprehensive feedback report in ONLY valid JSON (no markdown, no exp
 
     except HTTPException:
         raise
-    except openai.RateLimitError as e:
-        logger.error(f"OpenAI rate limit/quota error: {str(e)}")
-        raise HTTPException(status_code=503, detail="AI service temporarily unavailable due to high demand. Please try again in a few minutes.")
     except Exception as e:
         logger.error(f"Communication feedback error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate feedback: {str(e)}")
@@ -1610,13 +1711,7 @@ async def recommend_jobs(
             except Exception as pdf_err:
                 logger.warning(f"Could not read resume PDF for university extraction: {pdf_err}")
 
-        # --- Call GPT to generate real-time India-based job recommendations ---
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
-
-        client = openai.OpenAI(api_key=openai_key)
-
+        # --- Call AI for real-time India-based job recommendations ---
         skills_str = ", ".join(user_skills[:20])  # cap to avoid token overflow
 
         # Trim resume text for the prompt (first 2000 chars is enough for education)
@@ -1665,45 +1760,20 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
   ]
 }}"""
 
-        gpt_response = await run_in_threadpool(
-            lambda: client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                messages=[
-                    {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=3000,
-            )
+        raw_text, provider = await call_ai_with_fallback(
+            messages=[
+                {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=3000,
         )
 
-        raw_text = gpt_response.choices[0].message.content or ""
-
-        # Parse JSON from GPT response
-        parsed = None
-        try:
-            parsed = json_mod.loads(raw_text)
-        except Exception:
-            # Try extracting JSON from markdown fences
-            import re
-            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
-            if m:
-                try:
-                    parsed = json_mod.loads(m.group(1))
-                except Exception:
-                    pass
-            if not parsed:
-                start = raw_text.find("{")
-                end = raw_text.rfind("}")
-                if start != -1 and end > start:
-                    try:
-                        parsed = json_mod.loads(raw_text[start:end + 1])
-                    except Exception:
-                        pass
+        parsed = parse_json_response(raw_text)
 
         if not parsed or "jobs" not in parsed:
-            logger.error(f"GPT job response could not be parsed: {raw_text[:500]}")
-            raise HTTPException(status_code=500, detail="Failed to parse job recommendations from GPT")
+            logger.error(f"AI job response parse fail ({provider}): {raw_text[:500]}")
+            raise HTTPException(status_code=500, detail="Failed to parse job recommendations")
 
         jobs = parsed.get("jobs", [])
         university = parsed.get("university", "Not detected")
@@ -1729,9 +1799,6 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
 
     except HTTPException:
         raise
-    except openai.RateLimitError as e:
-        logger.error(f"OpenAI rate limit/quota error: {str(e)}")
-        raise HTTPException(status_code=503, detail="AI service temporarily unavailable due to high demand. Please try again in a few minutes.")
     except Exception as e:
         logger.error(f"Job recommendation error: {str(e)}")
         raise HTTPException(

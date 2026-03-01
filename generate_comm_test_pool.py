@@ -156,7 +156,7 @@ def generate_one_test(client: openai.OpenAI, difficulty: str) -> dict | None:
     prompt = PROMPT_TEMPLATE.format(difficulty=difficulty.capitalize())
     try:
         resp = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             messages=[
                 {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
                 {"role": "user", "content": prompt},
