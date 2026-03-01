@@ -844,17 +844,167 @@ async def get_performance(
 
 # ========== COMMUNICATION TEST ENDPOINTS ==========
 
+@app.post("/admin/seed-comm-pool")
+async def seed_comm_pool(
+    count: int = 3,
+    difficulty: Optional[str] = None,
+    admin_key: Optional[str] = None,
+):
+    """
+    Admin endpoint to pre-generate communication tests and store in the pool.
+    Requires ADMIN_KEY query param matching the env var (or OPENAI_API_KEY prefix).
+    Usage: POST /admin/seed-comm-pool?count=5&difficulty=medium&admin_key=YOUR_KEY
+    """
+    expected_key = os.getenv("ADMIN_KEY") or (os.getenv("OPENAI_API_KEY") or "")[:20]
+    if not admin_key or admin_key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+    client = openai.OpenAI(api_key=openai_key)
+    db = get_db()
+    difficulties = [difficulty] if difficulty else ["easy", "medium", "hard"]
+    results = {"generated": 0, "failed": 0, "details": []}
+
+    comm_test_prompt = """You are an expert corporate communication assessment designer used by top companies like TCS, Infosys, Wipro, Cognizant, and Accenture for hiring.
+
+Generate a complete Communication Skills Test at {difficulty} difficulty level.
+
+The test MUST contain exactly 15 questions divided into these 5 sections (3 questions each):
+
+**Section 1: Reading Comprehension** - Provide a short professional passage (80-120 words). Ask 3 MCQ questions with 4 options each.
+**Section 2: Email / Business Writing** - Give a workplace scenario. 2 MCQ + 1 open-ended writing question.
+**Section 3: Grammar & Vocabulary** - 3 MCQ questions (sentence correction, fill-in-blank, error identification).
+**Section 4: Situational Communication** - 3 workplace scenario MCQs with professional response options.
+**Section 5: Spoken English Prompt** - 3 open-ended speaking/typing prompts.
+
+Return ONLY valid JSON with "passage" and "sections" keys. Each question has: id, question, options (for MCQ), correct_answer, explanation, type (mcq/open)."""
+
+    for diff in difficulties:
+        for i in range(count):
+            try:
+                resp = await run_in_threadpool(
+                    lambda d=diff: client.chat.completions.create(
+                        model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                        messages=[
+                            {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                            {"role": "user", "content": comm_test_prompt.format(difficulty=d.capitalize())},
+                        ],
+                        temperature=0.9,
+                        max_tokens=4000,
+                    )
+                )
+                raw = resp.choices[0].message.content or ""
+                parsed = None
+                try:
+                    parsed = json_mod.loads(raw)
+                except Exception:
+                    import re
+                    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.S)
+                    if m:
+                        try:
+                            parsed = json_mod.loads(m.group(1))
+                        except Exception:
+                            pass
+                    if not parsed:
+                        start = raw.find("{")
+                        end = raw.rfind("}")
+                        if start != -1 and end > start:
+                            try:
+                                parsed = json_mod.loads(raw[start:end + 1])
+                            except Exception:
+                                pass
+
+                if parsed and "sections" in parsed:
+                    db.comm_test_pool.insert_one({
+                        "difficulty": diff,
+                        "test_data": parsed,
+                        "created_at": datetime.now(),
+                        "times_served": 0,
+                    })
+                    results["generated"] += 1
+                    results["details"].append(f"{diff} #{i+1}: OK")
+                else:
+                    results["failed"] += 1
+                    results["details"].append(f"{diff} #{i+1}: parse failed")
+            except Exception as e:
+                results["failed"] += 1
+                results["details"].append(f"{diff} #{i+1}: {str(e)[:100]}")
+
+    # Pool status
+    pool_status = {}
+    for d in ["easy", "medium", "hard"]:
+        pool_status[d] = db.comm_test_pool.count_documents({"difficulty": d})
+
+    return {"success": True, "results": results, "pool_status": pool_status}
+
+
+@app.get("/admin/comm-pool-status")
+async def comm_pool_status():
+    """Public endpoint to check the communication test pool size."""
+    db = get_db()
+    status = {}
+    for d in ["easy", "medium", "hard"]:
+        status[d] = db.comm_test_pool.count_documents({"difficulty": d})
+    return {"pool": status, "total": sum(status.values())}
+
+
 @app.post("/generate-comm-test")
 async def generate_comm_test(
     payload: CommTestRequest,
     current_user: Dict = Depends(get_current_user)
 ):
     """
-    Generate a corporate-style communication test using GPT.
-    No resume required. Sections: Reading Comprehension, Email Writing,
-    Grammar & Vocabulary, Situational Communication, Spoken English prompts.
+    Generate a corporate-style communication test.
+    First tries to serve a pre-generated test from the cache pool (zero GPT cost).
+    Falls back to live GPT generation only if the pool is empty.
     """
     try:
+        db = get_db()
+        difficulty = (payload.difficulty or "medium").strip().lower()
+
+        # --- Try cached pool first ---
+        cached_test = db.comm_test_pool.find_one(
+            {"difficulty": difficulty},
+            sort=[("times_served", 1)],  # least-served first for variety
+        )
+
+        if cached_test and "test_data" in cached_test:
+            parsed = cached_test["test_data"]
+            logger.info(f"Serving cached comm test (id={cached_test.get('_id')}, difficulty={difficulty})")
+
+            # Increment times_served so we rotate through the pool
+            db.comm_test_pool.update_one(
+                {"_id": cached_test["_id"]},
+                {"$set": {"times_served": cached_test.get("times_served", 0) + 1}}
+            )
+
+            # Store session for this user
+            comm_session = {
+                "user_id": current_user["id"],
+                "type": "communication_test",
+                "difficulty": difficulty,
+                "test_data": parsed,
+                "created_at": datetime.now(),
+                "status": "in_progress",
+                "source": "cached",
+            }
+            result = db.user_sessions.insert_one(comm_session)
+            session_id = str(result.inserted_id)
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "difficulty": difficulty,
+                "passage": parsed.get("passage", ""),
+                "sections": parsed["sections"],
+                "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
+            }
+
+        # --- Fallback: generate live via GPT ---
+        logger.info(f"No cached tests for difficulty={difficulty}, falling back to live GPT")
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
@@ -1009,15 +1159,15 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
             logger.error(f"GPT comm test parse fail: {raw_text[:500]}")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
-        # Store in DB for later scoring
-        db = get_db()
+        # Store in DB for later scoring (GPT-generated)
         comm_session = {
             "user_id": current_user["id"],
             "type": "communication_test",
-            "difficulty": difficulty.lower(),
+            "difficulty": difficulty,
             "test_data": parsed,
             "created_at": datetime.now(),
             "status": "in_progress",
+            "source": "gpt_live",
         }
         result = db.user_sessions.insert_one(comm_session)
         session_id = str(result.inserted_id)
