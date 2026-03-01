@@ -837,112 +837,162 @@ async def recommend_jobs(
     current_user: Dict = Depends(get_current_user)
 ):
     """
-    Recommend jobs based on user skills and performance
+    Recommend real-time jobs in India using GPT, sorted by proximity to
+    the university mentioned in the candidate's resume.
     """
     try:
         db = get_db()
-        
-        # Get user's latest session to extract skills
+
+        # Get user's latest session to extract skills & resume path
         latest_session = db.user_sessions.find_one(
             {"user_id": current_user["id"]},
             sort=[("created_at", -1)]
         )
-        
+
         if not latest_session:
-            # Check if there are ANY sessions, if not, return empty
             return {
-                "success": False, 
-                "jobs": [], 
+                "success": False,
+                "jobs": [],
                 "user_skills": [],
+                "university": None,
                 "message": "No resume uploaded yet"
             }
-        
-        user_skills = set(latest_session.get("skills") or [])
-        
-        # Mock job recommendations (in production, this would query a job database)
-        all_jobs = [
-            {
-                "id": "job-1",
-                "title": "Senior Python Developer",
-                "company": "TechNova",
-                "location": "Remote",
-                "ctc_min": 1800000,
-                "ctc_max": 2800000,
-                "experience": "3-6 years",
-                "description": "Looking for an experienced Python developer",
-                "required_skills": ["Python", "Django", "REST API", "PostgreSQL"],
-            },
-            {
-                "id": "job-2",
-                "title": "Full Stack Developer",
-                "company": "StackWorks",
-                "location": "Bengaluru",
-                "ctc_min": 1200000,
-                "ctc_max": 2200000,
-                "experience": "2-5 years",
-                "description": "Full stack position with modern technologies",
-                "required_skills": ["React", "Node.js", "MongoDB", "TypeScript"],
-            },
-            {
-                "id": "job-3",
-                "title": "Data Scientist",
-                "company": "InsightLabs",
-                "location": "Hyderabad",
-                "ctc_min": 1500000,
-                "ctc_max": 2600000,
-                "experience": "2-4 years",
-                "description": "Data science role with ML focus",
-                "required_skills": ["Python", "Machine Learning", "Pandas", "TensorFlow"],
-            },
-            {
-                "id": "job-4",
-                "title": "DevOps Engineer",
-                "company": "CloudScale",
-                "location": "Pune",
-                "ctc_min": 1400000,
-                "ctc_max": 2400000,
-                "experience": "3-5 years",
-                "description": "DevOps position managing cloud infrastructure",
-                "required_skills": ["AWS", "Docker", "Kubernetes", "CI/CD"],
-            }
-        ]
-        
-        # Calculate match scores
-        recommendations = []
-        for job in all_jobs:
-            job_skills = set(job["required_skills"])
-            matching_skills = user_skills.intersection(job_skills)
-            missing_skills = job_skills.difference(user_skills)
-            match_score = len(matching_skills) / len(job_skills) if job_skills else 0
-            match_score_pct = round(match_score * 100, 2)
-            match_level = 3 if match_score_pct >= 75 else 2 if match_score_pct >= 50 else 1
 
-            recommendations.append({
-                "id": job.get("id"),
-                "title": job["title"],
-                "company": job.get("company"),
-                "location": job.get("location"),
-                "ctc_min": job.get("ctc_min"),
-                "ctc_max": job.get("ctc_max"),
-                "experience": job.get("experience"),
-                "description": job["description"],
-                "match_score": match_level,
-                "match_score_pct": match_score_pct,
-                "required_skills": job["required_skills"],
-                "matching_skills": list(matching_skills),
-                "missing_skills": list(missing_skills)
-            })
-        
-        # Sort by match score
-        recommendations.sort(key=lambda x: x["match_score"], reverse=True)
-        
+        user_skills = list(set(latest_session.get("all_skills") or latest_session.get("skills") or []))
+        resume_path = latest_session.get("resume_path", "")
+
+        # --- Extract resume text to find university ---
+        resume_text = ""
+        if resume_path and os.path.exists(resume_path):
+            try:
+                from langchain_community.document_loaders import PyPDFLoader
+                loader = PyPDFLoader(resume_path)
+                docs = loader.load()
+                resume_text = "\n".join([d.page_content for d in docs])
+            except Exception as pdf_err:
+                logger.warning(f"Could not read resume PDF for university extraction: {pdf_err}")
+
+        # --- Call GPT to generate real-time India-based job recommendations ---
+        import openai
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+        client = openai.OpenAI(api_key=openai_key)
+
+        skills_str = ", ".join(user_skills[:20])  # cap to avoid token overflow
+
+        # Trim resume text for the prompt (first 2000 chars is enough for education)
+        resume_snippet = resume_text[:2000] if resume_text else "(resume text unavailable)"
+
+        prompt = f"""You are an expert Indian tech job market analyst with real-time knowledge of current job openings in India as of today.
+
+CANDIDATE PROFILE:
+- Skills: {skills_str}
+- Resume excerpt (for university/education detection):
+\"\"\"
+{resume_snippet}
+\"\"\"
+
+TASK:
+1. First, identify the university/college the candidate attended from their resume. Output it in the "university" field. Also identify the city where that university is located in "university_city".
+2. Generate exactly 8 realistic, currently-active job openings in India that match this candidate's skill set. These should resemble real jobs that would be posted on LinkedIn, Naukri, or Indeed India right now.
+3. ALL jobs must be based in India (Indian cities only).
+4. Sort jobs by proximity to the candidate's university city:
+   - Jobs in the SAME city as the university come first
+   - Jobs in NEARBY cities come next
+   - Jobs in DISTANT cities come last
+5. Each job must include a "proximity" field: "Same City", "Nearby", or "Distant"
+6. Each job must include an "apply_url" field with a realistic job search URL (use LinkedIn job search or Naukri search URL with the job title and location).
+
+Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
+{{
+  "university": "University Name",
+  "university_city": "City Name",
+  "jobs": [
+    {{
+      "id": "job-1",
+      "title": "Job Title",
+      "company": "Real Indian Company Name",
+      "location": "Indian City",
+      "proximity": "Same City|Nearby|Distant",
+      "ctc_min": 800000,
+      "ctc_max": 1800000,
+      "experience": "0-2 years",
+      "job_type": "Full-time",
+      "description": "2-3 sentence realistic job description",
+      "required_skills": ["Skill1", "Skill2", "Skill3"],
+      "matching_skills": ["Skills that match candidate"],
+      "apply_url": "https://www.linkedin.com/jobs/search/?keywords=Job+Title&location=City"
+    }}
+  ]
+}}"""
+
+        gpt_response = await run_in_threadpool(
+            lambda: client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                messages=[
+                    {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=3000,
+            )
+        )
+
+        raw_text = gpt_response.choices[0].message.content or ""
+
+        # Parse JSON from GPT response
+        import json as json_mod
+        parsed = None
+        try:
+            parsed = json_mod.loads(raw_text)
+        except Exception:
+            # Try extracting JSON from markdown fences
+            import re
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
+            if m:
+                try:
+                    parsed = json_mod.loads(m.group(1))
+                except Exception:
+                    pass
+            if not parsed:
+                start = raw_text.find("{")
+                end = raw_text.rfind("}")
+                if start != -1 and end > start:
+                    try:
+                        parsed = json_mod.loads(raw_text[start:end + 1])
+                    except Exception:
+                        pass
+
+        if not parsed or "jobs" not in parsed:
+            logger.error(f"GPT job response could not be parsed: {raw_text[:500]}")
+            raise HTTPException(status_code=500, detail="Failed to parse job recommendations from GPT")
+
+        jobs = parsed.get("jobs", [])
+        university = parsed.get("university", "Not detected")
+        university_city = parsed.get("university_city", "Unknown")
+
+        # Add match_score levels based on matching_skills count
+        for i, job in enumerate(jobs):
+            job["id"] = job.get("id", f"job-{i+1}")
+            matching = job.get("matching_skills", [])
+            required = job.get("required_skills", [])
+            match_pct = (len(matching) / len(required) * 100) if required else 0
+            job["match_score"] = 3 if match_pct >= 75 else 2 if match_pct >= 50 else 1
+            job["match_score_pct"] = round(match_pct, 1)
+            job["missing_skills"] = [s for s in required if s not in matching]
+
         return {
             "success": True,
-            "user_skills": list(user_skills),
-            "jobs": recommendations[:5],
-            "recommendations": recommendations[:5]
+            "user_skills": user_skills,
+            "university": university,
+            "university_city": university_city,
+            "jobs": jobs,
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Job recommendation error: {str(e)}")
         raise HTTPException(
