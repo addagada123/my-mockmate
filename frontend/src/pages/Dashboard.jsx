@@ -200,7 +200,9 @@ function Dashboard() {
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: "600",
-                  color: "#0073e6", {expandedTopics ? "▼" : "▶"}
+                  color: "#0073e6",
+                }}>
+                {expandedTopics ? "▼" : "▶"} Topics
               </button>
               {expandedTopics && (
                 <div style={{ marginTop: "8px", paddingLeft: "16px" }}>

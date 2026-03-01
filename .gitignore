@@ -9,3 +9,4 @@ uvicorn.log
 node_modules/
 frontend/dist/
 *.log
+.vscode/mcp.json

@@ -561,6 +561,11 @@ const Test = () => {
             padding: "40px",
             maxWidth: "500px",
             boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
+            textAlign: "center",
+          }}
+        >
+          <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b" }}>
+            📝 Select Difficulty
           </h1>
           <p style={{ color: "#666", marginBottom: "32px", lineHeight: "1.6" }}>
             Choose your difficulty level for the <strong>{decodeURIComponent(topic)}</strong> test.
