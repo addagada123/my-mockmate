@@ -183,6 +183,14 @@ class JobRecommendation(BaseModel):
     required_skills: List[str]
     missing_skills: List[str]
 
+class CommTestRequest(BaseModel):
+    section: Optional[str] = None  # reading, email, grammar, situational, spoken
+    difficulty: Optional[str] = "medium"
+
+class CommTestSubmission(BaseModel):
+    answers: List[Dict[str, Any]]  # [{question_id, question, user_answer, correct_answer, section}]
+    time_spent: Optional[int] = None
+
 # Upload directory
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -831,6 +839,363 @@ async def get_performance(
             status_code=500,
             detail=f"Failed to fetch performance: {str(e)}"
         )
+
+# ========== COMMUNICATION TEST ENDPOINTS ==========
+
+@app.post("/generate-comm-test")
+async def generate_comm_test(
+    payload: CommTestRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Generate a corporate-style communication test using GPT.
+    No resume required. Sections: Reading Comprehension, Email Writing,
+    Grammar & Vocabulary, Situational Communication, Spoken English prompts.
+    """
+    try:
+        import openai
+        import json as json_mod
+
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+        client = openai.OpenAI(api_key=openai_key)
+        difficulty = (payload.difficulty or "medium").capitalize()
+
+        prompt = f"""You are an expert corporate communication assessment designer used by top companies like TCS, Infosys, Wipro, Cognizant, and Accenture for hiring.
+
+Generate a complete Communication Skills Test at {difficulty} difficulty level.
+
+The test MUST contain exactly 15 questions divided into these 5 sections (3 questions each):
+
+**Section 1: Reading Comprehension**
+- Provide a short professional passage (80-120 words) about a workplace/business scenario.
+- Ask 3 MCQ questions based on the passage.
+- Each question has 4 options (A, B, C, D) with one correct answer.
+
+**Section 2: Email / Business Writing**
+- Give a workplace scenario (e.g., "Write an email to your manager requesting leave").
+- Ask 3 questions: one asking to choose the best subject line (MCQ), one choosing the correct email body (MCQ), one asking the user to write a professional email response (open-ended, 3-5 sentences).
+
+**Section 3: Grammar & Vocabulary**
+- 3 MCQ questions testing: sentence correction, fill-in-the-blank with correct word, identify the error.
+- Each with 4 options.
+
+**Section 4: Situational Communication**
+- Present 3 workplace scenarios (e.g., "A client is upset about a delayed delivery. How do you respond?")
+- For each: provide 4 response options (MCQ), one is the most professional.
+
+**Section 5: Spoken English Prompt**
+- 3 open-ended questions where the candidate must speak/type a response.
+- E.g., "Introduce yourself for a job interview in 60 seconds", "Explain a technical concept to a non-technical person", "Describe how you handled a conflict at work".
+
+Return ONLY valid JSON (no markdown, no explanation) in this exact format:
+{{
+  "passage": "The reading comprehension passage text here...",
+  "sections": [
+    {{
+      "name": "Reading Comprehension",
+      "type": "mcq",
+      "questions": [
+        {{
+          "id": "rc-1",
+          "question": "Question text",
+          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+          "correct_answer": "B",
+          "explanation": "Why B is correct"
+        }}
+      ]
+    }},
+    {{
+      "name": "Email Writing",
+      "type": "mixed",
+      "scenario": "The email scenario...",
+      "questions": [
+        {{
+          "id": "ew-1",
+          "question": "Choose the best subject line",
+          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+          "correct_answer": "C",
+          "explanation": "...",
+          "type": "mcq"
+        }},
+        {{
+          "id": "ew-3",
+          "question": "Write a professional email response for this scenario",
+          "correct_answer": "A sample ideal email response",
+          "explanation": "Key elements to include",
+          "type": "open"
+        }}
+      ]
+    }},
+    {{
+      "name": "Grammar & Vocabulary",
+      "type": "mcq",
+      "questions": [
+        {{
+          "id": "gv-1",
+          "question": "...",
+          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+          "correct_answer": "A",
+          "explanation": "..."
+        }}
+      ]
+    }},
+    {{
+      "name": "Situational Communication",
+      "type": "mcq",
+      "questions": [
+        {{
+          "id": "sc-1",
+          "question": "Scenario: ... How do you respond?",
+          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+          "correct_answer": "D",
+          "explanation": "..."
+        }}
+      ]
+    }},
+    {{
+      "name": "Spoken English",
+      "type": "open",
+      "questions": [
+        {{
+          "id": "se-1",
+          "question": "Introduce yourself for a job interview in 60 seconds.",
+          "correct_answer": "A model answer covering name, background, skills, and goals",
+          "explanation": "Should be structured, confident, and professional",
+          "type": "open"
+        }}
+      ]
+    }}
+  ]
+}}"""
+
+        gpt_response = await run_in_threadpool(
+            lambda: client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                messages=[
+                    {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000,
+            )
+        )
+
+        raw_text = gpt_response.choices[0].message.content or ""
+
+        # Parse JSON
+        parsed = None
+        try:
+            parsed = json_mod.loads(raw_text)
+        except Exception:
+            import re
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
+            if m:
+                try:
+                    parsed = json_mod.loads(m.group(1))
+                except Exception:
+                    pass
+            if not parsed:
+                start = raw_text.find("{")
+                end = raw_text.rfind("}")
+                if start != -1 and end > start:
+                    try:
+                        parsed = json_mod.loads(raw_text[start:end + 1])
+                    except Exception:
+                        pass
+
+        if not parsed or "sections" not in parsed:
+            logger.error(f"GPT comm test parse fail: {raw_text[:500]}")
+            raise HTTPException(status_code=500, detail="Failed to generate communication test")
+
+        # Store in DB for later scoring
+        db = get_db()
+        comm_session = {
+            "user_id": current_user["id"],
+            "type": "communication_test",
+            "difficulty": difficulty.lower(),
+            "test_data": parsed,
+            "created_at": datetime.now(),
+            "status": "in_progress",
+        }
+        result = db.user_sessions.insert_one(comm_session)
+        session_id = str(result.inserted_id)
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "difficulty": difficulty.lower(),
+            "passage": parsed.get("passage", ""),
+            "sections": parsed["sections"],
+            "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Comm test generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate communication test: {str(e)}")
+
+
+@app.post("/submit-comm-test")
+async def submit_comm_test(
+    session_id: str,
+    submission: CommTestSubmission,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Score a communication test. MCQs auto-scored, open-ended scored by GPT.
+    """
+    try:
+        db = get_db()
+        try:
+            from bson import ObjectId
+            session_id_obj = ObjectId(session_id)
+        except Exception:
+            from backend.db.mock_mongo import MockObjectId
+            session_id_obj = MockObjectId(session_id)
+
+        session = db.user_sessions.find_one({"_id": session_id_obj})
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if session["user_id"] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        total_score = 0
+        total_questions = 0
+        evaluated = []
+        open_ended_to_grade = []
+
+        for ans in submission.answers:
+            total_questions += 1
+            q_type = ans.get("type", "mcq")
+            if q_type == "mcq":
+                # Auto-grade MCQ
+                user_choice = (ans.get("user_answer") or "").strip().upper()[:1]
+                correct = (ans.get("correct_answer") or "").strip().upper()[:1]
+                is_correct = user_choice == correct
+                score = 100 if is_correct else 0
+                total_score += score
+                evaluated.append({
+                    "question_id": ans.get("question_id"),
+                    "section": ans.get("section"),
+                    "question": ans.get("question"),
+                    "user_answer": ans.get("user_answer"),
+                    "correct_answer": ans.get("correct_answer"),
+                    "score": score,
+                    "is_correct": is_correct,
+                    "type": "mcq",
+                })
+            else:
+                open_ended_to_grade.append(ans)
+
+        # Grade open-ended with GPT
+        if open_ended_to_grade:
+            import openai
+            import json as json_mod
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if openai_key:
+                client = openai.OpenAI(api_key=openai_key)
+                for ans in open_ended_to_grade:
+                    grading_prompt = f"""Grade this communication test answer on a scale of 0-100.
+
+Question: {ans.get('question')}
+Ideal Answer: {ans.get('correct_answer')}
+Student Answer: {ans.get('user_answer')}
+
+Evaluate on: clarity, professionalism, grammar, relevance, and completeness.
+Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
+                    try:
+                        grade_resp = await run_in_threadpool(
+                            lambda p=grading_prompt: client.chat.completions.create(
+                                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                                messages=[{"role": "user", "content": p}],
+                                temperature=0.3,
+                                max_tokens=200,
+                            )
+                        )
+                        grade_text = grade_resp.choices[0].message.content or ""
+                        try:
+                            grade_data = json_mod.loads(grade_text)
+                        except Exception:
+                            start = grade_text.find("{")
+                            end = grade_text.rfind("}")
+                            grade_data = json_mod.loads(grade_text[start:end+1]) if start != -1 else {"score": 50, "feedback": "Could not parse grade"}
+
+                        score = min(100, max(0, int(grade_data.get("score", 50))))
+                        total_score += score
+                        evaluated.append({
+                            "question_id": ans.get("question_id"),
+                            "section": ans.get("section"),
+                            "question": ans.get("question"),
+                            "user_answer": ans.get("user_answer"),
+                            "correct_answer": ans.get("correct_answer"),
+                            "score": score,
+                            "feedback": grade_data.get("feedback", ""),
+                            "type": "open",
+                        })
+                    except Exception as ge:
+                        logger.warning(f"GPT grading error: {ge}")
+                        total_score += 50
+                        evaluated.append({
+                            "question_id": ans.get("question_id"),
+                            "section": ans.get("section"),
+                            "question": ans.get("question"),
+                            "user_answer": ans.get("user_answer"),
+                            "score": 50,
+                            "feedback": "Auto-graded (GPT unavailable)",
+                            "type": "open",
+                        })
+
+        max_score = total_questions * 100
+        percentage = round((total_score / max_score * 100), 2) if max_score > 0 else 0
+
+        # Section-wise breakdown
+        section_scores = {}
+        for ev in evaluated:
+            sec = ev.get("section", "Unknown")
+            if sec not in section_scores:
+                section_scores[sec] = {"total": 0, "count": 0}
+            section_scores[sec]["total"] += ev["score"]
+            section_scores[sec]["count"] += 1
+        for sec in section_scores:
+            section_scores[sec]["percentage"] = round(
+                section_scores[sec]["total"] / (section_scores[sec]["count"] * 100) * 100, 1
+            )
+
+        # Update DB
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {"$set": {
+                "status": "completed",
+                "completed_at": datetime.now(),
+                "total_score": total_score,
+                "max_score": max_score,
+                "percentage": percentage,
+                "evaluated_answers": evaluated,
+                "section_scores": section_scores,
+                "time_spent": submission.time_spent,
+                "topic": "Communication Skills",
+            }}
+        )
+
+        return {
+            "success": True,
+            "percentage": percentage,
+            "total_score": total_score,
+            "max_score": max_score,
+            "section_scores": section_scores,
+            "evaluated_answers": evaluated,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Comm test submit error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit comm test: {str(e)}")
+
 
 @app.get("/recommend-jobs")
 async def recommend_jobs(
