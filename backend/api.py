@@ -1033,6 +1033,12 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 
     except HTTPException:
         raise
+    except openai.RateLimitError as e:
+        logger.error(f"OpenAI rate limit/quota error: {str(e)}")
+        raise HTTPException(status_code=503, detail="AI service temporarily unavailable due to high demand. Please try again in a few minutes.")
+    except openai.AuthenticationError as e:
+        logger.error(f"OpenAI auth error: {str(e)}")
+        raise HTTPException(status_code=503, detail="AI service configuration error. Please contact support.")
     except Exception as e:
         logger.error(f"Comm test generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate communication test: {str(e)}")
@@ -1189,6 +1195,9 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
 
     except HTTPException:
         raise
+    except openai.RateLimitError as e:
+        logger.error(f"OpenAI rate limit/quota error during grading: {str(e)}")
+        raise HTTPException(status_code=503, detail="AI grading service temporarily unavailable. Please try again in a few minutes.")
     except Exception as e:
         logger.error(f"Comm test submit error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to submit comm test: {str(e)}")
@@ -1403,6 +1412,9 @@ Generate a comprehensive feedback report in ONLY valid JSON (no markdown, no exp
 
     except HTTPException:
         raise
+    except openai.RateLimitError as e:
+        logger.error(f"OpenAI rate limit/quota error: {str(e)}")
+        raise HTTPException(status_code=503, detail="AI service temporarily unavailable due to high demand. Please try again in a few minutes.")
     except Exception as e:
         logger.error(f"Communication feedback error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate feedback: {str(e)}")
@@ -1567,6 +1579,9 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
 
     except HTTPException:
         raise
+    except openai.RateLimitError as e:
+        logger.error(f"OpenAI rate limit/quota error: {str(e)}")
+        raise HTTPException(status_code=503, detail="AI service temporarily unavailable due to high demand. Please try again in a few minutes.")
     except Exception as e:
         logger.error(f"Job recommendation error: {str(e)}")
         raise HTTPException(
