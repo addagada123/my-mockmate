@@ -15,6 +15,12 @@ function Performance() {
   ]);
   const [loading, setLoading] = useState(true);
 
+  // Communication feedback state
+  const [commReport, setCommReport] = useState(null);
+  const [commLoading, setCommLoading] = useState(false);
+  const [commError, setCommError] = useState("");
+  const [activeTab, setActiveTab] = useState("overview"); // overview | comm-report
+
   // Fetch performance data on mount
   useEffect(() => {
     const fetchPerformance = async () => {
@@ -65,6 +71,42 @@ function Performance() {
 
     fetchPerformance();
   }, []);
+
+  const fetchCommFeedback = async () => {
+    setCommLoading(true);
+    setCommError("");
+    try {
+      const token = localStorage.getItem("mockmate_token");
+      const resp = await axios.get(`${API_BASE}/communication-feedback`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (resp.data.success) {
+        setCommReport(resp.data);
+      }
+    } catch (err) {
+      setCommError(err.response?.data?.detail || "Failed to load feedback report.");
+    } finally {
+      setCommLoading(false);
+    }
+  };
+
+  const ratingColor = (rating) => {
+    if (!rating) return "#64748b";
+    const r = rating.toLowerCase();
+    if (r === "excellent") return "#059669";
+    if (r === "good") return "#0073e6";
+    if (r === "average") return "#d97706";
+    return "#dc2626";
+  };
+
+  const ratingBg = (rating) => {
+    if (!rating) return "#f1f5f9";
+    const r = rating.toLowerCase();
+    if (r === "excellent") return "#d1fae5";
+    if (r === "good") return "#dbeafe";
+    if (r === "average") return "#fef3c7";
+    return "#fee2e2";
+  };
 
   return (
     <div
@@ -133,6 +175,51 @@ function Performance() {
           </div>
         </div>
 
+        {/* Tab Navigation */}
+        <div
+          style={{
+            display: "flex",
+            gap: "0",
+            marginBottom: "24px",
+            background: "white",
+            borderRadius: "12px",
+            padding: "4px",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+          }}
+        >
+          {[
+            { key: "overview", label: "Test Overview" },
+            { key: "comm-report", label: "Communication Feedback Report" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setActiveTab(tab.key);
+                if (tab.key === "comm-report" && !commReport && !commLoading) {
+                  fetchCommFeedback();
+                }
+              }}
+              style={{
+                flex: 1,
+                padding: "12px 20px",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: "600",
+                fontSize: "14px",
+                cursor: "pointer",
+                transition: "all 0.3s ease",
+                background: activeTab === tab.key ? "#0073e6" : "transparent",
+                color: activeTab === tab.key ? "white" : "#64748b",
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ===== TAB: Overview ===== */}
+        {activeTab === "overview" && (
+          <>
         {/* Overall Statistics */}
         <div
           style={{
@@ -368,6 +455,328 @@ function Performance() {
             })()
           )}
         </div>
+          </>
+        )}
+
+        {/* ===== TAB: Communication Feedback Report ===== */}
+        {activeTab === "comm-report" && (
+          <div>
+            {commLoading && (
+              <div style={{
+                background: "white", borderRadius: "16px", padding: "60px 24px",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.08)", textAlign: "center",
+              }}>
+                <div style={{
+                  width: "48px", height: "48px", border: "4px solid #e2e8f0",
+                  borderTop: "4px solid #0073e6", borderRadius: "50%",
+                  margin: "0 auto 16px", animation: "spin 1s linear infinite",
+                }} />
+                <p style={{ color: "#334155", fontWeight: "600", fontSize: "16px" }}>
+                  Analyzing your communication skills...
+                </p>
+                <p style={{ color: "#64748b", fontSize: "13px" }}>
+                  GPT is reviewing your test results and generating personalized feedback
+                </p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+
+            {commError && (
+              <div style={{
+                background: "#fee2e2", borderRadius: "12px", padding: "20px",
+                color: "#991b1b", marginBottom: "16px",
+              }}>
+                {commError}
+                <button onClick={fetchCommFeedback} style={{
+                  marginLeft: "12px", padding: "6px 16px", background: "#dc2626",
+                  color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
+                  fontWeight: "600", fontSize: "13px",
+                }}>Retry</button>
+              </div>
+            )}
+
+            {commReport && !commReport.has_data && (
+              <div style={{
+                background: "white", borderRadius: "16px", padding: "60px 24px",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.08)", textAlign: "center",
+              }}>
+                <div style={{ fontSize: "48px", marginBottom: "16px" }}>{"\uD83D\uDCDD"}</div>
+                <h3 style={{ color: "#1e293b", marginBottom: "8px" }}>No Communication Tests Yet</h3>
+                <p style={{ color: "#64748b", marginBottom: "20px" }}>
+                  Take a communication test first to get your personalized feedback report.
+                </p>
+                <button onClick={() => navigate("/communication-test")} style={{
+                  padding: "12px 28px", background: "#0073e6", color: "white",
+                  border: "none", borderRadius: "8px", fontWeight: "600",
+                  cursor: "pointer", fontSize: "15px",
+                }}>Take Communication Test</button>
+              </div>
+            )}
+
+            {commReport && commReport.has_data && commReport.report && (() => {
+              const rpt = commReport.report;
+              return (
+                <>
+                  {/* Overall Rating Banner */}
+                  <div style={{
+                    background: "white", borderRadius: "16px", padding: "28px",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.08)", marginBottom: "20px",
+                    display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap",
+                  }}>
+                    <div style={{
+                      width: "90px", height: "90px", borderRadius: "50%",
+                      background: ratingBg(rpt.overall_rating),
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      flexShrink: 0,
+                    }}>
+                      <span style={{
+                        fontSize: "28px", fontWeight: "800",
+                        color: ratingColor(rpt.overall_rating),
+                      }}>
+                        {commReport.overall_average}%
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: "200px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "6px" }}>
+                        <h2 style={{ color: "#1e293b", fontSize: "22px", fontWeight: "800", margin: 0 }}>
+                          Communication Skills Report
+                        </h2>
+                        <span style={{
+                          padding: "4px 14px", borderRadius: "20px", fontSize: "13px",
+                          fontWeight: "700", background: ratingBg(rpt.overall_rating),
+                          color: ratingColor(rpt.overall_rating),
+                        }}>{rpt.overall_rating}</span>
+                      </div>
+                      <p style={{ color: "#334155", fontSize: "14px", lineHeight: "1.6", margin: 0 }}>
+                        {rpt.overall_summary}
+                      </p>
+                      <p style={{ color: "#64748b", fontSize: "12px", margin: "8px 0 0 0" }}>
+                        Based on {commReport.tests_analyzed} communication test{commReport.tests_analyzed > 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Strengths & Weaknesses */}
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px",
+                    marginBottom: "20px",
+                  }}>
+                    {/* Strengths */}
+                    <div style={{
+                      background: "white", borderRadius: "16px", padding: "24px",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+                      borderLeft: "4px solid #059669",
+                    }}>
+                      <h3 style={{ color: "#059669", fontSize: "16px", fontWeight: "700", margin: "0 0 16px 0" }}>
+                        {"\u2705"} Strengths
+                      </h3>
+                      {(rpt.strengths || []).map((s, i) => (
+                        <div key={i} style={{ marginBottom: "12px" }}>
+                          <p style={{ color: "#1e293b", fontWeight: "600", fontSize: "14px", margin: "0 0 2px 0" }}>
+                            {s.area}
+                          </p>
+                          <p style={{ color: "#64748b", fontSize: "13px", margin: 0, lineHeight: "1.5" }}>
+                            {s.detail}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Weaknesses */}
+                    <div style={{
+                      background: "white", borderRadius: "16px", padding: "24px",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+                      borderLeft: "4px solid #dc2626",
+                    }}>
+                      <h3 style={{ color: "#dc2626", fontSize: "16px", fontWeight: "700", margin: "0 0 16px 0" }}>
+                        {"\u26A0\uFE0F"} Areas to Improve
+                      </h3>
+                      {(rpt.weaknesses || []).map((w, i) => (
+                        <div key={i} style={{ marginBottom: "12px" }}>
+                          <p style={{ color: "#1e293b", fontWeight: "600", fontSize: "14px", margin: "0 0 2px 0" }}>
+                            {w.area}
+                          </p>
+                          <p style={{ color: "#64748b", fontSize: "13px", margin: 0, lineHeight: "1.5" }}>
+                            {w.detail}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Section-wise Feedback */}
+                  <div style={{
+                    background: "white", borderRadius: "16px", padding: "24px",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.08)", marginBottom: "20px",
+                  }}>
+                    <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "700", margin: "0 0 20px 0" }}>
+                      Section-wise Analysis
+                    </h3>
+                    {(rpt.section_feedback || []).map((sf, i) => (
+                      <div key={i} style={{
+                        padding: "16px", borderRadius: "12px", background: "#f8fafc",
+                        marginBottom: i < (rpt.section_feedback || []).length - 1 ? "12px" : 0,
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <h4 style={{ color: "#1e293b", fontSize: "15px", fontWeight: "700", margin: 0 }}>
+                            {sf.section}
+                          </h4>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <span style={{
+                              padding: "3px 10px", borderRadius: "12px", fontSize: "12px",
+                              fontWeight: "600", background: ratingBg(sf.rating),
+                              color: ratingColor(sf.rating),
+                            }}>{sf.rating}</span>
+                            <span style={{ fontWeight: "700", color: "#1e293b", fontSize: "15px" }}>
+                              {sf.score}%
+                            </span>
+                          </div>
+                        </div>
+                        {/* Score bar */}
+                        <div style={{
+                          height: "6px", background: "#e2e8f0", borderRadius: "3px",
+                          marginBottom: "10px", overflow: "hidden",
+                        }}>
+                          <div style={{
+                            height: "100%", borderRadius: "3px",
+                            width: `${Math.min(100, sf.score || 0)}%`,
+                            background: sf.score >= 80 ? "#059669" : sf.score >= 60 ? "#0073e6" : sf.score >= 40 ? "#d97706" : "#dc2626",
+                            transition: "width 0.5s ease",
+                          }} />
+                        </div>
+                        <p style={{ color: "#334155", fontSize: "13px", lineHeight: "1.6", margin: "0 0 8px 0" }}>
+                          {sf.feedback}
+                        </p>
+                        {sf.tips && sf.tips.length > 0 && (
+                          <div style={{ paddingLeft: "12px", borderLeft: "2px solid #0073e6" }}>
+                            {sf.tips.map((tip, ti) => (
+                              <p key={ti} style={{ color: "#0073e6", fontSize: "12px", margin: "4px 0", fontWeight: "500" }}>
+                                {"\uD83D\uDCA1"} {tip}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Speaking / Writing Analysis */}
+                  {rpt.speaking_analysis && (
+                    <div style={{
+                      background: "white", borderRadius: "16px", padding: "24px",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.08)", marginBottom: "20px",
+                    }}>
+                      <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "700", margin: "0 0 20px 0" }}>
+                        {"\uD83C\uDF99\uFE0F"} Speaking & Writing Analysis
+                      </h3>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                        {[
+                          { key: "fluency", label: "Fluency", icon: "\uD83D\uDDE3\uFE0F" },
+                          { key: "grammar_accuracy", label: "Grammar Accuracy", icon: "\u2705" },
+                          { key: "vocabulary_range", label: "Vocabulary Range", icon: "\uD83D\uDCDA" },
+                          { key: "professionalism", label: "Professionalism", icon: "\uD83D\uDC54" },
+                          { key: "confidence_indicators", label: "Confidence", icon: "\uD83D\uDCAA" },
+                        ].map((item) => (
+                          <div key={item.key} style={{
+                            background: "#f8fafc", borderRadius: "12px", padding: "16px",
+                          }}>
+                            <p style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", margin: "0 0 6px 0" }}>
+                              {item.icon} {item.label}
+                            </p>
+                            <p style={{ fontSize: "13px", color: "#334155", margin: 0, lineHeight: "1.5" }}>
+                              {rpt.speaking_analysis[item.key] || "No data"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Improvement Plan */}
+                  {rpt.improvement_plan && rpt.improvement_plan.length > 0 && (
+                    <div style={{
+                      background: "white", borderRadius: "16px", padding: "24px",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.08)", marginBottom: "20px",
+                    }}>
+                      <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "700", margin: "0 0 20px 0" }}>
+                        {"\uD83D\uDCC5"} Personalized Improvement Plan
+                      </h3>
+                      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                        {rpt.improvement_plan.map((plan, i) => (
+                          <div key={i} style={{
+                            flex: "1 1 220px", background: "#f8fafc", borderRadius: "12px",
+                            padding: "16px", borderTop: "3px solid #0073e6",
+                          }}>
+                            <p style={{ color: "#0073e6", fontWeight: "700", fontSize: "13px", margin: "0 0 4px 0" }}>
+                              {plan.week}
+                            </p>
+                            <p style={{ color: "#1e293b", fontWeight: "600", fontSize: "14px", margin: "0 0 8px 0" }}>
+                              {plan.focus}
+                            </p>
+                            <ul style={{ margin: 0, paddingLeft: "18px" }}>
+                              {(plan.activities || []).map((act, ai) => (
+                                <li key={ai} style={{ color: "#334155", fontSize: "13px", marginBottom: "4px" }}>
+                                  {act}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommended Resources */}
+                  {rpt.recommended_resources && rpt.recommended_resources.length > 0 && (
+                    <div style={{
+                      background: "white", borderRadius: "16px", padding: "24px",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.08)", marginBottom: "20px",
+                    }}>
+                      <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "700", margin: "0 0 20px 0" }}>
+                        {"\uD83D\uDCDA"} Recommended Resources
+                      </h3>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
+                        {rpt.recommended_resources.map((res, i) => (
+                          <div key={i} style={{
+                            display: "flex", gap: "12px", alignItems: "flex-start",
+                            padding: "14px", background: "#f8fafc", borderRadius: "10px",
+                          }}>
+                            <span style={{
+                              padding: "4px 10px", borderRadius: "6px", fontSize: "11px",
+                              fontWeight: "700", background: "#dbeafe", color: "#0073e6",
+                              whiteSpace: "nowrap",
+                            }}>{res.type}</span>
+                            <div>
+                              <p style={{ color: "#1e293b", fontWeight: "600", fontSize: "13px", margin: "0 0 2px 0" }}>
+                                {res.title}
+                              </p>
+                              <p style={{ color: "#64748b", fontSize: "12px", margin: 0 }}>
+                                {res.why}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Regenerate / Retake */}
+                  <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "8px" }}>
+                    <button onClick={fetchCommFeedback} style={{
+                      padding: "12px 28px", background: "white", color: "#0073e6",
+                      border: "2px solid #0073e6", borderRadius: "8px", fontWeight: "600",
+                      cursor: "pointer", fontSize: "14px",
+                    }}>Regenerate Report</button>
+                    <button onClick={() => navigate("/communication-test")} style={{
+                      padding: "12px 28px", background: "#0073e6", color: "white",
+                      border: "none", borderRadius: "8px", fontWeight: "600",
+                      cursor: "pointer", fontSize: "14px",
+                    }}>Take Another Test</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
       </div>
     </div>
   );
