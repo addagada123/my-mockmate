@@ -32,18 +32,18 @@ const LoadingScreen = () => {
 
   return (
     <div style={{
-      minHeight: "100vh", background: "linear-gradient(135deg, #f0f4ff 0%, #e8f4f8 50%, #f8fafc 100%)",
+      minHeight: "100vh", background: "linear-gradient(135deg, #f5f3ff 0%, #ede9fe 50%, #f5f3ff 100%)",
       display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
     }}>
       <div style={{
         backgroundColor: "white", borderRadius: "20px", padding: "50px 40px", maxWidth: "460px",
-        width: "100%", boxShadow: "0 20px 60px rgba(0,115,230,0.12)", textAlign: "center",
+        width: "100%", boxShadow: "0 20px 60px rgba(99,102,241,0.12)", textAlign: "center",
         position: "relative", overflow: "hidden",
       }}>
         {/* Decorative top line */}
         <div style={{
           position: "absolute", top: 0, left: 0, right: 0, height: "4px",
-          background: "linear-gradient(90deg, #0073e6, #38bdf8, #0073e6)",
+          background: "linear-gradient(90deg, #6366f1, #818cf8, #6366f1)",
           backgroundSize: "200% 100%",
           animation: "shimmer 2s ease-in-out infinite",
         }} />
@@ -64,7 +64,7 @@ const LoadingScreen = () => {
         </h2>
 
         <p style={{
-          color: "#0073e6", fontSize: "15px", fontWeight: "600", margin: "0 0 6px 0",
+          color: "#6366f1", fontSize: "15px", fontWeight: "600", margin: "0 0 6px 0",
           minHeight: "22px", transition: "opacity 0.3s ease",
         }}>
           {msg.text}
@@ -76,13 +76,13 @@ const LoadingScreen = () => {
 
         {/* Progress bar */}
         <div style={{
-          height: "8px", backgroundColor: "#e0f0ff", borderRadius: "4px",
+          height: "8px", backgroundColor: "#eef2ff", borderRadius: "4px",
           overflow: "hidden", marginBottom: "16px",
         }}>
           <div style={{
             height: "100%", borderRadius: "4px", transition: "width 0.8s ease",
             width: `${progress}%`,
-            background: "linear-gradient(90deg, #0073e6, #38bdf8)",
+            background: "linear-gradient(90deg, #6366f1, #818cf8)",
           }} />
         </div>
 
@@ -369,8 +369,8 @@ const CommunicationTest = () => {
   // Difficulty selection
   if (!difficulty && !loading) {
     return (
-      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", maxWidth: "520px", boxShadow: "0 4px 24px rgba(0,0,0,0.10)", textAlign: "center" }}>
+      <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", maxWidth: "520px", boxShadow: "0 4px 24px rgba(99,102,241,0.10)", textAlign: "center" }}>
           <h1 style={{ fontSize: "32px", margin: "0 0 8px 0", color: "#1e293b" }}>
             {"\ud83d\udde3\ufe0f"} Communication Test
           </h1>
@@ -389,12 +389,12 @@ const CommunicationTest = () => {
                 key={level}
                 onClick={() => startTest(level.toLowerCase())}
                 style={{
-                  padding: "16px", backgroundColor: "#0073e6", color: "white",
+                  padding: "16px", backgroundColor: "#6366f1", color: "white",
                   border: "none", borderRadius: "8px", cursor: "pointer",
                   fontSize: "16px", fontWeight: "600", transition: "all 0.3s ease",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+                onMouseEnter={(e) => (e.target.style.backgroundColor = "#4f46e5")}
+                onMouseLeave={(e) => (e.target.style.backgroundColor = "#6366f1")}
               >
                 {level === "Easy" ? "\ud83d\ude42" : level === "Medium" ? "\ud83d\ude10" : "\ud83d\ude24"} {level}
               </button>
@@ -404,7 +404,7 @@ const CommunicationTest = () => {
             onClick={() => navigate("/dashboard")}
             style={{
               marginTop: "20px", padding: "12px 24px", backgroundColor: "transparent",
-              color: "#0073e6", border: "2px solid #0073e6", borderRadius: "8px",
+              color: "#6366f1", border: "2px solid #6366f1", borderRadius: "8px",
               cursor: "pointer", fontSize: "14px", fontWeight: "600",
             }}
           >
@@ -426,8 +426,8 @@ const CommunicationTest = () => {
     const sectionScores = results?.section_scores || {};
 
     return (
-      <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", maxWidth: "600px", width: "100%", boxShadow: "0 4px 24px rgba(0,0,0,0.10)", textAlign: "center" }}>
+      <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", maxWidth: "600px", width: "100%", boxShadow: "0 4px 24px rgba(99,102,241,0.10)", textAlign: "center" }}>
           <h1 style={{ fontSize: "40px", margin: "0 0 16px 0" }}>{"\u2705"}</h1>
           <h2 style={{ fontSize: "28px", margin: "0 0 8px 0", color: "#1e293b" }}>Test Complete!</h2>
           <p style={{ color: "#64748b", marginBottom: "24px" }}>Communication Skills Assessment</p>
@@ -465,7 +465,7 @@ const CommunicationTest = () => {
           </div>
 
           {/* Details */}
-          <div style={{ backgroundColor: "#f8fafc", borderRadius: "8px", padding: "16px", marginBottom: "24px", textAlign: "left" }}>
+          <div style={{ backgroundColor: "#f5f3ff", borderRadius: "8px", padding: "16px", marginBottom: "24px", textAlign: "left" }}>
             <p style={{ margin: "6px 0", color: "#334155", fontSize: "14px" }}><strong>Difficulty:</strong> {difficulty ? difficulty.charAt(0).toUpperCase() + difficulty.slice(1) : "Medium"}</p>
             <p style={{ margin: "6px 0", color: "#334155", fontSize: "14px" }}><strong>Questions:</strong> {totalQuestions}</p>
             <p style={{ margin: "6px 0", color: tabSwitchCount > 0 ? "#dc2626" : "#334155", fontSize: "14px" }}><strong>Tab Switches:</strong> {tabSwitchCount}/5</p>
@@ -474,12 +474,12 @@ const CommunicationTest = () => {
           <button
             onClick={() => navigate("/dashboard")}
             style={{
-              width: "100%", padding: "14px", backgroundColor: "#0073e6",
+              width: "100%", padding: "14px", backgroundColor: "#6366f1",
               color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
               fontSize: "16px", fontWeight: "600", transition: "all 0.3s ease",
             }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+            onMouseEnter={(e) => (e.target.style.backgroundColor = "#4f46e5")}
+            onMouseLeave={(e) => (e.target.style.backgroundColor = "#6366f1")}
           >
             Back to Dashboard
           </button>
@@ -501,7 +501,7 @@ const CommunicationTest = () => {
   const isSpoken = currentQ?.sectionName === "Spoken English";
 
   return (
-    <div ref={testContainerRef} style={{ minHeight: "100vh", background: "#f8fafc", padding: "20px" }}>
+    <div ref={testContainerRef} style={{ minHeight: "100vh", background: "#f5f3ff", padding: "20px" }}>
       {/* Warning */}
       <div ref={warningRef} style={{
         position: "fixed", top: "20px", right: "20px", backgroundColor: "#dc2626",
@@ -514,7 +514,7 @@ const CommunicationTest = () => {
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         marginBottom: "20px", backgroundColor: "rgba(255,255,255,0.95)",
-        padding: "16px 20px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+        padding: "16px 20px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(99,102,241,0.08)",
       }}>
         <div>
           <h1 style={{ margin: 0, color: "#1e293b", fontSize: "20px" }}>
@@ -533,7 +533,7 @@ const CommunicationTest = () => {
             disabled={isFullscreen}
             style={{
               padding: "4px 10px", fontSize: "11px", fontWeight: "600",
-              backgroundColor: isFullscreen ? "#22c55e" : "#0073e6",
+              backgroundColor: isFullscreen ? "#22c55e" : "#6366f1",
               color: "white", border: "none", borderRadius: "6px",
               cursor: isFullscreen ? "default" : "pointer",
             }}
@@ -549,12 +549,12 @@ const CommunicationTest = () => {
       {/* Main Content */}
       <div style={{
         backgroundColor: "white", borderRadius: "12px", padding: "32px",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.12)", maxWidth: "900px", margin: "0 auto",
+        boxShadow: "0 20px 60px rgba(99,102,241,0.12)", maxWidth: "900px", margin: "0 auto",
       }}>
         {/* Progress */}
         <div style={{ marginBottom: "20px" }}>
-          <div style={{ height: "6px", backgroundColor: "#e0f0ff", borderRadius: "3px", overflow: "hidden" }}>
-            <div style={{ height: "100%", backgroundColor: "#0073e6", width: `${progress}%`, transition: "width 0.3s ease" }} />
+          <div style={{ height: "6px", backgroundColor: "#eef2ff", borderRadius: "3px", overflow: "hidden" }}>
+            <div style={{ height: "100%", backgroundColor: "#6366f1", width: `${progress}%`, transition: "width 0.3s ease" }} />
           </div>
         </div>
 
@@ -563,7 +563,7 @@ const CommunicationTest = () => {
           {sections.map((sec, idx) => (
             <span key={idx} style={{
               padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "600",
-              backgroundColor: idx === currentSectionIdx ? "#0073e6" : "#f1f5f9",
+              backgroundColor: idx === currentSectionIdx ? "#6366f1" : "#f1f5f9",
               color: idx === currentSectionIdx ? "white" : "#64748b",
             }}>
               {sec.name}
@@ -577,8 +577,8 @@ const CommunicationTest = () => {
             <button
               onClick={() => setShowPassage(!showPassage)}
               style={{
-                padding: "8px 16px", backgroundColor: "#f0f4ff", color: "#0073e6",
-                border: "1px solid #cce0f5", borderRadius: "8px", cursor: "pointer",
+                padding: "8px 16px", backgroundColor: "#f0f4ff", color: "#6366f1",
+                border: "1px solid #e0e7ff", borderRadius: "8px", cursor: "pointer",
                 fontWeight: "600", fontSize: "13px",
               }}
             >
@@ -586,8 +586,8 @@ const CommunicationTest = () => {
             </button>
             {showPassage && (
               <div style={{
-                marginTop: "12px", padding: "16px", backgroundColor: "#f8fafc",
-                borderRadius: "8px", borderLeft: "4px solid #0073e6",
+                marginTop: "12px", padding: "16px", backgroundColor: "#f5f3ff",
+                borderRadius: "8px", borderLeft: "4px solid #6366f1",
                 color: "#334155", lineHeight: "1.7", fontSize: "14px",
               }}>
                 {passage}
@@ -626,8 +626,8 @@ const CommunicationTest = () => {
                   onClick={() => handleMCQAnswer(letter)}
                   style={{
                     padding: "14px 16px", textAlign: "left",
-                    backgroundColor: isSelected ? "#e0f0ff" : "white",
-                    border: isSelected ? "2px solid #0073e6" : "2px solid #e2e8f0",
+                    backgroundColor: isSelected ? "#eef2ff" : "white",
+                    border: isSelected ? "2px solid #6366f1" : "2px solid #e2e8f0",
                     borderRadius: "8px", cursor: "pointer", fontSize: "14px",
                     color: "#334155", fontWeight: isSelected ? "600" : "400",
                     transition: "all 0.2s ease",
@@ -652,7 +652,7 @@ const CommunicationTest = () => {
                   onClick={toggleMic}
                   style={{
                     padding: "8px 12px", fontSize: "12px", fontWeight: "600",
-                    backgroundColor: isListening ? "#dc2626" : "#0073e6",
+                    backgroundColor: isListening ? "#dc2626" : "#6366f1",
                     color: "white", border: "none", borderRadius: "6px",
                     cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
                   }}
@@ -667,7 +667,7 @@ const CommunicationTest = () => {
               placeholder={isSpoken ? "Speak your answer or type it here..." : "Type your answer here..."}
               style={{
                 width: "100%", height: "160px", padding: "12px",
-                border: isListening ? "2px solid #dc2626" : "1px solid #cce0f5",
+                border: isListening ? "2px solid #dc2626" : "1px solid #e0e7ff",
                 borderRadius: "8px", fontSize: "14px", fontFamily: "inherit",
                 resize: "none", boxSizing: "border-box",
                 backgroundColor: isListening ? "#fff5f5" : "white",
@@ -688,7 +688,7 @@ const CommunicationTest = () => {
             disabled={globalIdx === 0}
             style={{
               padding: "12px 20px",
-              backgroundColor: globalIdx === 0 ? "#e0f0ff" : "#0073e6",
+              backgroundColor: globalIdx === 0 ? "#eef2ff" : "#6366f1",
               color: globalIdx === 0 ? "#94a3b8" : "white",
               border: "none", borderRadius: "8px", fontWeight: "600",
               cursor: globalIdx === 0 ? "not-allowed" : "pointer",
@@ -701,11 +701,11 @@ const CommunicationTest = () => {
             <button
               onClick={goNext}
               style={{
-                padding: "12px 20px", backgroundColor: "#0073e6", color: "white",
+                padding: "12px 20px", backgroundColor: "#6366f1", color: "white",
                 border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer",
               }}
-              onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-              onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+              onMouseEnter={(e) => (e.target.style.backgroundColor = "#4f46e5")}
+              onMouseLeave={(e) => (e.target.style.backgroundColor = "#6366f1")}
             >
               Next {"\u2192"}
             </button>
@@ -744,7 +744,7 @@ const CommunicationTest = () => {
                   style={{
                     width: "32px", height: "32px", borderRadius: "6px", fontSize: "12px",
                     fontWeight: "600", border: "none", cursor: "pointer",
-                    backgroundColor: isCurrent ? "#0073e6" : isAnswered ? "#d1fae5" : "#f1f5f9",
+                    backgroundColor: isCurrent ? "#6366f1" : isAnswered ? "#d1fae5" : "#f1f5f9",
                     color: isCurrent ? "white" : isAnswered ? "#065f46" : "#64748b",
                   }}
                 >

@@ -409,38 +409,56 @@ const Test = () => {
     return Math.round(totalScore / questionsList.length);
   };
 
-  const gradeAnswer = (question, answerText) => {
-    const student = (answerText || "").toLowerCase();
-    const reference = (question.answer || "").toLowerCase();
+  const [gradingInProgress, setGradingInProgress] = useState(false);
+  const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
+  const [markedForReview, setMarkedForReview] = useState(new Set());
+  const [showQuestionPanel, setShowQuestionPanel] = useState(true);
 
-    if (!reference) {
-      return { score: 0, correct: false, feedback: "No reference answer available; cannot auto-grade." };
-    }
-
-    // Simple similarity: ratio of overlapping words to reference words
-    const refWords = reference.split(/\W+/).filter(Boolean);
-    const studentWords = student.split(/\W+/).filter(Boolean);
-    if (!refWords.length || !studentWords.length) {
-      return { score: 0, correct: false, feedback: "Answer too short to evaluate." };
-    }
-
-    const refSet = new Set(refWords);
-    let overlap = 0;
-    studentWords.forEach((w) => {
-      if (refSet.has(w)) overlap += 1;
+  // Track visited questions when navigating
+  useEffect(() => {
+    setVisitedQuestions((prev) => {
+      const next = new Set(prev);
+      next.add(currentQuestionIndex);
+      return next;
     });
+  }, [currentQuestionIndex]);
 
-    const similarity = overlap / refWords.length;
-    const score = Math.round(Math.min(1, similarity) * 100);
-    const correct = score >= 70;
-    const feedback = correct
-      ? "Looks correct based on reference keywords."
-      : "Key concepts are missing; compare against the reference.";
-
-    return { score, correct, feedback };
+  const toggleMarkForReview = () => {
+    setMarkedForReview((prev) => {
+      const next = new Set(prev);
+      if (next.has(currentQuestionIndex)) {
+        next.delete(currentQuestionIndex);
+      } else {
+        next.add(currentQuestionIndex);
+      }
+      return next;
+    });
   };
 
-  const submitAnswer = () => {
+  // Get question status for the navigation panel
+  const getQuestionStatus = (index) => {
+    const isCurrent = index === currentQuestionIndex;
+    const isAnswered = answers[index] && answers[index].toString().trim() !== "";
+    const isMarked = markedForReview.has(index);
+    const isVisited = visitedQuestions.has(index);
+    if (isCurrent) return "current";
+    if (isAnswered && isMarked) return "answered-marked";
+    if (isAnswered) return "answered";
+    if (isMarked) return "marked";
+    if (isVisited) return "not-answered";
+    return "not-visited";
+  };
+
+  const statusConfig = {
+    current: { bg: "#6366f1", border: "#6366f1", color: "#fff", shadow: "0 0 0 3px rgba(99,102,241,0.3)" },
+    answered: { bg: "#10b981", border: "#10b981", color: "#fff", shadow: "none" },
+    "not-answered": { bg: "#f59e0b", border: "#f59e0b", color: "#fff", shadow: "none" },
+    marked: { bg: "#8b5cf6", border: "#8b5cf6", color: "#fff", shadow: "none" },
+    "answered-marked": { bg: "linear-gradient(135deg, #10b981, #8b5cf6)", border: "#8b5cf6", color: "#fff", shadow: "none" },
+    "not-visited": { bg: "#e2e8f0", border: "#cbd5e1", color: "#64748b", shadow: "none" },
+  };
+
+  const submitAnswer = async () => {
     const question = questions[currentQuestionIndex];
 
     // For coding questions, use the coding run result if available
@@ -470,15 +488,78 @@ const Test = () => {
     }
 
     const answerText = answers[currentQuestionIndex] || "";
-    const result = gradeAnswer(question, answerText);
+    if (!answerText.trim()) {
+      showWarning("⚠️ Please provide an answer before submitting");
+      return;
+    }
 
-    const updated = {
-      ...questionResults,
-      [currentQuestionIndex]: result,
-    };
-    setQuestionResults(updated);
-    setCurrentScore(calculateAverageScore(updated));
-    showWarning(result.correct ? "✅ Answer marked correct" : "❌ Answer marked incorrect");
+    // Call backend /evaluate for accurate TF-IDF scoring
+    setGradingInProgress(true);
+    showWarning("⏳ Evaluating your answer...");
+    try {
+      const token = localStorage.getItem("mockmate_token");
+      const evalResponse = await axios.post(
+        `${API_BASE}/evaluate`,
+        {
+          question: question.question,
+          user_answer: answerText,
+          correct_answer: question.answer || "",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const result = {
+        score: evalResponse.data.score || 0,
+        correct: evalResponse.data.is_correct || false,
+        feedback: evalResponse.data.feedback || "Evaluated.",
+      };
+
+      const updated = {
+        ...questionResults,
+        [currentQuestionIndex]: result,
+      };
+      setQuestionResults(updated);
+      setCurrentScore(calculateAverageScore(updated));
+      showWarning(result.correct ? `✅ Score: ${result.score}%` : `❌ Score: ${result.score}% — ${result.feedback.split(".")[0]}`);
+    } catch (evalErr) {
+      console.error("Backend evaluation error, using fallback:", evalErr);
+      // Fallback: lightweight client-side TF-IDF approximation
+      const stopWords = new Set(["a","an","the","is","are","was","were","be","been","have","has","had","do","does","did","will","would","shall","should","may","might","can","could","and","but","or","not","if","then","else","when","of","at","by","for","with","about","to","from","in","into","what","which","who","this","that","it","how","why","where","your","you"]);
+      const tokenize = (t) => (t || "").toLowerCase().match(/[a-z0-9#+.\-]+/g)?.filter(w => !stopWords.has(w) && w.length > 1) || [];
+      const ansTokens = tokenize(answerText);
+      const refTokens = tokenize(question.answer || "");
+      const qTokens = tokenize(question.question);
+      let score = 0;
+      if (refTokens.length > 0 && ansTokens.length > 0) {
+        const refSet = new Set(refTokens);
+        const ansSet = new Set(ansTokens);
+        const overlap = [...refSet].filter(w => ansSet.has(w)).length;
+        const cosine = overlap / Math.sqrt(refSet.size * ansSet.size) || 0;
+        score = Math.round(Math.min(100, cosine * 100 + Math.min(20, ansTokens.length / 6)));
+      } else if (qTokens.length > 0 && ansTokens.length > 0) {
+        const qSet = new Set(qTokens);
+        const ansSet = new Set(ansTokens);
+        const overlap = [...qSet].filter(w => ansSet.has(w)).length;
+        score = Math.round(Math.min(80, (overlap / qSet.size) * 80 + Math.min(15, ansTokens.length / 8)));
+      }
+
+      const result = {
+        score,
+        correct: score >= 55,
+        feedback: score >= 55 ? "Acceptable answer (offline evaluation)." : "Needs improvement (offline evaluation).",
+      };
+      const updated = { ...questionResults, [currentQuestionIndex]: result };
+      setQuestionResults(updated);
+      setCurrentScore(calculateAverageScore(updated));
+      showWarning(result.correct ? `✅ Score: ${result.score}%` : `❌ Score: ${result.score}%`);
+    } finally {
+      setGradingInProgress(false);
+    }
   };
 
   // Callback when coding question run completes
@@ -594,11 +675,18 @@ const Test = () => {
         correct_answer: q.answer || "",
       }));
 
+      const totalTimeSecs = questions.length * 60;
+      const elapsed = timeLeft !== null ? totalTimeSecs - timeLeft : null;
+
       const submitResponse = await axios.post(
         `${API_BASE}/submit-test`,
         {
           session_id: sessionId,
           answers: answersPayload,
+          topic: decodeURIComponent(topic),
+          difficulty: difficulty || "medium",
+          time_spent: elapsed,
+          tab_switches: tabSwitchCount,
         },
         {
           headers: {
@@ -632,7 +720,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "#f8fafc",
+          background: "#f5f3ff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -642,14 +730,17 @@ const Test = () => {
         <div
           style={{
             backgroundColor: "white",
-            borderRadius: "12px",
+            borderRadius: "20px",
             padding: "40px",
             maxWidth: "500px",
-            boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
+            boxShadow: "0 20px 60px rgba(99,102,241,0.12)",
             textAlign: "center",
+            position: "relative",
+            overflow: "hidden",
           }}
         >
-          <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "4px", background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)" }} />
+          <h1 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e1b4b" }}>
             📝 Select Difficulty
           </h1>
           <p style={{ color: "#666", marginBottom: "32px", lineHeight: "1.6" }}>
@@ -667,17 +758,18 @@ const Test = () => {
                 }}
                 style={{
                   padding: "16px",
-                  backgroundColor: "#0073e6",
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                   color: "white",
                   border: "none",
-                  borderRadius: "8px",
+                  borderRadius: "12px",
                   cursor: "pointer",
                   fontSize: "16px",
                   fontWeight: "600",
                   transition: "all 0.3s ease",
+                  boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+                onMouseEnter={(e) => { e.target.style.transform = "translateY(-2px)"; e.target.style.boxShadow = "0 6px 20px rgba(99,102,241,0.4)"; }}
+                onMouseLeave={(e) => { e.target.style.transform = "translateY(0)"; e.target.style.boxShadow = "0 4px 12px rgba(99,102,241,0.3)"; }}
               >
                 {level === "Easy" && "🟢"}
                 {level === "Medium" && "🟡"}
@@ -692,8 +784,8 @@ const Test = () => {
               marginTop: "20px",
               padding: "12px 24px",
               backgroundColor: "transparent",
-              color: "#0073e6",
-              border: "2px solid #0073e6",
+              color: "#6366f1",
+              border: "2px solid #6366f1",
               borderRadius: "8px",
               cursor: "pointer",
               fontSize: "14px",
@@ -701,12 +793,12 @@ const Test = () => {
               transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => {
-              e.target.backgroundColor = "#0073e6";
+              e.target.backgroundColor = "#6366f1";
               e.target.color = "white";
             }}
             onMouseLeave={(e) => {
               e.target.backgroundColor = "transparent";
-              e.target.color = "#0073e6";
+              e.target.color = "#6366f1";
             }}
           >
             ← Back to Dashboard
@@ -723,7 +815,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "#f8fafc",
+          background: "#f5f3ff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -736,7 +828,7 @@ const Test = () => {
             borderRadius: "12px",
             padding: "40px",
             maxWidth: "500px",
-            boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
+            boxShadow: "0 4px 24px rgba(99,102,241,0.08)",
             textAlign: "center",
           }}
         >
@@ -806,7 +898,7 @@ const Test = () => {
             style={{
               width: "100%",
               padding: "12px",
-              backgroundColor: "#0073e6",
+              backgroundColor: "#6366f1",
               color: "white",
               border: "none",
               borderRadius: "8px",
@@ -815,8 +907,8 @@ const Test = () => {
               fontWeight: "600",
               transition: "all 0.3s ease",
             }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+            onMouseEnter={(e) => (e.target.style.backgroundColor = "#4f46e5")}
+            onMouseLeave={(e) => (e.target.style.backgroundColor = "#6366f1")}
           >
             Back to Dashboard
           </button>
@@ -830,7 +922,7 @@ const Test = () => {
       <div
         style={{
           minHeight: "100vh",
-          background: "#f8fafc",
+          background: "#f5f3ff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -853,7 +945,7 @@ const Test = () => {
       ref={testContainerRef}
       style={{
         minHeight: "100vh",
-        background: "#f8fafc",
+        background: "#f5f3ff",
         padding: "20px",
       }}
     >
@@ -883,10 +975,12 @@ const Test = () => {
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: "20px",
-          backgroundColor: "rgba(255,255,255,0.95)",
+          background: "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(238,242,255,0.95))",
+          backdropFilter: "blur(8px)",
           padding: "16px 20px",
-          borderRadius: "8px",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+          borderRadius: "12px",
+          boxShadow: "0 4px 16px rgba(99,102,241,0.08)",
+          border: "1px solid rgba(99,102,241,0.1)",
         }}
       >
         <div>
@@ -906,7 +1000,7 @@ const Test = () => {
             disabled={isFullscreen}
             style={{
               padding: "6px 10px",
-              backgroundColor: isFullscreen ? "#22c55e" : "#0073e6",
+              backgroundColor: isFullscreen ? "#22c55e" : "#6366f1",
               color: "white",
               border: "none",
               borderRadius: "6px",
@@ -930,15 +1024,19 @@ const Test = () => {
         </div>
       </div>
 
+      {/* Layout: Main Content + Question Navigation Panel */}
+      <div style={{ display: "flex", gap: "20px", maxWidth: "1280px", margin: "0 auto", alignItems: "flex-start" }}>
+
       {/* Main Content */}
       <div
         style={{
           backgroundColor: "white",
-          borderRadius: "12px",
+          borderRadius: "16px",
           padding: "32px",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-          maxWidth: "1000px",
-          margin: "0 auto",
+          boxShadow: "0 20px 60px rgba(99,102,241,0.1)",
+          flex: 1,
+          minWidth: 0,
+          border: "1px solid rgba(99,102,241,0.08)",
         }}
       >
         {/* Progress Bar */}
@@ -946,7 +1044,7 @@ const Test = () => {
           <div
             style={{
               height: "6px",
-              backgroundColor: "#e0f0ff",
+              backgroundColor: "#eef2ff",
               borderRadius: "3px",
               overflow: "hidden",
             }}
@@ -954,7 +1052,7 @@ const Test = () => {
             <div
               style={{
                 height: "100%",
-                backgroundColor: "#0073e6",
+                backgroundColor: "#6366f1",
                 width: `${progress}%`,
                 transition: "width 0.3s ease",
               }}
@@ -974,8 +1072,8 @@ const Test = () => {
                 width: "40px",
                 height: "40px",
                 borderRadius: "50%",
-                backgroundColor: "#e0f0ff",
-                color: "#0073e6",
+                backgroundColor: "#eef2ff",
+                color: "#6366f1",
                 border: "none",
                 display: "flex",
                 alignItems: "center",
@@ -1077,10 +1175,10 @@ const Test = () => {
           marginBottom: "24px",
         }}>
           <div style={{
-            backgroundColor: "#f8fafc",
+            backgroundColor: "#f5f3ff",
             borderRadius: "16px",
             padding: "20px 32px",
-            border: "1px solid #cce0f5",
+            border: "1px solid #e0e7ff",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -1129,7 +1227,7 @@ const Test = () => {
                   title={isListening ? "Click to stop recording" : "Click to start microphone"}
                   style={{
                     padding: "8px 12px",
-                    backgroundColor: isListening ? "#dc2626" : "#0073e6",
+                    backgroundColor: isListening ? "#dc2626" : "#6366f1",
                     color: "white",
                     border: "none",
                     borderRadius: "6px",
@@ -1163,7 +1261,7 @@ const Test = () => {
                   width: "100%",
                   height: "200px",
                   padding: "12px",
-                  border: isListening ? "2px solid #dc2626" : "1px solid #cce0f5",
+                  border: isListening ? "2px solid #dc2626" : "1px solid #e0e7ff",
                   borderRadius: "8px",
                   fontSize: "14px",
                   fontFamily: "monospace",
@@ -1209,7 +1307,7 @@ const Test = () => {
               padding: "16px",
               backgroundColor: "#f0f4ff",
               borderRadius: "8px",
-              borderLeft: "4px solid #0073e6",
+              borderLeft: "4px solid #6366f1",
             }}
           >
             <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#1e293b" }}>
@@ -1225,32 +1323,29 @@ const Test = () => {
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
+            flexWrap: "wrap",
+            gap: "10px",
           }}
         >
           <button
             onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
             disabled={currentQuestionIndex === 0}
             style={{
-              padding: "12px 20px",
-              backgroundColor: currentQuestionIndex === 0 ? "#e0f0ff" : "#0073e6",
+              padding: "10px 18px",
+              backgroundColor: currentQuestionIndex === 0 ? "#eef2ff" : "#6366f1",
               color: currentQuestionIndex === 0 ? "#999" : "white",
               border: "none",
               borderRadius: "8px",
               cursor: currentQuestionIndex === 0 ? "not-allowed" : "pointer",
               fontWeight: "600",
+              fontSize: "13px",
               transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => {
-              if (currentQuestionIndex > 0) {
-                e.target.style.backgroundColor = "#005bb5";
-              }
+              if (currentQuestionIndex > 0) e.target.style.backgroundColor = "#4f46e5";
             }}
             onMouseLeave={(e) => {
-              if (currentQuestionIndex > 0) {
-                e.target.style.backgroundColor = "#0073e6";
-              }
+              if (currentQuestionIndex > 0) e.target.style.backgroundColor = "#6366f1";
             }}
           >
             ← Previous
@@ -1262,57 +1357,80 @@ const Test = () => {
             }
             disabled={currentQuestionIndex === questions.length - 1}
             style={{
-              padding: "12px 20px",
-              backgroundColor: currentQuestionIndex === questions.length - 1 ? "#e0f0ff" : "#0073e6",
+              padding: "10px 18px",
+              backgroundColor: currentQuestionIndex === questions.length - 1 ? "#eef2ff" : "#6366f1",
               color: currentQuestionIndex === questions.length - 1 ? "#999" : "white",
               border: "none",
               borderRadius: "8px",
               cursor: currentQuestionIndex === questions.length - 1 ? "not-allowed" : "pointer",
               fontWeight: "600",
+              fontSize: "13px",
               transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => {
-              if (currentQuestionIndex < questions.length - 1) {
-                e.target.style.backgroundColor = "#005bb5";
-              }
+              if (currentQuestionIndex < questions.length - 1) e.target.style.backgroundColor = "#4f46e5";
             }}
             onMouseLeave={(e) => {
-              if (currentQuestionIndex < questions.length - 1) {
-                e.target.style.backgroundColor = "#0073e6";
-              }
+              if (currentQuestionIndex < questions.length - 1) e.target.style.backgroundColor = "#6366f1";
             }}
           >
             Next →
           </button>
 
           <button
-            onClick={submitAnswer}
+            onClick={toggleMarkForReview}
             style={{
-              padding: "12px 20px",
-              backgroundColor: "#0ea5e9",
-              color: "white",
-              border: "none",
+              padding: "10px 18px",
+              backgroundColor: markedForReview.has(currentQuestionIndex) ? "#8b5cf6" : "transparent",
+              color: markedForReview.has(currentQuestionIndex) ? "#fff" : "#8b5cf6",
+              border: "2px solid #8b5cf6",
               borderRadius: "8px",
               cursor: "pointer",
               fontWeight: "600",
+              fontSize: "13px",
               transition: "all 0.3s ease",
             }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#0284c7")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0ea5e9")}
+            onMouseEnter={(e) => {
+              if (!markedForReview.has(currentQuestionIndex)) { e.target.style.backgroundColor = "#f5f3ff"; }
+            }}
+            onMouseLeave={(e) => {
+              if (!markedForReview.has(currentQuestionIndex)) { e.target.style.backgroundColor = "transparent"; }
+            }}
           >
-            Submit Answer
+            {markedForReview.has(currentQuestionIndex) ? "🔖 Marked" : "🔖 Mark for Review"}
+          </button>
+
+          <button
+            onClick={submitAnswer}
+            disabled={gradingInProgress}
+            style={{
+              padding: "10px 18px",
+              backgroundColor: gradingInProgress ? "#94a3b8" : "#0ea5e9",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: gradingInProgress ? "not-allowed" : "pointer",
+              fontWeight: "600",
+              fontSize: "13px",
+              transition: "all 0.3s ease",
+            }}
+            onMouseEnter={(e) => { if (!gradingInProgress) e.target.style.backgroundColor = "#0284c7"; }}
+            onMouseLeave={(e) => { if (!gradingInProgress) e.target.style.backgroundColor = "#0ea5e9"; }}
+          >
+            {gradingInProgress ? "Evaluating..." : "Submit Answer"}
           </button>
 
           <button
             onClick={submitTest}
             style={{
-              padding: "12px 20px",
+              padding: "10px 18px",
               backgroundColor: "#059669",
               color: "white",
               border: "none",
               borderRadius: "8px",
               cursor: "pointer",
               fontWeight: "600",
+              fontSize: "13px",
               transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => (e.target.style.backgroundColor = "#047857")}
@@ -1320,6 +1438,28 @@ const Test = () => {
           >
             ✅ Submit Test
           </button>
+
+          {!showQuestionPanel && (
+            <button
+              onClick={() => setShowQuestionPanel(true)}
+              style={{
+                padding: "10px 18px",
+                backgroundColor: "#f5f3ff",
+                color: "#6366f1",
+                border: "1px solid #e0e7ff",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "13px",
+                transition: "all 0.3s ease",
+                marginLeft: "auto",
+              }}
+              onMouseEnter={(e) => { e.target.style.backgroundColor = "#eef2ff"; }}
+              onMouseLeave={(e) => { e.target.style.backgroundColor = "#f5f3ff"; }}
+            >
+              📋 Show Questions
+            </button>
+          )}
         </div>
 
         {/* Proctoring Info */}
@@ -1338,6 +1478,126 @@ const Test = () => {
           Tab Switches: {tabSwitchCount}/5 {tabSwitchCount >= 5 && "⛔"}
         </div>
       </div>
+
+      {/* Question Navigation Sidebar */}
+      {showQuestionPanel && (
+        <div
+          style={{
+            width: "280px",
+            flexShrink: 0,
+            position: "sticky",
+            top: "20px",
+            maxHeight: "calc(100vh - 40px)",
+            overflowY: "auto",
+          }}
+        >
+          <div
+            style={{
+              background: "linear-gradient(135deg, rgba(255,255,255,0.97), rgba(238,242,255,0.97))",
+              backdropFilter: "blur(12px)",
+              borderRadius: "16px",
+              boxShadow: "0 8px 32px rgba(99,102,241,0.10)",
+              border: "1px solid rgba(99,102,241,0.12)",
+              overflow: "hidden",
+            }}
+          >
+            {/* Panel Header */}
+            <div
+              style={{
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                padding: "14px 16px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span style={{ color: "#fff", fontWeight: "700", fontSize: "14px" }}>📋 Questions</span>
+              <button
+                onClick={() => setShowQuestionPanel(false)}
+                style={{ background: "none", border: "none", color: "rgba(255,255,255,0.8)", cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "0 2px" }}
+                title="Hide panel"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Status Legend */}
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(99,102,241,0.08)", display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
+              {[
+                { label: "Answered", color: "#10b981" },
+                { label: "Not Answered", color: "#f59e0b" },
+                { label: "Not Visited", color: "#e2e8f0" },
+                { label: "Review", color: "#8b5cf6" },
+                { label: "Current", color: "#6366f1" },
+              ].map((item) => (
+                <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                  <div
+                    style={{
+                      width: "12px",
+                      height: "12px",
+                      borderRadius: "3px",
+                      backgroundColor: item.color,
+                      border: item.color === "#e2e8f0" ? "1px solid #cbd5e1" : "none",
+                      boxShadow: item.color === "#6366f1" ? "0 0 0 2px rgba(99,102,241,0.3)" : "none",
+                    }}
+                  />
+                  <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "500" }}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Question Summary */}
+            <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(99,102,241,0.08)", display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#475569" }}>
+              <span>✅ {Object.keys(answers).filter(k => answers[k] && answers[k].toString().trim()).length}</span>
+              <span>🔖 {markedForReview.size}</span>
+              <span>📝 {questions.length - Object.keys(answers).filter(k => answers[k] && answers[k].toString().trim()).length} left</span>
+            </div>
+
+            {/* Question Grid */}
+            <div style={{ padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+              {questions.map((_, index) => {
+                const status = getQuestionStatus(index);
+                const config = statusConfig[status];
+                const isGradient = status === "answered-marked";
+                return (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentQuestionIndex(index)}
+                    style={{
+                      width: "100%",
+                      aspectRatio: "1",
+                      background: isGradient ? config.bg : config.bg,
+                      backgroundColor: isGradient ? undefined : config.bg,
+                      color: config.color,
+                      border: status === "current" ? "2px solid #6366f1" : `1px solid ${config.border}`,
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                      fontWeight: "700",
+                      fontSize: "14px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 0.2s ease",
+                      boxShadow: config.shadow,
+                      position: "relative",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.25)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = config.shadow; }}
+                    title={`Q${index + 1} — ${status.replace("-", " ")}`}
+                  >
+                    {index + 1}
+                    {markedForReview.has(index) && (
+                      <span style={{ position: "absolute", top: "-2px", right: "-2px", fontSize: "10px" }}>🔖</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      </div>{/* end flex layout */}
     </div>
   );
 };

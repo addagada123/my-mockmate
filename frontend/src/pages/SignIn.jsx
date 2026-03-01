@@ -256,275 +256,77 @@ function SignIn() {
 
 
   return (
-
-    <div 
-
-      className="signin-page"
-
-      style={{
-
-        minHeight: '100vh',
-
-        background: '#f8fafc',
-
-        display: 'flex',
-
-        flexDirection: 'column',
-
-        alignItems: 'center',
-
-        justifyContent: 'center',
-
-        padding: '24px'
-
-      }}
-
-    >
-
-      <div 
-
-        className="signin-brand"
-
-        style={{
-
-          display: 'flex',
-
-          alignItems: 'center',
-
-          gap: '10px',
-
-          marginBottom: '28px'
-
-        }}
-
-      >
-
+    <div className="signin-page">
+      <div className="signin-brand">
         <video
           src={mockmateLogoVideo}
           autoPlay
           loop
           muted
           playsInline
-          style={{ width: '38px', height: '38px', objectFit: 'contain' }}
+          style={{ width: '42px', height: '42px', objectFit: 'contain', borderRadius: '10px' }}
         />
-
-        <span className="signin-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
-
+        <span className="signin-brand-name">Mockmate</span>
       </div>
 
+      <div className="signin-card">
+        <h1 className="signin-title">Welcome back</h1>
+        <p className="signin-subtitle">Sign in to continue your preparation</p>
 
-
-      <div 
-
-        className="signin-card"
-
-        style={{
-
-          width: '100%',
-
-          maxWidth: '420px',
-
-          background: 'white',
-
-          padding: '40px',
-
-          borderRadius: '16px',
-
-          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.10)'
-
-        }}
-
-      >
-
-        <h1 className="signin-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Welcome back</h1>
-
-        <p className="signin-subtitle" style={{ fontSize: '14px', textAlign: 'center', color: '#64748b', marginBottom: '28px' }}>Sign in to continue your preparation</p>
-
-
-
-        <form className="signin-form" onSubmit={handleSignin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-          <label className="signin-label" style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Email</label>
-
+        <form className="signin-form" onSubmit={handleSignin}>
+          <label className="signin-label">Email</label>
           <input
-
             type="email"
-
             className="signin-input"
-
             value={email}
-
             onChange={(e) => setEmail(e.target.value)}
-
             placeholder="you@example.com"
-
             required
-
-            style={{
-
-              padding: '14px 16px',
-
-              borderRadius: '12px',
-
-              border: '1px solid #e2e8f0',
-
-              fontSize: '15px',
-
-              width: '100%',
-
-              marginBottom: '12px'
-
-            }}
-
           />
 
-
-
-          <label className="signin-label" style={{ fontSize: '13px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Password</label>
-
+          <label className="signin-label">Password</label>
           <input
-
             type="password"
-
             className="signin-input"
-
             value={password}
-
             onChange={(e) => setPassword(e.target.value)}
-
             placeholder="Minimum 8 characters"
-
             required
-
-            style={{
-
-              padding: '14px 16px',
-
-              borderRadius: '12px',
-
-              border: '1px solid #e2e8f0',
-
-              fontSize: '15px',
-
-              width: '100%',
-
-              marginBottom: '12px'
-
-            }}
-
           />
 
-
-
-          <button 
-
-            className="signin-button" 
-
-            disabled={loading}
-
-            style={{
-
-              marginTop: '12px',
-
-              padding: '14px',
-
-              borderRadius: '12px',
-
-              border: 'none',
-
-              background: '#0073e6',
-
-              color: 'white',
-
-              fontSize: '16px',
-
-              fontWeight: '600',
-
-              cursor: loading ? 'not-allowed' : 'pointer',
-
-              width: '100%',
-
-              opacity: loading ? 0.6 : 1
-
-            }}
-
-          >
-
+          <button className="signin-button" disabled={loading}>
             {loading ? "Signing in..." : "Sign In"}
-
           </button>
-
         </form>
 
-
-
         {/* Divider */}
-
-        <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0', gap: '12px' }}>
-
-          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
-
+        <div style={{ display: 'flex', alignItems: 'center', margin: '24px 0', gap: '12px' }}>
+          <div style={{ flex: 1, height: '1px', background: 'linear-gradient(to right, transparent, #e0e7ff, transparent)' }} />
           <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>or</span>
-
-          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
-
+          <div style={{ flex: 1, height: '1px', background: 'linear-gradient(to right, transparent, #e0e7ff, transparent)' }} />
         </div>
 
-
-
         {/* Google Sign-In Button */}
-
         <div
-
           ref={googleBtnRef}
-
           style={{
-
             display: 'flex',
-
             justifyContent: 'center',
-
             minHeight: '44px',
-
           }}
-
         />
 
+        {error && <p className="signin-error">{error}</p>}
 
-
-        {error && <p className="signin-error" style={{ marginTop: '16px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{error}</p>}
-
-
-
-        <p className="signin-footer" style={{ marginTop: '24px', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>
-
+        <p className="signin-footer">
           New to Mockmate?{" "}
-
-          <span
-
-            className="signin-link"
-
-            onClick={() => navigate("/signup")}
-
-            style={{ color: '#0073e6', fontWeight: '500', cursor: 'pointer' }}
-
-          >
-
+          <span className="signin-link" onClick={() => navigate("/signup")}>
             Create account
-
           </span>
-
         </p>
-
       </div>
-
     </div>
-
   );
-
 }
 
-
-
 export default SignIn;
-

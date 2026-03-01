@@ -98,7 +98,7 @@ const CodingQuestion = ({
             style={{
               padding: "6px 12px",
               borderRadius: "6px",
-              border: "1px solid #cce0f5",
+              border: "1px solid #e0e7ff",
               fontSize: "14px",
               fontWeight: "600",
               backgroundColor: "white",
@@ -144,7 +144,7 @@ const CodingQuestion = ({
       {/* Monaco Code Editor */}
       <div
         style={{
-          border: "1px solid #cce0f5",
+          border: "1px solid #e0e7ff",
           borderRadius: "8px",
           overflow: "hidden",
         }}
@@ -172,7 +172,7 @@ const CodingQuestion = ({
       {testCases.length > 0 && (
         <div
           style={{
-            backgroundColor: "#f8fafc",
+            backgroundColor: "#f5f3ff",
             borderRadius: "8px",
             padding: "16px",
             border: "1px solid #e2e8f0",

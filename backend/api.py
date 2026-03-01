@@ -5,6 +5,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
+import re
+import math
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 import shutil
 import json as json_mod
@@ -81,7 +84,6 @@ def parse_json_response(raw_text: str) -> Optional[dict]:
         return json_mod.loads(raw_text)
     except Exception:
         pass
-    import re
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.S)
     if m:
         try:
@@ -426,16 +428,16 @@ def _detect_programming_languages(questions: List[Dict[str, Any]], skills: List[
         "typescript": ["typescript", "ts"],
         "java": ["java"],
         "c++": ["c++", "cpp", "c plus plus"],
-        "c": [" c ", " c,", "\\bc\\b"],  # Avoid matching C in other words
+        "c": [" c ", " c,"],  # word-boundary approximation
         "kotlin": ["kotlin"],
         "swift": ["swift"],
         "csharp": ["c#", "csharp", "c-sharp"],
         "ruby": ["ruby"],
         "php": ["php"],
-        "golang": ["golang", "go"],
+        "golang": ["golang", "go ", " go"],
         "rust": ["rust"],
         "scala": ["scala"],
-        "r": [" r ", " r,"],  # R language
+        "r": [" r ", " r,"],  # word-boundary approximation
     }
     
     # Check questions for language mentions
@@ -530,14 +532,12 @@ def _detect_programming_languages(questions: List[Dict[str, Any]], skills: List[
     return sorted(list(set(result)))  # Unique and sorted
 
 def _semantic_similarity(text1: str, text2: str) -> float:
-    """Lightweight semantic similarity using keyword overlap (Approach 2D: Duplicate Detection)"""
-    keywords1 = set(w.lower() for w in text1.split() if len(w) > 4)
-    keywords2 = set(w.lower() for w in text2.split() if len(w) > 4)
-    if not keywords1 or not keywords2:
+    """Semantic similarity using TF-IDF cosine (Approach 2D: Duplicate Detection)"""
+    tokens1 = _tokenize(text1)
+    tokens2 = _tokenize(text2)
+    if not tokens1 or not tokens2:
         return 0.0
-    overlap = len(keywords1 & keywords2)
-    union = len(keywords1 | keywords2)
-    return overlap / union if union > 0 else 0.0
+    return _tf_idf_cosine(tokens1, tokens2)
 
 def _generate_topic_questions(
     topic: Optional[str],
@@ -585,9 +585,10 @@ def _generate_topic_questions(
     pool = templates[diff_key]
     attempts = 0
     index = 1
+    max_attempts = max(len(pool) * 3, count + 10)  # allow multiple cycles through pool
     
     # Generate questions using templates with semantic duplicate detection
-    while len(results) < count and attempts < len(pool):
+    while len(results) < count and attempts < max_attempts:
         template = pool[attempts % len(pool)]
         question = template.format(topic=base_topic)
         
@@ -733,29 +734,200 @@ class RunCodeRequest(BaseModel):
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "can", "could", "must", "and", "but", "or",
+    "nor", "not", "if", "then", "else", "when", "up", "out", "on", "off",
+    "over", "under", "again", "further", "once", "here", "there", "all",
+    "each", "every", "both", "few", "more", "most", "other", "some", "such",
+    "no", "only", "same", "so", "than", "too", "very", "just", "because",
+    "as", "until", "while", "of", "at", "by", "for", "with", "about",
+    "between", "through", "during", "before", "after", "above", "below",
+    "to", "from", "in", "into", "what", "which", "who", "whom", "this",
+    "that", "these", "those", "am", "it", "its", "how", "why", "where",
+    "your", "you", "explain", "describe", "discuss", "compare", "list",
+})
+
+
+def _tokenize(text: str) -> List[str]:
+    """Tokenize and lowercase, removing stop-words and short tokens."""
+    return [
+        w for w in re.findall(r"[a-z0-9#+.\-]+", text.lower())
+        if w not in _STOP_WORDS and len(w) > 1
+    ]
+
+
+def _tf_idf_cosine(tokens_a: List[str], tokens_b: List[str]) -> float:
+    """
+    Compute cosine similarity between two token lists using TF-IDF weighting.
+    IDF is approximated from the two documents as the corpus.
+    """
+    if not tokens_a or not tokens_b:
+        return 0.0
+
+    doc_freq: Counter = Counter()
+    tf_a = Counter(tokens_a)
+    tf_b = Counter(tokens_b)
+    all_terms = set(tf_a) | set(tf_b)
+
+    for term in all_terms:
+        doc_freq[term] = (1 if term in tf_a else 0) + (1 if term in tf_b else 0)
+
+    def weighted(tf_map: Counter) -> Dict[str, float]:
+        vec: Dict[str, float] = {}
+        for term, freq in tf_map.items():
+            idf = math.log(2 / doc_freq[term]) + 1  # smoothed IDF
+            vec[term] = freq * idf
+        return vec
+
+    va, vb = weighted(tf_a), weighted(tf_b)
+    dot = sum(va.get(t, 0) * vb.get(t, 0) for t in all_terms)
+    mag_a = math.sqrt(sum(v ** 2 for v in va.values())) or 1
+    mag_b = math.sqrt(sum(v ** 2 for v in vb.values())) or 1
+    return dot / (mag_a * mag_b)
+
+
+# Technical keyword groups for bonus scoring
+_TECHNICAL_MARKERS = {
+    "concepts": [
+        "algorithm", "complexity", "o(n)", "o(1)", "o(log", "big-o",
+        "architecture", "design pattern", "solid", "dry", "kiss",
+        "scalability", "latency", "throughput", "caching", "indexing",
+        "normalization", "denormalization", "sharding", "replication",
+        "microservice", "monolith", "api", "rest", "graphql", "grpc",
+        "concurrency", "parallelism", "thread", "async", "await",
+        "encryption", "authentication", "authorization", "jwt", "oauth",
+    ],
+    "structure": [
+        "first", "second", "third", "step", "because", "therefore",
+        "however", "for example", "in addition", "furthermore",
+        "in conclusion", "trade-off", "pros and cons", "advantage",
+        "disadvantage", "compared to", "alternatively",
+    ],
+}
+
+
 def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
-    """Simple keyword-based answer evaluation"""
+    """
+    Advanced multi-signal answer evaluation algorithm:
+      1. TF-IDF cosine similarity between answer ↔ correct_answer (40% weight)
+      2. Question-relevance score via keyword coverage (20% weight)
+      3. Answer depth — word count, sentence count, technical markers (20% weight)
+      4. Structural quality — transitions, examples, coherence signals (10% weight)
+      5. Correct-answer n-gram overlap for factual recall (10% weight)
+    Falls back gracefully when correct_answer is empty.
+    """
     if not user_answer or not user_answer.strip():
-        return {"score": 0, "feedback": "No answer provided", "is_correct": False}
-    
-    # Simple keyword matching
-    user_answer_lower = user_answer.lower()
-    question_lower = question.lower()
-    
-    # Extract keywords from question
-    keywords = [word for word in question_lower.split() if len(word) > 4]
-    
-    # Count matching keywords
-    matches = sum(1 for keyword in keywords if keyword in user_answer_lower)
-    match_ratio = matches / len(keywords) if keywords else 0
-    
-    # Calculate score (0-100)
-    score = min(100, int(match_ratio * 100) + (20 if len(user_answer.split()) > 10 else 0))
-    
-    is_correct = score >= 60
-    feedback = "Good answer!" if is_correct else "Could be improved with more details"
-    
-    return {"score": score, "feedback": feedback, "is_correct": is_correct}
+        return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
+
+    ans_tokens = _tokenize(user_answer)
+    q_tokens = _tokenize(question)
+    ref_tokens = _tokenize(correct_answer) if correct_answer else []
+    ans_lower = user_answer.lower()
+    word_count = len(user_answer.split())
+    sentence_count = max(1, len(re.split(r"[.!?]+", user_answer.strip())))
+
+    # --- Signal 1: TF-IDF cosine similarity with correct answer (0-40) ---
+    if ref_tokens:
+        cosine_sim = _tf_idf_cosine(ans_tokens, ref_tokens)
+        signal_similarity = cosine_sim * 40
+    else:
+        # If no reference, use question-answer relevance as proxy (capped at 25)
+        cosine_sim = _tf_idf_cosine(ans_tokens, q_tokens)
+        signal_similarity = min(cosine_sim * 40, 25)
+
+    # --- Signal 2: Question keyword coverage (0-20) ---
+    if q_tokens:
+        q_set = set(q_tokens)
+        covered = sum(1 for t in q_set if t in set(ans_tokens))
+        coverage_ratio = covered / len(q_set)
+    else:
+        coverage_ratio = 0.5  # neutral
+    signal_relevance = coverage_ratio * 20
+
+    # --- Signal 3: Answer depth — length + technical richness (0-20) ---
+    # Length component (0-10): reward detailed answers, diminishing returns after ~120 words
+    length_score = min(10, (word_count / 120) * 10) if word_count > 0 else 0
+
+    # Technical marker bonus (0-10)
+    tech_hits = 0
+    for markers in _TECHNICAL_MARKERS["concepts"]:
+        if markers in ans_lower:
+            tech_hits += 1
+    tech_score = min(10, tech_hits * 2.5)
+
+    signal_depth = length_score + tech_score
+
+    # --- Signal 4: Structural quality — coherence markers (0-10) ---
+    structure_hits = sum(1 for m in _TECHNICAL_MARKERS["structure"] if m in ans_lower)
+    signal_structure = min(10, structure_hits * 2)
+
+    # --- Signal 5: N-gram factual recall against correct answer (0-10) ---
+    signal_ngram = 0.0
+    if ref_tokens and len(ref_tokens) >= 2:
+        ref_bigrams = set(zip(ref_tokens, ref_tokens[1:]))
+        ans_bigrams = set(zip(ans_tokens, ans_tokens[1:])) if len(ans_tokens) >= 2 else set()
+        if ref_bigrams:
+            overlap = len(ref_bigrams & ans_bigrams)
+            signal_ngram = min(10, (overlap / len(ref_bigrams)) * 10)
+
+    # --- Combine ---
+    raw_score = (
+        signal_similarity
+        + signal_relevance
+        + signal_depth
+        + signal_structure
+        + signal_ngram
+    )
+
+    # Penalties
+    if word_count < 5:
+        raw_score *= 0.3  # very short answer penalty
+    elif word_count < 15:
+        raw_score *= 0.6  # short answer penalty
+
+    # Bonus for multi-sentence well-structured answers
+    if sentence_count >= 3 and word_count >= 40:
+        raw_score = min(100, raw_score + 5)
+
+    score = max(0, min(100, int(round(raw_score))))
+    is_correct = score >= 55
+
+    # --- Generate detailed feedback ---
+    feedback_parts: List[str] = []
+    if score >= 85:
+        feedback_parts.append("Excellent answer with strong coverage and depth.")
+    elif score >= 70:
+        feedback_parts.append("Good answer that covers the key points.")
+    elif score >= 55:
+        feedback_parts.append("Acceptable answer, but could use more depth.")
+    else:
+        feedback_parts.append("Needs improvement — try to address the core concepts.")
+
+    if word_count < 20:
+        feedback_parts.append("Consider providing a more detailed response.")
+    if coverage_ratio < 0.3 and q_tokens:
+        feedback_parts.append("Try to address the specific terms mentioned in the question.")
+    if tech_hits == 0 and word_count > 20:
+        feedback_parts.append("Including technical terminology and concepts would strengthen your answer.")
+    if structure_hits < 2 and word_count > 30:
+        feedback_parts.append("Use transition words (e.g., 'because', 'for example') to improve clarity.")
+    if ref_tokens and cosine_sim < 0.2:
+        feedback_parts.append("Review the expected answer — your response diverges from the key points.")
+
+    return {
+        "score": score,
+        "feedback": " ".join(feedback_parts),
+        "is_correct": is_correct,
+        "breakdown": {
+            "similarity": round(signal_similarity, 1),
+            "relevance": round(signal_relevance, 1),
+            "depth": round(signal_depth, 1),
+            "structure": round(signal_structure, 1),
+            "factual_recall": round(signal_ngram, 1),
+        },
+    }
 
 @app.get("/")
 async def root():
@@ -1805,38 +1977,35 @@ async def get_performance(
     current_user: Dict = Depends(get_current_user)
 ):
     """
-    Get user performance history
+    Advanced performance analytics with:
+      - Topic-wise breakdown & weak-area identification
+      - Score trend with moving average & improvement rate
+      - Difficulty-level breakdown
+      - Streak tracking (consecutive >=70% tests)
+      - Percentile ranking among all users
+      - Time efficiency metrics
+      - Personalized study recommendations
     """
     try:
         db = get_db()
         
-        # Get all sessions for user (completed + in_progress)
+        # ── 1. Gather user's completed sessions ──
         sessions = list(db.user_sessions.find(
+            {"user_id": current_user["id"]},
             {
-                "user_id": current_user["id"]
-            },
-            {
-                "_id": 1,
-                "created_at": 1,
-                "completed_at": 1,
-                "total_score": 1,
-                "max_score": 1,
-                "percentage": 1,
-                "skills": 1,
-                "status": 1,
-                "topic": 1,
-                "difficulty": 1,
-                "time_spent": 1,
-                "test_attempts": 1,
+                "_id": 1, "created_at": 1, "completed_at": 1,
+                "total_score": 1, "max_score": 1, "percentage": 1,
+                "skills": 1, "status": 1, "topic": 1,
+                "difficulty": 1, "time_spent": 1, "test_attempts": 1,
+                "evaluated_answers": 1, "tab_switches": 1,
             }
         ).sort("created_at", -1))
         
-        # Convert ObjectIds to strings
         for session in sessions:
             session["_id"] = str(session["_id"])
         
-        # Calculate overall stats
-        attempts = []
+        # ── 2. Flatten all attempts ──
+        attempts: List[Dict[str, Any]] = []
         for s in sessions:
             if s.get("test_attempts"):
                 for attempt in s.get("test_attempts", []):
@@ -1847,6 +2016,7 @@ async def get_performance(
                         "timeSpent": attempt.get("time_spent") or 0,
                         "score": round(attempt.get("percentage", 0), 2),
                         "status": "completed",
+                        "tabSwitches": attempt.get("tab_switches") or 0,
                     })
             elif s.get("status") == "completed" or (s.get("max_score") or 0) > 0:
                 submitted_at = s.get("completed_at") or s.get("created_at")
@@ -1857,14 +2027,17 @@ async def get_performance(
                     "timeSpent": s.get("time_spent") or 0,
                     "score": round(s.get("percentage", 0), 2),
                     "status": s.get("status") or "completed",
+                    "tabSwitches": s.get("tab_switches") or 0,
                 })
-
+        
         total_tests = len(attempts)
-        avg_score = sum(a.get("score", 0) for a in attempts) / total_tests if total_tests > 0 else 0
+        scores = [a["score"] for a in attempts]
+        avg_score = sum(scores) / total_tests if total_tests else 0
         accuracy_rate = (
-            sum(1 for a in attempts if (a.get("score") or 0) >= 70) / total_tests * 100
-        ) if total_tests > 0 else 0
-
+            sum(1 for s in scores if s >= 70) / total_tests * 100
+        ) if total_tests else 0
+        
+        # ── 3. Build results list ──
         results = []
         for a in attempts:
             submitted_at = a.get("submittedAt")
@@ -1875,14 +2048,183 @@ async def get_performance(
                 "timeSpent": a.get("timeSpent") or 0,
                 "score": a.get("score") or 0,
                 "status": a.get("status") or "completed",
+                "tabSwitches": a.get("tabSwitches") or 0,
             })
-
+        
+        # ── 4. Topic-wise breakdown ──
+        topic_map: Dict[str, List[float]] = defaultdict(list)
+        for a in attempts:
+            topic_map[a["topic"]].append(a["score"])
+        
+        topic_breakdown: List[Dict[str, Any]] = []
+        for topic, topic_scores in topic_map.items():
+            t_avg = sum(topic_scores) / len(topic_scores)
+            t_best = max(topic_scores)
+            t_worst = min(topic_scores)
+            # Improvement: last score minus first score
+            improvement = topic_scores[0] - topic_scores[-1] if len(topic_scores) > 1 else 0
+            topic_breakdown.append({
+                "topic": topic,
+                "attempts": len(topic_scores),
+                "averageScore": round(t_avg, 2),
+                "bestScore": round(t_best, 2),
+                "worstScore": round(t_worst, 2),
+                "improvement": round(improvement, 2),
+                "status": "strong" if t_avg >= 75 else "moderate" if t_avg >= 55 else "weak",
+            })
+        
+        # Sort: weakest first for study priority
+        topic_breakdown.sort(key=lambda x: x["averageScore"])
+        
+        # ── 5. Difficulty-level breakdown ──
+        diff_map: Dict[str, List[float]] = defaultdict(list)
+        for a in attempts:
+            diff_map[a["difficulty"].lower()].append(a["score"])
+        
+        difficulty_breakdown: Dict[str, Any] = {}
+        for diff, diff_scores in diff_map.items():
+            difficulty_breakdown[diff] = {
+                "attempts": len(diff_scores),
+                "averageScore": round(sum(diff_scores) / len(diff_scores), 2),
+                "bestScore": round(max(diff_scores), 2),
+            }
+        
+        # ── 6. Score trend with Exponential Moving Average (EMA) ──
+        sorted_attempts = sorted(
+            [a for a in attempts if a.get("submittedAt")],
+            key=lambda a: a["submittedAt"]
+        )
+        
+        score_trend: List[Dict[str, Any]] = []
+        alpha = 0.3  # EMA smoothing factor
+        ema = sorted_attempts[0]["score"] if sorted_attempts else 0
+        
+        for i, a in enumerate(sorted_attempts):
+            ema = alpha * a["score"] + (1 - alpha) * ema
+            score_trend.append({
+                "index": i + 1,
+                "date": a["submittedAt"].isoformat() if a.get("submittedAt") else None,
+                "score": a["score"],
+                "ema": round(ema, 2),
+                "topic": a["topic"],
+                "difficulty": a["difficulty"],
+            })
+        
+        # Improvement rate: linear regression slope of recent scores
+        improvement_rate = 0.0
+        if len(scores) >= 3:
+            recent_n = min(10, len(sorted_attempts))
+            recent_scores = [a["score"] for a in sorted_attempts[-recent_n:]]
+            n = len(recent_scores)
+            x_mean = (n - 1) / 2
+            y_mean = sum(recent_scores) / n
+            numerator = sum((i - x_mean) * (s - y_mean) for i, s in enumerate(recent_scores))
+            denominator = sum((i - x_mean) ** 2 for i in range(n))
+            improvement_rate = round(numerator / denominator, 2) if denominator else 0
+        
+        # ── 7. Streak tracking ──
+        current_streak = 0
+        best_streak = 0
+        temp_streak = 0
+        for a in sorted_attempts:
+            if a["score"] >= 70:
+                temp_streak += 1
+                best_streak = max(best_streak, temp_streak)
+            else:
+                temp_streak = 0
+        # Current streak counts backward from last attempt
+        for a in reversed(sorted_attempts):
+            if a["score"] >= 70:
+                current_streak += 1
+            else:
+                break
+        
+        # ── 8. Percentile ranking among all users ──
+        percentile_rank = 50.0  # default
+        try:
+            all_user_sessions = list(db.user_sessions.find(
+                {"status": "completed", "percentage": {"$exists": True}},
+                {"user_id": 1, "percentage": 1}
+            ))
+            user_avgs: Dict[str, List[float]] = defaultdict(list)
+            for s in all_user_sessions:
+                uid = s.get("user_id", "")
+                pct = s.get("percentage", 0)
+                if pct > 0:
+                    user_avgs[uid].append(pct)
+            
+            if len(user_avgs) > 1:
+                avg_per_user = {uid: sum(sc) / len(sc) for uid, sc in user_avgs.items()}
+                my_avg = avg_per_user.get(current_user["id"], avg_score)
+                below_count = sum(1 for v in avg_per_user.values() if v < my_avg)
+                percentile_rank = round((below_count / len(avg_per_user)) * 100, 1)
+        except Exception:
+            pass
+        
+        # ── 9. Time efficiency metrics ──
+        time_efficiency = None
+        timed_attempts = [a for a in attempts if (a.get("timeSpent") or 0) > 0]
+        if timed_attempts:
+            avg_time = sum(a["timeSpent"] for a in timed_attempts) / len(timed_attempts)
+            # Score per minute (higher is better)
+            avg_score_per_min = sum(
+                a["score"] / max(1, a["timeSpent"] / 60)
+                for a in timed_attempts
+            ) / len(timed_attempts)
+            time_efficiency = {
+                "averageTimeSeconds": round(avg_time, 0),
+                "averageTimeMinutes": round(avg_time / 60, 1),
+                "scorePerMinute": round(avg_score_per_min, 2),
+                "fastestTest": round(min(a["timeSpent"] for a in timed_attempts) / 60, 1),
+                "slowestTest": round(max(a["timeSpent"] for a in timed_attempts) / 60, 1),
+            }
+        
+        # ── 10. Weak areas & study recommendations ──
+        weak_topics = [t for t in topic_breakdown if t["status"] == "weak"]
+        moderate_topics = [t for t in topic_breakdown if t["status"] == "moderate"]
+        
+        study_recommendations: List[Dict[str, str]] = []
+        for wt in weak_topics[:3]:
+            study_recommendations.append({
+                "topic": wt["topic"],
+                "priority": "high",
+                "reason": f"Average score {wt['averageScore']}% across {wt['attempts']} attempts",
+                "action": f"Focus on fundamentals of {wt['topic']}. Review core concepts and practice more.",
+            })
+        for mt in moderate_topics[:2]:
+            study_recommendations.append({
+                "topic": mt["topic"],
+                "priority": "medium",
+                "reason": f"Average score {mt['averageScore']}% — close to proficiency",
+                "action": f"Practice harder questions in {mt['topic']} to solidify your understanding.",
+            })
+        
+        # Suggest moving to harder difficulty if consistently scoring high
+        if avg_score >= 80 and total_tests >= 3:
+            dominant_diff = max(diff_map.items(), key=lambda x: len(x[1]))[0] if diff_map else "medium"
+            if dominant_diff != "hard":
+                next_diff = "medium" if dominant_diff == "easy" else "hard"
+                study_recommendations.append({
+                    "topic": "General",
+                    "priority": "growth",
+                    "reason": f"Average of {round(avg_score, 1)}% on {dominant_diff} — ready for more challenge",
+                    "action": f"Try switching to {next_diff} difficulty to continue improving.",
+                })
+        
+        # ── 11. Build stats ──
         stats = {
             "totalTests": total_tests,
             "averageScore": round(avg_score, 2),
             "accuracyRate": round(accuracy_rate, 2),
+            "bestScore": round(max(scores), 2) if scores else 0,
+            "worstScore": round(min(scores), 2) if scores else 0,
+            "medianScore": round(sorted(scores)[len(scores) // 2], 2) if scores else 0,
+            "currentStreak": current_streak,
+            "bestStreak": best_streak,
+            "improvementRate": improvement_rate,
+            "percentileRank": percentile_rank,
         }
-
+        
         return {
             "success": True,
             "results": results,
@@ -1890,6 +2232,11 @@ async def get_performance(
             "total_tests": total_tests,
             "average_score": round(avg_score, 2),
             "sessions": sessions,
+            "topicBreakdown": topic_breakdown,
+            "difficultyBreakdown": difficulty_breakdown,
+            "scoreTrend": score_trend,
+            "timeEfficiency": time_efficiency,
+            "studyRecommendations": study_recommendations,
         }
         
     except Exception as e:
@@ -2524,13 +2871,17 @@ async def recommend_jobs(
     current_user: Dict = Depends(get_current_user)
 ):
     """
-    Recommend real-time jobs in India using GPT, sorted by proximity to
-    the university mentioned in the candidate's resume.
+    Advanced job recommendation engine:
+      - Performance-weighted skill scoring (strong skills ranked higher)
+      - Skill gap analysis with growth trajectory
+      - Multi-platform apply URLs (LinkedIn, Naukri, Indeed)
+      - Experience-level inference from resume
+      - Smarter proximity + match hybrid sorting
     """
     try:
         db = get_db()
 
-        # Get user's latest session to extract skills & resume path
+        # Get user's latest session
         latest_session = db.user_sessions.find_one(
             {"user_id": current_user["id"]},
             sort=[("created_at", -1)]
@@ -2548,6 +2899,49 @@ async def recommend_jobs(
         user_skills = list(set(latest_session.get("all_skills") or latest_session.get("skills") or []))
         resume_path = latest_session.get("resume_path", "")
 
+        # ── Performance-weighted skill analysis ──
+        # Gather performance data per topic to identify strong vs weak skills
+        skill_performance: Dict[str, Dict[str, Any]] = {}
+        all_sessions = list(db.user_sessions.find(
+            {"user_id": current_user["id"], "status": "completed"},
+            {"topic": 1, "percentage": 1, "difficulty": 1, "test_attempts": 1}
+        ))
+        
+        for s in all_sessions:
+            topic = (s.get("topic") or "").strip()
+            pct = s.get("percentage", 0)
+            if topic and pct > 0:
+                if topic not in skill_performance:
+                    skill_performance[topic] = {"scores": [], "difficulty": []}
+                skill_performance[topic]["scores"].append(pct)
+                skill_performance[topic]["difficulty"].append(s.get("difficulty", "medium"))
+            for att in s.get("test_attempts", []):
+                t = (att.get("topic") or "").strip()
+                p = att.get("percentage", 0)
+                if t and p > 0:
+                    if t not in skill_performance:
+                        skill_performance[t] = {"scores": [], "difficulty": []}
+                    skill_performance[t]["scores"].append(p)
+                    skill_performance[t]["difficulty"].append(att.get("difficulty", "medium"))
+        
+        # Classify skills as strong/moderate/weak
+        strong_skills: List[str] = []
+        moderate_skills: List[str] = []
+        weak_skills: List[str] = []
+        
+        for topic, data in skill_performance.items():
+            avg = sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0
+            if avg >= 75:
+                strong_skills.append(topic)
+            elif avg >= 55:
+                moderate_skills.append(topic)
+            else:
+                weak_skills.append(topic)
+        
+        # Skills without performance data are treated as claimed (unverified)
+        tested_topics = set(skill_performance.keys())
+        unverified_skills = [s for s in user_skills if _normalize_skill(s) not in {_normalize_skill(t) for t in tested_topics}]
+
         # --- Extract resume text to find university ---
         resume_text = ""
         if resume_path and os.path.exists(resume_path):
@@ -2559,36 +2953,37 @@ async def recommend_jobs(
             except Exception as pdf_err:
                 logger.warning(f"Could not read resume PDF for university extraction: {pdf_err}")
 
-        # --- Call AI for real-time India-based job recommendations ---
-        skills_str = ", ".join(user_skills[:20])  # cap to avoid token overflow
-
-        # Trim resume text for the prompt (first 2000 chars is enough for education)
-        resume_snippet = resume_text[:2000] if resume_text else "(resume text unavailable)"
+        # --- Build enhanced prompt ---
+        skills_str = ", ".join(user_skills[:20])
+        strong_str = ", ".join(strong_skills[:10]) if strong_skills else "Not yet assessed"
+        weak_str = ", ".join(weak_skills[:5]) if weak_skills else "None identified"
+        resume_snippet = resume_text[:2500] if resume_text else "(resume text unavailable)"
 
         prompt = f"""You are an expert Indian tech job market analyst with real-time knowledge of current job openings in India as of today.
 
 CANDIDATE PROFILE:
-- Skills: {skills_str}
-- Resume excerpt (for university/education detection):
+- All Skills: {skills_str}
+- Strong Skills (high test scores): {strong_str}
+- Skills Needing Improvement: {weak_str}
+- Resume excerpt (for university/education/experience detection):
 \"\"\"
 {resume_snippet}
 \"\"\"
 
 TASK:
-1. First, identify the university/college the candidate attended from their resume. Output it in the "university" field. Also identify the city where that university is located in "university_city".
-2. Generate exactly 8 realistic, currently-active job openings in India that match this candidate's skill set. These should resemble real jobs that would be posted on LinkedIn, Naukri, or Indeed India right now.
-3. ALL jobs must be based in India (Indian cities only).
-4. Sort jobs by proximity to the candidate's university city:
-   - Jobs in the SAME city as the university come first
-   - Jobs in NEARBY cities come next
-   - Jobs in DISTANT cities come last
-5. Each job must include a "proximity" field: "Same City", "Nearby", or "Distant"
-6. Each job must include an "apply_url" field with a realistic job search URL (use LinkedIn job search or Naukri search URL with the job title and location).
+1. Identify the university/college and years of experience from the resume. Output in "university", "university_city", and "experience_level" fields.
+2. Generate exactly 10 realistic, currently-active job openings in India matching this candidate. Prioritize jobs that leverage their STRONG skills.
+3. ALL jobs must be in India (Indian cities only).
+4. Sort by a HYBRID score: proximity to university city PLUS skill match strength. Best overall matches first.
+5. For each job calculate "match_score_pct" as percentage of required skills the candidate has.
+6. Include a "growth_skills" field: 2-3 skills the candidate should learn for each role.
+7. Include multi-platform apply URLs.
 
-Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
+Return ONLY valid JSON (no markdown, no explanation):
 {{
   "university": "University Name",
   "university_city": "City Name",
+  "experience_level": "fresher|1-2 years|3-5 years|5+ years",
   "jobs": [
     {{
       "id": "job-1",
@@ -2600,10 +2995,16 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
       "ctc_max": 1800000,
       "experience": "0-2 years",
       "job_type": "Full-time",
-      "description": "2-3 sentence realistic job description",
-      "required_skills": ["Skill1", "Skill2", "Skill3"],
+      "description": "3-4 sentence realistic job description",
+      "required_skills": ["Skill1", "Skill2", "Skill3", "Skill4", "Skill5"],
       "matching_skills": ["Skills that match candidate"],
-      "apply_url": "https://www.linkedin.com/jobs/search/?keywords=Job+Title&location=City"
+      "growth_skills": ["Skill to learn 1", "Skill to learn 2"],
+      "why_good_fit": "1-2 sentence explanation of why this role suits the candidate",
+      "apply_urls": {{
+        "linkedin": "https://www.linkedin.com/jobs/search/?keywords=Job+Title&location=City",
+        "naukri": "https://www.naukri.com/Job-Title-jobs-in-City",
+        "indeed": "https://in.indeed.com/jobs?q=Job+Title&l=City"
+      }}
     }}
   ]
 }}"""
@@ -2614,7 +3015,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=3000,
+            max_tokens=4000,
         )
 
         parsed = parse_json_response(raw_text)
@@ -2626,23 +3027,70 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
         jobs = parsed.get("jobs", [])
         university = parsed.get("university", "Not detected")
         university_city = parsed.get("university_city", "Unknown")
+        experience_level = parsed.get("experience_level", "unknown")
 
-        # Add match_score levels based on matching_skills count
+        # ── Enhanced match scoring algorithm ──
+        user_skills_lower = {s.lower() for s in user_skills}
+        strong_skills_lower = {s.lower() for s in strong_skills}
+        
         for i, job in enumerate(jobs):
             job["id"] = job.get("id", f"job-{i+1}")
-            matching = job.get("matching_skills", [])
-            required = job.get("required_skills", [])
-            match_pct = (len(matching) / len(required) * 100) if required else 0
-            job["match_score"] = 3 if match_pct >= 75 else 2 if match_pct >= 50 else 1
+            required = [s for s in job.get("required_skills", [])]
+            matching = [s for s in required if s.lower() in user_skills_lower]
+            strong_match = [s for s in matching if s.lower() in strong_skills_lower]
+            
+            # Weighted match: strong skills count double
+            base_match = len(matching) / len(required) if required else 0
+            strong_bonus = len(strong_match) / len(required) * 0.15 if required else 0
+            match_pct = min(100, (base_match + strong_bonus) * 100)
+            
+            job["matching_skills"] = matching
             job["match_score_pct"] = round(match_pct, 1)
+            job["match_score"] = 3 if match_pct >= 70 else 2 if match_pct >= 45 else 1
             job["missing_skills"] = [s for s in required if s not in matching]
+            job["strong_matches"] = strong_match
+            
+            # Backward compat: ensure apply_urls exists
+            if "apply_urls" not in job:
+                title_enc = job.get("title", "").replace(" ", "+")
+                loc_enc = job.get("location", "").replace(" ", "+")
+                job["apply_urls"] = {
+                    "linkedin": f"https://www.linkedin.com/jobs/search/?keywords={title_enc}&location={loc_enc}",
+                    "naukri": f"https://www.naukri.com/{title_enc.replace('+', '-')}-jobs-in-{loc_enc.replace('+', '-')}",
+                    "indeed": f"https://in.indeed.com/jobs?q={title_enc}&l={loc_enc}",
+                }
+            # Keep backward-compat apply_url
+            if "apply_url" not in job:
+                job["apply_url"] = job["apply_urls"].get("linkedin", "")
+
+        # ── Hybrid sort: match_score_pct (60%) + proximity (40%) ──
+        proximity_score = {"Same City": 1.0, "Nearby": 0.6, "Distant": 0.2}
+        jobs.sort(
+            key=lambda j: (
+                j.get("match_score_pct", 0) * 0.6
+                + proximity_score.get(j.get("proximity", "Distant"), 0.2) * 40
+            ),
+            reverse=True,
+        )
+
+        # ── Skill gap analysis ──
+        all_required = set()
+        for j in jobs:
+            all_required.update(s.lower() for s in j.get("required_skills", []))
+        skill_gap = sorted(all_required - user_skills_lower)
 
         return {
             "success": True,
             "user_skills": user_skills,
+            "strong_skills": strong_skills,
+            "weak_skills": weak_skills,
+            "unverified_skills": unverified_skills[:10],
             "university": university,
             "university_city": university_city,
+            "experience_level": experience_level,
             "jobs": jobs,
+            "skill_gap": skill_gap[:15],
+            "total_jobs": len(jobs),
         }
 
     except HTTPException:

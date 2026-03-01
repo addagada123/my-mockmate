@@ -57,7 +57,7 @@ const TopicDashboard = () => {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f3ff" }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: "48px", marginBottom: "16px" }}>⏳</div>
           <p style={{ fontSize: "18px", color: "#666" }}>Loading your topics...</p>
@@ -68,8 +68,8 @@ const TopicDashboard = () => {
 
   if (error) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc", padding: "20px" }}>
-        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", textAlign: "center", maxWidth: "500px", boxShadow: "0 4px 24px rgba(0,0,0,0.1)" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f3ff", padding: "20px" }}>
+        <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", textAlign: "center", maxWidth: "500px", boxShadow: "0 4px 24px rgba(99,102,241,0.08)" }}>
           <div style={{ fontSize: "48px", marginBottom: "16px" }}>❌</div>
           <h2 style={{ color: "#dc2626", marginBottom: "16px" }}>Error</h2>
           <p style={{ color: "#666", marginBottom: "24px" }}>{error}</p>
@@ -77,7 +77,7 @@ const TopicDashboard = () => {
             onClick={() => navigate("/dashboard")}
             style={{
               padding: "12px 24px",
-              backgroundColor: "#0073e6",
+              backgroundColor: "#6366f1",
               color: "white",
               border: "none",
               borderRadius: "8px",
@@ -93,21 +93,21 @@ const TopicDashboard = () => {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", padding: "20px" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #f5f3ff 0%, #ede9fe 30%, #f5f3ff 100%)", padding: "20px" }}>
       {/* Header */}
       <div
         style={{
-          backgroundColor: "white",
-          padding: "24px",
-          borderRadius: "12px",
+          background: "linear-gradient(135deg, #0f172a, #1e293b)",
+          padding: "24px 28px",
+          borderRadius: "16px",
           marginBottom: "24px",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+          boxShadow: "0 8px 32px rgba(15, 23, 42, 0.25)",
         }}
       >
-        <h1 style={{ margin: "0 0 8px 0", color: "#1e293b", fontSize: "28px" }}>
+        <h1 style={{ margin: "0 0 8px 0", color: "#ffffff", fontSize: "28px", fontWeight: "800" }}>
           📚 Select a Topic to Practice
         </h1>
-        <p style={{ margin: 0, color: "#666", fontSize: "14px" }}>
+        <p style={{ margin: 0, color: "#94a3b8", fontSize: "14px" }}>
           Choose a topic and difficulty level to generate interview questions
         </p>
       </div>
@@ -120,11 +120,12 @@ const TopicDashboard = () => {
               key={index}
               style={{
                 backgroundColor: "white",
-                borderRadius: "12px",
+                borderRadius: "16px",
                 padding: "24px",
                 marginBottom: "20px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                border: "1px solid #e2e8f0",
+                boxShadow: "0 4px 16px rgba(99,102,241,0.06)",
+                border: "1px solid rgba(99,102,241,0.08)",
+                transition: "all 0.2s ease",
               }}
             >
               {/* Topic Title */}
@@ -285,7 +286,7 @@ const TopicDashboard = () => {
               borderRadius: "12px",
               padding: "40px",
               textAlign: "center",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              boxShadow: "0 2px 8px rgba(99,102,241,0.06)",
             }}
           >
             <p style={{ color: "#999", fontSize: "16px" }}>No topics found. Upload a resume to get started.</p>
@@ -294,7 +295,7 @@ const TopicDashboard = () => {
               style={{
                 marginTop: "16px",
                 padding: "12px 24px",
-                backgroundColor: "#0073e6",
+                backgroundColor: "#6366f1",
                 color: "white",
                 border: "none",
                 borderRadius: "8px",
@@ -315,20 +316,20 @@ const TopicDashboard = () => {
           style={{
             padding: "12px 24px",
             backgroundColor: "transparent",
-            color: "#0073e6",
-            border: "2px solid #0073e6",
+            color: "#6366f1",
+            border: "2px solid #6366f1",
             borderRadius: "8px",
             cursor: "pointer",
             fontWeight: "600",
             transition: "all 0.3s ease",
           }}
           onMouseEnter={(e) => {
-            e.target.backgroundColor = "#0073e6";
-            e.target.color = "white";
+            e.target.style.backgroundColor = "#6366f1";
+            e.target.style.color = "white";
           }}
           onMouseLeave={(e) => {
-            e.target.backgroundColor = "transparent";
-            e.target.color = "#0073e6";
+            e.target.style.backgroundColor = "transparent";
+            e.target.style.color = "#6366f1";
           }}
         >
           ← Back to Dashboard

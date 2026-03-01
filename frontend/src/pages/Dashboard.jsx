@@ -147,8 +147,9 @@ function Dashboard() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#f8fafc",
+        background: "linear-gradient(180deg, #f5f3ff 0%, #ede9fe 30%, #f5f3ff 100%)",
         padding: "24px",
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
       <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
@@ -159,30 +160,30 @@ function Dashboard() {
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: "24px",
-            backgroundColor: "white",
-            padding: "20px",
-            borderRadius: "12px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+            background: "linear-gradient(135deg, #0f172a, #1e293b)",
+            padding: "20px 28px",
+            borderRadius: "16px",
+            boxShadow: "0 8px 32px rgba(15, 23, 42, 0.25)",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <video
                 src={mockmateLogoVideo}
                 autoPlay
                 loop
                 muted
                 playsInline
-                style={{ width: '36px', height: '36px', objectFit: 'contain' }}
+                style={{ width: '36px', height: '36px', objectFit: 'contain', borderRadius: '8px' }}
               />
-              <span style={{ fontSize: "24px", fontWeight: "800", color: "#0073e6" }}>Mockmate</span>
+              <span style={{ fontSize: "24px", fontWeight: "800", background: "linear-gradient(135deg, #818cf8, #c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Mockmate</span>
             </div>
-            <div style={{ width: "1px", height: "36px", backgroundColor: "#cce0f5" }}></div>
+            <div style={{ width: "1px", height: "36px", backgroundColor: "rgba(255,255,255,0.15)" }}></div>
             <div>
-              <h1 style={{ margin: 0, fontSize: "22px", color: "#1e293b" }}>
+              <h1 style={{ margin: 0, fontSize: "22px", color: "#ffffff", fontWeight: "700" }}>
                 Practice Dashboard
               </h1>
-              <p style={{ margin: "4px 0 0 0", color: "#666", fontSize: "14px" }}>
+              <p style={{ margin: "4px 0 0 0", color: "#94a3b8", fontSize: "14px" }}>
                 Welcome, {user?.full_name ? user.full_name.split(" ")[0] : user?.email?.split("@")[0]}
               </p>
             </div>
@@ -191,26 +192,29 @@ function Dashboard() {
             onClick={handleLogout}
             style={{
               padding: "10px 20px",
-              backgroundColor: "#0073e6",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
+              background: "rgba(255,255,255,0.1)",
+              color: "#e0e7ff",
+              border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: "10px",
               cursor: "pointer",
               fontWeight: "600",
+              fontSize: "13px",
               transition: "all 0.3s ease",
+              backdropFilter: "blur(8px)",
             }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+            onMouseEnter={(e) => { e.target.style.background = "rgba(255,255,255,0.2)"; e.target.style.color = "#fff"; }}
+            onMouseLeave={(e) => { e.target.style.background = "rgba(255,255,255,0.1)"; e.target.style.color = "#e0e7ff"; }}
           >
+            Sign Out
           </button>
         </div>
 
         {/* Main Content - 2 Column SaaS Layout */}
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "24px" }}>
           {/* Left Sidebar */}
-          <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", height: "fit-content" }}>
-            <h2 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e293b" }}>
-              Menu
+          <div style={{ background: "linear-gradient(180deg, #0f172a, #1e293b)", borderRadius: "16px", padding: "24px", boxShadow: "0 8px 32px rgba(15, 23, 42, 0.2)", height: "fit-content" }}>
+            <h2 style={{ fontSize: "16px", margin: "0 0 20px 0", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "1px", fontWeight: "600" }}>
+              Navigation
             </h2>
 
             {/* Topics Section */}
@@ -219,19 +223,21 @@ function Dashboard() {
                 onClick={toggleTopic}
                 style={{
                   width: "100%",
-                  padding: "12px",
+                  padding: "12px 14px",
                   textAlign: "left",
-                  backgroundColor: expandedTopics ? "#e0f0ff" : "transparent",
-                  border: "1px solid #cce0f5",
-                  borderRadius: "8px",
+                  backgroundColor: expandedTopics ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.05)",
+                  border: expandedTopics ? "1px solid rgba(99, 102, 241, 0.4)" : "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "10px",
                   cursor: "pointer",
                   fontWeight: "600",
-                  color: "#334155",
+                  color: expandedTopics ? "#818cf8" : "#cbd5e1",
+                  fontSize: "14px",
+                  transition: "all 0.2s ease",
                 }}>
                 {expandedTopics ? "▼" : "▶"} Topics
               </button>
               {expandedTopics && (
-                <div style={{ marginTop: "8px", paddingLeft: "16px" }}>
+                <div style={{ marginTop: "8px", paddingLeft: "12px" }}>
                   {displayTopics.map((topic, idx) => (
                     <button
                       key={idx}
@@ -239,20 +245,20 @@ function Dashboard() {
                       style={{
                         display: "block",
                         width: "100%",
-                        padding: "8px",
+                        padding: "8px 10px",
                         textAlign: "left",
                         backgroundColor: "transparent",
                         border: "none",
                         borderRadius: "6px",
                         cursor: "pointer",
-                        color: "#666",
+                        color: "#94a3b8",
                         fontSize: "13px",
-                        marginBottom: "4px",
+                        marginBottom: "2px",
                         transition: "all 0.2s ease",
                         fontWeight: generatedTopics.includes(topic) ? "600" : "400",
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#e0f0ff")}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(99,102,241,0.15)"; e.currentTarget.style.color = "#c7d2fe"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "#94a3b8"; }}
                     >
                       • {topic} {generatedTopics.includes(topic) ? "⭐" : ""}
                     </button>
@@ -262,24 +268,24 @@ function Dashboard() {
             </div>
 
             {/* Navigation Buttons */}
-            <div style={{ marginTop: "24px", borderTop: "1px solid #cce0f5", paddingTop: "16px" }}>
+            <div style={{ marginTop: "24px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
               <button
                 onClick={() => navigate("/performance")}
                 style={{
                   width: "100%",
-                  padding: "10px",
-                  marginBottom: "8px",
-                  backgroundColor: "#0073e6",
+                  padding: "12px 14px",
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                   color: "white",
                   border: "none",
-                  borderRadius: "8px",
+                  borderRadius: "10px",
                   cursor: "pointer",
                   fontSize: "13px",
                   fontWeight: "600",
                   transition: "all 0.3s ease",
+                  boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+                onMouseEnter={(e) => { e.target.style.transform = "translateY(-1px)"; e.target.style.boxShadow = "0 6px 20px rgba(99, 102, 241, 0.4)"; }}
+                onMouseLeave={(e) => { e.target.style.transform = "translateY(0)"; e.target.style.boxShadow = "0 4px 12px rgba(99, 102, 241, 0.3)"; }}
               >
                 📊 Performance
               </button>
@@ -287,19 +293,19 @@ function Dashboard() {
                 onClick={() => navigate("/communication-test")}
                 style={{
                   width: "100%",
-                  padding: "10px",
-                  marginBottom: "8px",
-                  backgroundColor: "#0073e6",
+                  padding: "12px 14px",
+                  background: "linear-gradient(135deg, #06b6d4, #14b8a6)",
                   color: "white",
                   border: "none",
-                  borderRadius: "8px",
+                  borderRadius: "10px",
                   cursor: "pointer",
                   fontSize: "13px",
                   fontWeight: "600",
                   transition: "all 0.3s ease",
+                  boxShadow: "0 4px 12px rgba(6, 182, 212, 0.3)",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+                onMouseEnter={(e) => { e.target.style.transform = "translateY(-1px)"; e.target.style.boxShadow = "0 6px 20px rgba(6, 182, 212, 0.4)"; }}
+                onMouseLeave={(e) => { e.target.style.transform = "translateY(0)"; e.target.style.boxShadow = "0 4px 12px rgba(6, 182, 212, 0.3)"; }}
               >
                 {"\ud83d\udde3\ufe0f"} Communication Test
               </button>
@@ -307,18 +313,19 @@ function Dashboard() {
                 onClick={() => navigate("/jobs")}
                 style={{
                   width: "100%",
-                  padding: "10px",
-                  backgroundColor: "#0073e6",
+                  padding: "12px 14px",
+                  background: "linear-gradient(135deg, #f97316, #f59e0b)",
                   color: "white",
                   border: "none",
-                  borderRadius: "8px",
+                  borderRadius: "10px",
                   cursor: "pointer",
                   fontSize: "13px",
                   fontWeight: "600",
                   transition: "all 0.3s ease",
+                  boxShadow: "0 4px 12px rgba(245, 158, 11, 0.3)",
                 }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
+                onMouseEnter={(e) => { e.target.style.transform = "translateY(-1px)"; e.target.style.boxShadow = "0 6px 20px rgba(245, 158, 11, 0.4)"; }}
+                onMouseLeave={(e) => { e.target.style.transform = "translateY(0)"; e.target.style.boxShadow = "0 4px 12px rgba(245, 158, 11, 0.3)"; }}
               >
                 💼 Jobs
               </button>
@@ -328,23 +335,32 @@ function Dashboard() {
           {/* Right Panel - Welcome / Resume Upload */}
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
             {/* Welcome Card */}
-            <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "32px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-              <h2 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b", fontWeight: "800" }}>
+            <div style={{
+              background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.06))",
+              borderRadius: "16px",
+              padding: "36px",
+              boxShadow: "0 4px 16px rgba(99, 102, 241, 0.06)",
+              border: "1px solid rgba(99, 102, 241, 0.1)",
+              position: "relative",
+              overflow: "hidden",
+            }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "4px", background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)" }} />
+              <h2 style={{ fontSize: "32px", margin: "0 0 12px 0", color: "#1e1b4b", fontWeight: "800" }}>
                 👋 Welcome Back!
               </h2>
-              <p style={{ fontSize: "16px", color: "#666", lineHeight: "1.6", margin: 0 }}>
-                Ready to ace your interview? Upload your resume to get personalized questions based on your skills, or start with any topic below.
+              <p style={{ fontSize: "16px", color: "#475569", lineHeight: "1.7", margin: 0, maxWidth: "600px" }}>
+                Ready to ace your interview? Upload your resume to get personalized questions based on your skills, or start with any topic.
               </p>
-              <div style={{ marginTop: "20px", display: "flex", gap: "12px" }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: "13px", color: "#999", margin: "0 0 8px 0" }}>Topics Available</p>
-                  <p style={{ fontSize: "24px", fontWeight: "700", color: "#0073e6", margin: 0 }}>
+              <div style={{ marginTop: "24px", display: "flex", gap: "20px" }}>
+                <div style={{ flex: 1, background: "rgba(255,255,255,0.7)", borderRadius: "12px", padding: "16px", border: "1px solid rgba(99,102,241,0.1)" }}>
+                  <p style={{ fontSize: "12px", color: "#94a3b8", margin: "0 0 6px 0", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "600" }}>Topics Available</p>
+                  <p style={{ fontSize: "28px", fontWeight: "800", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", margin: 0 }}>
                     {displayTopics.length}
                   </p>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: "13px", color: "#999", margin: "0 0 8px 0" }}>Personalized Questions</p>
-                  <p style={{ fontSize: "24px", fontWeight: "700", color: "#0073e6", margin: 0 }}>
+                <div style={{ flex: 1, background: "rgba(255,255,255,0.7)", borderRadius: "12px", padding: "16px", border: "1px solid rgba(99,102,241,0.1)" }}>
+                  <p style={{ fontSize: "12px", color: "#94a3b8", margin: "0 0 6px 0", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "600" }}>Personalized Questions</p>
+                  <p style={{ fontSize: "28px", fontWeight: "800", background: "linear-gradient(135deg, #06b6d4, #14b8a6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", margin: 0 }}>
                     {resumeQuestions.length}
                   </p>
                 </div>
@@ -352,8 +368,8 @@ function Dashboard() {
             </div>
 
             {/* Resume Upload Card */}
-            <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-              <h3 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e293b", fontWeight: "700" }}>
+            <div style={{ backgroundColor: "white", borderRadius: "16px", padding: "28px", boxShadow: "0 4px 16px rgba(99, 102, 241, 0.06)", border: "1px solid #e0e7ff" }}>
+              <h3 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e1b4b", fontWeight: "700" }}>
                 📄 Upload Resume
               </h3>
               <input
@@ -366,78 +382,82 @@ function Dashboard() {
               <div
                 onClick={() => !uploadingResume && fileInputRef.current?.click()}
                 style={{
-                  border: "2px dashed #0073e6",
-                  borderRadius: "8px",
-                  padding: "32px",
+                  border: "2px dashed #c7d2fe",
+                  borderRadius: "12px",
+                  padding: "36px",
                   textAlign: "center",
                   cursor: uploadingResume ? "not-allowed" : "pointer",
                   transition: "all 0.3s ease",
-                  backgroundColor: uploadingResume ? "#f0f0f0" : "#f8f9ff",
+                  backgroundColor: uploadingResume ? "#f1f5f9" : "#eef2ff",
                   opacity: uploadingResume ? 0.6 : 1,
                 }}
                 onMouseEnter={(e) => {
                   if (!uploadingResume) {
-                    e.currentTarget.style.backgroundColor = "#e0f0ff";
-                    e.currentTarget.style.borderColor = "#005bb5";
+                    e.currentTarget.style.backgroundColor = "#e0e7ff";
+                    e.currentTarget.style.borderColor = "#6366f1";
+                    e.currentTarget.style.boxShadow = "0 0 20px rgba(99,102,241,0.1)";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!uploadingResume) {
-                    e.currentTarget.style.backgroundColor = "#f8f9ff";
-                    e.currentTarget.style.borderColor = "#0073e6";
+                    e.currentTarget.style.backgroundColor = "#eef2ff";
+                    e.currentTarget.style.borderColor = "#c7d2fe";
+                    e.currentTarget.style.boxShadow = "none";
                   }
                 }}
               >
                 <p style={{ fontSize: "40px", margin: "0 0 8px 0" }}>
                   {uploadingResume ? "⏳" : "📤"}
                 </p>
-                <p style={{ margin: "0 0 4px 0", color: "#334155", fontWeight: "600", fontSize: "16px" }}>
+                <p style={{ margin: "0 0 4px 0", color: "#1e1b4b", fontWeight: "600", fontSize: "16px" }}>
                   {uploadingResume ? "Processing..." : "Drop your resume"}
                 </p>
-                <p style={{ margin: 0, fontSize: "14px", color: "#999" }}>
+                <p style={{ margin: 0, fontSize: "14px", color: "#94a3b8" }}>
                   {uploadingResume ? "Please wait..." : "or click to browse (PDF only)"}
                 </p>
               </div>
-              <p style={{ fontSize: "12px", color: "#999", marginTop: "12px", textAlign: "center", margin: "12px 0 0 0" }}>
+              <p style={{ fontSize: "12px", color: "#94a3b8", marginTop: "12px", textAlign: "center", margin: "12px 0 0 0" }}>
                 Max 5MB • Supports PDF format
               </p>
               {uploadMessage && (
                 <p
                   style={{
                     marginTop: "12px",
-                    padding: "12px",
-                    backgroundColor: uploadMessage.includes("✅") || uploadMessage.includes("🔄 Regenerated") ? "#d1fae5" : uploadMessage.includes("🔄") ? "#fef3c7" : "#fee2e2",
+                    padding: "12px 16px",
+                    backgroundColor: uploadMessage.includes("✅") || uploadMessage.includes("🔄 Regenerated") ? "#ecfdf5" : uploadMessage.includes("🔄") ? "#fef3c7" : "#fff1f2",
                     color: uploadMessage.includes("✅") || uploadMessage.includes("🔄 Regenerated") ? "#065f46" : uploadMessage.includes("🔄") ? "#92400e" : "#991b1b",
-                    borderRadius: "6px",
+                    borderRadius: "10px",
                     fontSize: "13px",
                     textAlign: "center",
+                    border: uploadMessage.includes("✅") || uploadMessage.includes("🔄 Regenerated") ? "1px solid #a7f3d0" : uploadMessage.includes("🔄") ? "1px solid #fcd34d" : "1px solid #fecdd3",
                   }}
                 >
                   {uploadMessage}
                 </p>
               )}
-              {/* Regenerate Button — shown when topics already exist */}
+              {/* Regenerate Button */}
               {generatedTopics.length > 0 && (
-                <div style={{ marginTop: "12px", textAlign: "center" }}>
+                <div style={{ marginTop: "16px", textAlign: "center" }}>
                   <button
                     onClick={handleRegenerate}
                     disabled={uploadingResume || regenerating}
                     style={{
-                      padding: "10px 20px",
-                      backgroundColor: uploadingResume || regenerating ? "#94a3b8" : "#f59e0b",
+                      padding: "10px 24px",
+                      background: uploadingResume || regenerating ? "#94a3b8" : "linear-gradient(135deg, #f97316, #f59e0b)",
                       color: "white",
                       border: "none",
-                      borderRadius: "8px",
+                      borderRadius: "10px",
                       cursor: uploadingResume || regenerating ? "not-allowed" : "pointer",
                       fontWeight: "700",
                       fontSize: "13px",
                       transition: "all 0.3s ease",
+                      boxShadow: uploadingResume || regenerating ? "none" : "0 4px 12px rgba(245, 158, 11, 0.3)",
                     }}
                     onMouseEnter={(e) => {
-                      if (!uploadingResume && !regenerating) e.target.style.backgroundColor = "#d97706";
+                      if (!uploadingResume && !regenerating) { e.target.style.transform = "translateY(-1px)"; e.target.style.boxShadow = "0 6px 20px rgba(245, 158, 11, 0.4)"; }
                     }}
                     onMouseLeave={(e) => {
-                      if (!uploadingResume && !regenerating) e.target.style.backgroundColor = "#f59e0b";
+                      if (!uploadingResume && !regenerating) { e.target.style.transform = "translateY(0)"; e.target.style.boxShadow = "0 4px 12px rgba(245, 158, 11, 0.3)"; }
                     }}
                   >
                     {regenerating ? "⏳ Regenerating..." : "🔄 Regenerate Questions"}
@@ -448,8 +468,8 @@ function Dashboard() {
                 </div>
               )}
               {generatedTopics.length > 0 && (
-                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #cce0f5" }}>
-                  <p style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginBottom: "8px" }}>
+                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #e0e7ff" }}>
+                  <p style={{ fontSize: "12px", color: "#475569", fontWeight: "600", marginBottom: "8px" }}>
                     ✨ Generated Topics:
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
@@ -457,12 +477,13 @@ function Dashboard() {
                       <span
                         key={idx}
                         style={{
-                          backgroundColor: "#e0f0ff",
-                          color: "#0073e6",
-                          padding: "4px 8px",
-                          borderRadius: "4px",
+                          background: "linear-gradient(135deg, #eef2ff, #e0e7ff)",
+                          color: "#4f46e5",
+                          padding: "5px 10px",
+                          borderRadius: "6px",
                           fontSize: "11px",
                           fontWeight: "600",
+                          border: "1px solid #c7d2fe",
                         }}
                       >
                         {topic}
@@ -481,45 +502,49 @@ function Dashboard() {
         <div
           style={{
             position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            backgroundColor: "white",
-            padding: "32px",
-            borderRadius: "12px",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
-            textAlign: "center",
-            maxWidth: "400px",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            backdropFilter: "blur(4px)",
+            zIndex: 999,
           }}
-        >
-          <p style={{ fontSize: "48px", margin: "0 0 16px 0" }}>🎉</p>
-          <h2 style={{ fontSize: "24px", margin: "0 0 12px 0", color: "#1e293b" }}>
-            Resume Processed!
-          </h2>
-          <p style={{ color: "#666", marginBottom: "16px", lineHeight: "1.6" }}>
-            ✅ We've extracted your skills and generated interview questions!
-          </p>
-          <p style={{ color: "#334155", fontWeight: "600", margin: "16px 0", fontSize: "16px" }}>
-            📖 Check out the <strong>Topics</strong> section on the left to start practicing!
-          </p>
-          <p style={{ color: "#999", fontSize: "13px", margin: "12px 0 0 0" }}>
-            Select a topic → Choose difficulty → Take the proctored test
-          </p>
-        </div>
+          onClick={() => setShowSuccessModal(false)}
+        />
       )}
       {showSuccessModal && (
         <div
           style={{
             position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.5)",
-            zIndex: 999,
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            backgroundColor: "white",
+            padding: "40px",
+            borderRadius: "20px",
+            boxShadow: "0 20px 60px rgba(99,102,241,0.2)",
+            textAlign: "center",
+            maxWidth: "420px",
+            zIndex: 1000,
+            animation: "scaleIn 0.3s ease-out",
           }}
-          onClick={() => setShowSuccessModal(false)}
-        />
+        >
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "4px", background: "linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4)", borderRadius: "20px 20px 0 0" }} />
+          <p style={{ fontSize: "56px", margin: "0 0 16px 0" }}>🎉</p>
+          <h2 style={{ fontSize: "24px", margin: "0 0 12px 0", color: "#1e1b4b", fontWeight: "800" }}>
+            Resume Processed!
+          </h2>
+          <p style={{ color: "#475569", marginBottom: "16px", lineHeight: "1.6" }}>
+            We've extracted your skills and generated interview questions!
+          </p>
+          <p style={{ color: "#1e1b4b", fontWeight: "600", margin: "16px 0", fontSize: "16px" }}>
+            📖 Check out the <strong>Topics</strong> section to start practicing!
+          </p>
+          <p style={{ color: "#94a3b8", fontSize: "13px", margin: "12px 0 0 0" }}>
+            Select a topic → Choose difficulty → Take the proctored test
+          </p>
+        </div>
       )}
     </div>
   );
