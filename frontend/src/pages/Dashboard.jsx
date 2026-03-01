@@ -14,6 +14,7 @@ function Dashboard() {
   const [resumeQuestions, setResumeQuestions] = useState([]);
   const [generatedTopics, setGeneratedTopics] = useState([]);
   const [uploadingResume, setUploadingResume] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
@@ -51,52 +52,74 @@ function Dashboard() {
     fetchUserData();
   }, []);
 
-  const handleResumeUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleResumeUpload = (event) => {
+    // Delegate to the unified handler
+    handleFileSelected(event);
+  };
 
-    if (file.type !== "application/pdf") {
-      setUploadMessage("❌ Only PDF files are supported");
+  const handleTopicClick = (topic) => {
+    setSelectedTopic(topic);
+    // Navigate to proctored test page with topic
+    navigate(`/test/${encodeURIComponent(topic)}`);
+  };
+
+  const handleRegenerate = async () => {
+    // Re-upload the last resume with force_regenerate=true
+    // We need the user to pick their file again (browser security prevents re-using file refs)
+    setRegenerating(true);
+    setUploadMessage("🔄 Pick your resume again to generate fresh questions...");
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      if (regenerating) setRegenerating(false);
       return;
     }
 
+    if (file.type !== "application/pdf") {
+      setUploadMessage("❌ Only PDF files are supported");
+      setRegenerating(false);
+      return;
+    }
+
+    const isRegen = regenerating;
     setUploadingResume(true);
-    setUploadMessage("📤 Uploading resume...");
+    setUploadMessage(isRegen ? "🔄 Regenerating fresh questions..." : "📤 Uploading resume...");
 
     try {
       const formData = new FormData();
       formData.append("file", file);
 
       const token = localStorage.getItem("mockmate_token");
-      const response = await axios.post(
-        `${API_BASE}/upload-resume`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
+      const url = isRegen
+        ? `${API_BASE}/upload-resume?force_regenerate=true`
+        : `${API_BASE}/upload-resume`;
+
+      const response = await axios.post(url, formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       if (response.data.success) {
-        const questions = response.data.questions || [];
-        setResumeQuestions(questions);
-
-        // Prefer topics detected from resume; fallback to topics derived from questions
-        const detected = response.data.topicsDetected || [];
-        const topics = detected.length > 0
-          ? detected
-          : [...new Set(questions.map((q) => q.topic || "Misc"))];
-        setGeneratedTopics(topics);
+        const topics = response.data.topicsDetected || [];
+        const sessionId = response.data.session_id;
 
         setUploadMessage(
-          `✅ ${response.data.message} Topics found: ${topics.join(", ")}`
+          isRegen
+            ? `🔄 Regenerated! ${response.data.message}`
+            : `✅ ${response.data.message}`
         );
-        
-        // Show success modal
+
         setShowSuccessModal(true);
-        setTimeout(() => setShowSuccessModal(false), 5000);
+
+        // Redirect to TopicDashboard after 1.5 seconds
+        setTimeout(() => {
+          navigate(`/topic-dashboard/${encodeURIComponent(sessionId)}`);
+        }, 1500);
       }
     } catch (error) {
       setUploadMessage(
@@ -104,13 +127,8 @@ function Dashboard() {
       );
     } finally {
       setUploadingResume(false);
+      setRegenerating(false);
     }
-  };
-
-  const handleTopicClick = (topic) => {
-    setSelectedTopic(topic);
-    // Navigate to proctored test page with topic
-    navigate(`/test/${encodeURIComponent(topic)}`);
   };
 
   const handleLogout = () => {
@@ -388,8 +406,8 @@ function Dashboard() {
                   style={{
                     marginTop: "12px",
                     padding: "12px",
-                    backgroundColor: uploadMessage.includes("✅") ? "#d1fae5" : "#fee2e2",
-                    color: uploadMessage.includes("✅") ? "#065f46" : "#991b1b",
+                    backgroundColor: uploadMessage.includes("✅") || uploadMessage.includes("🔄 Regenerated") ? "#d1fae5" : uploadMessage.includes("🔄") ? "#fef3c7" : "#fee2e2",
+                    color: uploadMessage.includes("✅") || uploadMessage.includes("🔄 Regenerated") ? "#065f46" : uploadMessage.includes("🔄") ? "#92400e" : "#991b1b",
                     borderRadius: "6px",
                     fontSize: "13px",
                     textAlign: "center",
@@ -397,6 +415,37 @@ function Dashboard() {
                 >
                   {uploadMessage}
                 </p>
+              )}
+              {/* Regenerate Button — shown when topics already exist */}
+              {generatedTopics.length > 0 && (
+                <div style={{ marginTop: "12px", textAlign: "center" }}>
+                  <button
+                    onClick={handleRegenerate}
+                    disabled={uploadingResume || regenerating}
+                    style={{
+                      padding: "10px 20px",
+                      backgroundColor: uploadingResume || regenerating ? "#94a3b8" : "#f59e0b",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "8px",
+                      cursor: uploadingResume || regenerating ? "not-allowed" : "pointer",
+                      fontWeight: "700",
+                      fontSize: "13px",
+                      transition: "all 0.3s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!uploadingResume && !regenerating) e.target.style.backgroundColor = "#d97706";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!uploadingResume && !regenerating) e.target.style.backgroundColor = "#f59e0b";
+                    }}
+                  >
+                    {regenerating ? "⏳ Regenerating..." : "🔄 Regenerate Questions"}
+                  </button>
+                  <p style={{ fontSize: "11px", color: "#94a3b8", marginTop: "6px" }}>
+                    Bypass cache and generate brand-new questions from your resume
+                  </p>
+                </div>
               )}
               {generatedTopics.length > 0 && (
                 <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #cce0f5" }}>

@@ -511,6 +511,54 @@ const Test = () => {
     }
   };
 
+  const regenerateCurrentQuestion = async () => {
+    if (!sessionId) {
+      showWarning("⚠️ No session available");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("mockmate_token");
+      
+      showWarning("🔄 Regenerating question...");
+      
+      const response = await axios.post(
+        `${API_BASE}/regenerate-question?session_id=${encodeURIComponent(sessionId)}&question_index=${currentQuestionIndex}`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.data.success && response.data.new_question) {
+        // Update questions array with new question
+        const updatedQuestions = [...questions];
+        updatedQuestions[currentQuestionIndex] = response.data.new_question;
+        setQuestions(updatedQuestions);
+
+        // Clear the answer for this question
+        const updatedAnswers = { ...answers };
+        delete updatedAnswers[currentQuestionIndex];
+        setAnswers(updatedAnswers);
+
+        // Clear any previous result for this question
+        const updatedResults = { ...questionResults };
+        delete updatedResults[currentQuestionIndex];
+        setQuestionResults(updatedResults);
+        setCurrentScore(calculateAverageScore(updatedResults));
+
+        showWarning("✅ Question regenerated! You have a fresh question to try.");
+      } else {
+        showWarning("❌ Failed to regenerate question");
+      }
+    } catch (error) {
+      console.error("Error regenerating question:", error);
+      showWarning("❌ Error regenerating question: " + (error.response?.data?.detail || error.message));
+    }
+  };
+
   const submitTest = async () => {
     console.log("submitTest called with questionResults:", questionResults);
     console.log("submitTest called with questions count:", questions.length);
@@ -939,6 +987,37 @@ const Test = () => {
               aria-label="Read Question"
             >
               🔊
+            </button>
+            <button
+              onClick={() => regenerateCurrentQuestion()}
+              title="Regenerate this question"
+              aria-label="Regenerate Question"
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                backgroundColor: "#f3e8ff",
+                color: "#9333ea",
+                border: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                flexShrink: 0,
+                fontSize: "18px",
+                fontWeight: "bold",
+                transition: "all 0.3s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = "#e9d5ff";
+                e.target.style.transform = "scale(1.1)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = "#f3e8ff";
+                e.target.style.transform = "scale(1)";
+              }}
+            >
+              🔄
             </button>
           </div>
 
