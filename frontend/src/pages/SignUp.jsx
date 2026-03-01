@@ -292,7 +292,7 @@ function SignUp() {
           loop
           muted
           playsInline
-          style={{ width: '44px', height: '44px', objectFit: 'contain', borderRadius: '8px' }}
+          style={{ width: '28px', height: '28px', objectFit: 'contain', borderRadius: '4px' }}
         />
 
         <span className="signup-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>

@@ -155,7 +155,7 @@ function Dashboard() {
                 loop
                 muted
                 playsInline
-                style={{ width: '40px', height: '40px', objectFit: 'contain', borderRadius: '8px' }}
+                style={{ width: '24px', height: '24px', objectFit: 'contain', borderRadius: '4px' }}
               />
               <span style={{ fontSize: "24px", fontWeight: "800", color: "#0073e6" }}>Mockmate</span>
             </div>
