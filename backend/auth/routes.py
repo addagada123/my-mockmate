@@ -75,7 +75,12 @@ async def register(user: UserRegister):
         expires_delta=access_token_expires
     )
     
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "email": user.email,
+        "full_name": user.full_name
+    }
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -175,7 +180,12 @@ async def signin(request: SignInRequest):
         )
         
         logger.info(f"Sign in successful for: {request.email}")
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "email": user.get("email"),
+            "full_name": user.get("full_name", "")
+        }
         
     except HTTPException:
         raise
@@ -279,7 +289,12 @@ async def google_auth(request: GoogleAuthRequest):
             expires_delta=access_token_expires
         )
         
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "email": google_email,
+            "full_name": google_name
+        }
     
     except HTTPException:
         raise

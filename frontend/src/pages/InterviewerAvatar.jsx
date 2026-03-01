@@ -135,13 +135,13 @@ const InterviewerAvatar = ({ isTalking = false, isListening = false, size = 120 
           )}
 
           {/* Glasses (optional professional look) */}
-          <circle cx="46" cy="48" r="9" stroke="#667eea" strokeWidth="1.5" fill="none" />
-          <circle cx="74" cy="48" r="9" stroke="#667eea" strokeWidth="1.5" fill="none" />
-          <line x1="55" y1="48" x2="65" y2="48" stroke="#667eea" strokeWidth="1.2" />
+          <circle cx="46" cy="48" r="9" stroke="#0073e6" strokeWidth="1.5" fill="none" />
+          <circle cx="74" cy="48" r="9" stroke="#0073e6" strokeWidth="1.5" fill="none" />
+          <line x1="55" y1="48" x2="65" y2="48" stroke="#0073e6" strokeWidth="1.2" />
         </g>
 
         {/* Collar / Shirt hint */}
-        <path d="M35 82 Q60 95 85 82 L92 110 Q60 115 28 110 Z" fill="#667eea" />
+        <path d="M35 82 Q60 95 85 82 L92 110 Q60 115 28 110 Z" fill="#0073e6" />
         {/* Tie */}
         <polygon points="57,84 63,84 62,100 58,100" fill="#4338ca" />
         <polygon points="56,100 64,100 60,108" fill="#4338ca" />

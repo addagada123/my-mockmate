@@ -58,7 +58,7 @@ function Jobs() {
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "#f5f7fa",
         padding: "24px",
       }}
     >
@@ -73,10 +73,10 @@ function Jobs() {
           }}
         >
           <div>
-            <h1 style={{ color: "white", fontSize: "28px", fontWeight: "800", margin: 0 }}>
+            <h1 style={{ color: "#0073e6", fontSize: "28px", fontWeight: "800", margin: 0 }}>
               💼 Recommended Jobs
             </h1>
-            <p style={{ color: "rgba(255,255,255,0.8)", margin: "4px 0 0 0" }}>
+            <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
               {user?.email}
             </p>
           </div>
@@ -86,7 +86,7 @@ function Jobs() {
               style={{
                 padding: "10px 20px",
                 background: "white",
-                color: "#667eea",
+                color: "#0073e6",
                 border: "none",
                 borderRadius: "8px",
                 fontWeight: "600",
@@ -106,7 +106,7 @@ function Jobs() {
               style={{
                 padding: "10px 20px",
                 background: "white",
-                color: "#667eea",
+                color: "#0073e6",
                 border: "none",
                 borderRadius: "8px",
                 fontWeight: "600",
@@ -141,8 +141,8 @@ function Jobs() {
                   key={idx}
                   style={{
                     padding: "6px 12px",
-                    backgroundColor: "#e0e7ff",
-                    color: "#667eea",
+                    backgroundColor: "#e0f0ff",
+                    color: "#0073e6",
                     borderRadius: "6px",
                     fontSize: "13px",
                     fontWeight: "600",
@@ -191,10 +191,10 @@ function Jobs() {
                   background: "white",
                   borderRadius: "12px",
                   padding: "20px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                   cursor: "pointer",
                   transition: "all 0.3s ease",
-                  border: selectedJob?.id === job.id ? "2px solid #667eea" : "2px solid transparent",
+                  border: selectedJob?.id === job.id ? "2px solid #0073e6" : "2px solid transparent",
                 }}
                 onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
                 onMouseEnter={(e) => {
@@ -216,7 +216,7 @@ function Jobs() {
                     <h3 style={{ margin: "0 0 4px 0", color: "#1e293b", fontSize: "18px", fontWeight: "700" }}>
                       {job.title}
                     </h3>
-                    <p style={{ margin: 0, color: "#667eea", fontWeight: "600", fontSize: "14px" }}>
+                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "600", fontSize: "14px" }}>
                       {job.company}
                     </p>
                   </div>
@@ -305,7 +305,7 @@ function Jobs() {
                     style={{
                       marginTop: "16px",
                       paddingTop: "16px",
-                      borderTop: "1px solid #e0e7ff",
+                      borderTop: "1px solid #cce0f5",
                     }}
                   >
                     <div style={{ marginBottom: "12px" }}>
@@ -350,7 +350,7 @@ function Jobs() {
                         marginTop: "16px",
                         width: "100%",
                         padding: "10px 16px",
-                        backgroundColor: "#667eea",
+                        backgroundColor: "#0073e6",
                         color: "white",
                         border: "none",
                         borderRadius: "6px",
@@ -358,8 +358,8 @@ function Jobs() {
                         cursor: "pointer",
                         transition: "all 0.3s ease",
                       }}
-                      onMouseEnter={(e) => (e.target.style.backgroundColor = "#764ba2")}
-                      onMouseLeave={(e) => (e.target.style.backgroundColor = "#667eea")}
+                      onMouseEnter={(e) => (e.target.style.backgroundColor = "#005bb5")}
+                      onMouseLeave={(e) => (e.target.style.backgroundColor = "#0073e6")}
                     >
                       Apply Now
                     </button>

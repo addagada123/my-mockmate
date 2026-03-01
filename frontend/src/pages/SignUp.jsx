@@ -124,7 +124,7 @@ function SignUp() {
       className="signup-page"
       style={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: '#f5f7fa',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -142,7 +142,7 @@ function SignUp() {
         }}
       >
         <span className="signup-logo" style={{ fontSize: '34px' }}>🎯</span>
-        <span className="signup-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#fff' }}>Mockmate</span>
+        <span className="signup-brand-name" style={{ fontSize: '28px', fontWeight: '800', color: '#0073e6' }}>Mockmate</span>
       </div>
 
       <div 
@@ -153,7 +153,7 @@ function SignUp() {
           background: 'white',
           padding: '40px',
           borderRadius: '16px',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.10)'
         }}
       >
         <h1 className="signup-title" style={{ fontSize: '22px', fontWeight: '700', textAlign: 'center', marginBottom: '6px', color: '#1e293b' }}>Create your Mockmate account</h1>
@@ -207,7 +207,7 @@ function SignUp() {
               padding: '14px',
               borderRadius: '12px',
               border: 'none',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: '#0073e6',
               color: 'white',
               fontSize: '16px',
               fontWeight: '600',
@@ -245,7 +245,7 @@ function SignUp() {
           <span 
             className="signup-link" 
             onClick={() => navigate("/signin")}
-            style={{ color: '#667eea', fontWeight: '500', cursor: 'pointer' }}
+            style={{ color: '#0073e6', fontWeight: '500', cursor: 'pointer' }}
           >
             Sign in
           </span>
