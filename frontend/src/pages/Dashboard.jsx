@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import mockmateLogoVideo from "../assets/mockmate-logo.mp4";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
@@ -148,7 +149,14 @@ function Dashboard() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "32px" }}>🎯</span>
+              <video
+                src={mockmateLogoVideo}
+                autoPlay
+                loop
+                muted
+                playsInline
+                style={{ width: '40px', height: '40px', objectFit: 'contain', borderRadius: '8px' }}
+              />
               <span style={{ fontSize: "24px", fontWeight: "800", color: "#0073e6" }}>Mockmate</span>
             </div>
             <div style={{ width: "1px", height: "36px", backgroundColor: "#cce0f5" }}></div>
