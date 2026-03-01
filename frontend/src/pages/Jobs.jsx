@@ -58,7 +58,7 @@ function Jobs() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#f5f7fa",
+        background: "#f8fafc",
         padding: "24px",
       }}
     >
@@ -73,7 +73,7 @@ function Jobs() {
           }}
         >
           <div>
-            <h1 style={{ color: "#0073e6", fontSize: "28px", fontWeight: "800", margin: 0 }}>
+            <h1 style={{ color: "#1e293b", fontSize: "28px", fontWeight: "800", margin: 0 }}>
               Ã°Å¸â€™Â¼ Recommended Jobs
             </h1>
             <p style={{ color: "#64748b", margin: "4px 0 0 0" }}>
@@ -132,7 +132,7 @@ function Jobs() {
               boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
             }}
           >
-            <h2 style={{ color: "#0073e6", marginTop: 0, marginBottom: "12px", fontSize: "18px" }}>
+            <h2 style={{ color: "#1e293b", marginTop: 0, marginBottom: "12px", fontSize: "18px" }}>
               Ã°Å¸Å½Â¯ Your Skills
             </h2>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
@@ -213,10 +213,10 @@ function Jobs() {
                 {/* Job Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
                   <div>
-                    <h3 style={{ margin: "0 0 4px 0", color: "#0073e6", fontSize: "18px", fontWeight: "700" }}>
+                    <h3 style={{ margin: "0 0 4px 0", color: "#1e293b", fontSize: "18px", fontWeight: "700" }}>
                       {job.title}
                     </h3>
-                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "600", fontSize: "14px" }}>
+                    <p style={{ margin: 0, color: "#64748b", fontWeight: "600", fontSize: "14px" }}>
                       {job.company}
                     </p>
                   </div>
@@ -243,7 +243,7 @@ function Jobs() {
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
                       Ã°Å¸â€œÂ Location
                     </p>
-                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "500" }}>
+                    <p style={{ margin: 0, color: "#334155", fontWeight: "500" }}>
                       {job.location}
                     </p>
                   </div>
@@ -259,7 +259,7 @@ function Jobs() {
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
                       Ã°Å¸â€œâ€¦ Experience
                     </p>
-                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "500" }}>
+                    <p style={{ margin: 0, color: "#334155", fontWeight: "500" }}>
                       {job.experience}
                     </p>
                   </div>
@@ -267,7 +267,7 @@ function Jobs() {
                     <p style={{ margin: "0 0 4px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
                       Ã°Å¸ÂÂ¢ Type
                     </p>
-                    <p style={{ margin: 0, color: "#0073e6", fontWeight: "500" }}>
+                    <p style={{ margin: 0, color: "#334155", fontWeight: "500" }}>
                       {job.job_type}
                     </p>
                   </div>
@@ -312,7 +312,7 @@ function Jobs() {
                       <p style={{ margin: "0 0 6px 0", color: "#999", fontSize: "12px", fontWeight: "600" }}>
                         Ã°Å¸â€œâ€¹ Job Description
                       </p>
-                      <p style={{ margin: 0, color: "#0073e6", lineHeight: "1.6", fontSize: "14px" }}>
+                      <p style={{ margin: 0, color: "#334155", lineHeight: "1.6", fontSize: "14px" }}>
                         {job.description}
                       </p>
                     </div>

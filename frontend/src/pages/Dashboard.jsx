@@ -128,7 +128,7 @@ function Dashboard() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#f5f7fa",
+        background: "#f8fafc",
         padding: "24px",
       }}
     >
@@ -153,7 +153,7 @@ function Dashboard() {
             </div>
             <div style={{ width: "1px", height: "36px", backgroundColor: "#cce0f5" }}></div>
             <div>
-              <h1 style={{ margin: 0, fontSize: "22px", color: "#0073e6" }}>
+              <h1 style={{ margin: 0, fontSize: "22px", color: "#1e293b" }}>
                 Practice Dashboard
               </h1>
               <p style={{ margin: "4px 0 0 0", color: "#666", fontSize: "14px" }}>
@@ -183,7 +183,7 @@ function Dashboard() {
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "24px" }}>
           {/* Left Sidebar */}
           <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", height: "fit-content" }}>
-            <h2 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#0073e6" }}>
+            <h2 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e293b" }}>
               Menu
             </h2>
 
@@ -200,7 +200,7 @@ function Dashboard() {
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: "600",
-                  color: "#0073e6",
+                  color: "#334155",
                 }}>
                 {expandedTopics ? "Ã¢â€“Â¼" : "Ã¢â€“Â¶"} Topics
               </button>
@@ -283,7 +283,7 @@ function Dashboard() {
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
             {/* Welcome Card */}
             <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "32px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-              <h2 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#0073e6", fontWeight: "800" }}>
+              <h2 style={{ fontSize: "32px", margin: "0 0 16px 0", color: "#1e293b", fontWeight: "800" }}>
                 Ã°Å¸â€˜â€¹ Welcome Back!
               </h2>
               <p style={{ fontSize: "16px", color: "#666", lineHeight: "1.6", margin: 0 }}>
@@ -307,7 +307,7 @@ function Dashboard() {
 
             {/* Resume Upload Card */}
             <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "24px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-              <h3 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#0073e6", fontWeight: "700" }}>
+              <h3 style={{ fontSize: "18px", margin: "0 0 16px 0", color: "#1e293b", fontWeight: "700" }}>
                 Ã°Å¸â€œâ€ž Upload Resume
               </h3>
               <input
@@ -345,7 +345,7 @@ function Dashboard() {
                 <p style={{ fontSize: "40px", margin: "0 0 8px 0" }}>
                   {uploadingResume ? "Ã¢ÂÂ³" : "Ã°Å¸â€œÂ¤"}
                 </p>
-                <p style={{ margin: "0 0 4px 0", color: "#0073e6", fontWeight: "600", fontSize: "16px" }}>
+                <p style={{ margin: "0 0 4px 0", color: "#334155", fontWeight: "600", fontSize: "16px" }}>
                   {uploadingResume ? "Processing..." : "Drop your resume"}
                 </p>
                 <p style={{ margin: 0, fontSize: "14px", color: "#999" }}>
@@ -372,7 +372,7 @@ function Dashboard() {
               )}
               {generatedTopics.length > 0 && (
                 <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #cce0f5" }}>
-                  <p style={{ fontSize: "12px", color: "#0073e6", fontWeight: "600", marginBottom: "8px" }}>
+                  <p style={{ fontSize: "12px", color: "#64748b", fontWeight: "600", marginBottom: "8px" }}>
                     Ã¢Å“Â¨ Generated Topics:
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
@@ -416,13 +416,13 @@ function Dashboard() {
           }}
         >
           <p style={{ fontSize: "48px", margin: "0 0 16px 0" }}>Ã°Å¸Å½â€°</p>
-          <h2 style={{ fontSize: "24px", margin: "0 0 12px 0", color: "#0073e6" }}>
+          <h2 style={{ fontSize: "24px", margin: "0 0 12px 0", color: "#1e293b" }}>
             Resume Processed!
           </h2>
           <p style={{ color: "#666", marginBottom: "16px", lineHeight: "1.6" }}>
             Ã¢Å“â€¦ We've extracted your skills and generated interview questions!
           </p>
-          <p style={{ color: "#0073e6", fontWeight: "600", margin: "16px 0", fontSize: "16px" }}>
+          <p style={{ color: "#334155", fontWeight: "600", margin: "16px 0", fontSize: "16px" }}>
             Ã°Å¸â€œâ€“ Check out the <strong>Topics</strong> section on the left to start practicing!
           </p>
           <p style={{ color: "#999", fontSize: "13px", margin: "12px 0 0 0" }}>
