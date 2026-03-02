@@ -20,7 +20,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://mockmate.onrender.com
+        value: https://mockmate.onrender.com,https://my-mockmate.vercel.app,https://frontend-o6kcjs7hl-addagada123s-projects.vercel.app
 
   # Frontend (React static site)
   - type: web

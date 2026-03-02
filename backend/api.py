@@ -676,9 +676,19 @@ app = FastAPI(title="Endeavor RAG API")
 
 # CORS middleware
 cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+# Always allow known frontend deployments
+_known_frontends = [
+    "https://my-mockmate.vercel.app",
+    "https://mockmate.onrender.com",
+]
+for origin in _known_frontends:
+    if origin not in cors_origins:
+        cors_origins.append(origin)
+# Also allow any Vercel preview deployments for this project
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"https://frontend-.*-addagada123s-projects\.vercel\.app",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
