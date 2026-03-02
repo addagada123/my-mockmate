@@ -181,7 +181,7 @@ function SignUp() {
 
       const username = email.split("@")[0];
 
-      await axios.post(`${API_BASE}/auth/register`, {
+      const res = await axios.post(`${API_BASE}/auth/register`, {
 
         username,
 
@@ -193,11 +193,19 @@ function SignUp() {
 
       });
 
-      setSuccess("Account created successfully. Please sign in.");
+      // Auto-login: use the token returned by register
 
-      setEmail("");
+      localStorage.setItem("mockmate_token", res.data.access_token);
 
-      setPassword("");
+      localStorage.setItem("mockmate_user", JSON.stringify({
+
+        email: res.data.email || email,
+
+        full_name: res.data.full_name || ""
+
+      }));
+
+      navigate("/dashboard");
 
     } catch (err) {
 

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 from backend.auth.models import User, Token
@@ -42,30 +43,32 @@ async def register(user: UserRegister):
             detail="Password must be at most 128 characters long"
         )
     
-    # Check if user exists
-    if db.users.find_one({"username": user.username}):
+    # Check if user exists (run sync PyMongo in threadpool)
+    existing_user = await run_in_threadpool(db.users.find_one, {"username": user.username})
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered"
         )
     
-    if db.users.find_one({"email": user.email}):
+    existing_email = await run_in_threadpool(db.users.find_one, {"email": user.email})
+    if existing_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
     
-        # Create user
+    # Create user (hash password off the event loop)
     user_dict = {
         "username": user.username,
         "email": user.email,
         "full_name": user.full_name,
-        "hashed_password": get_password_hash(user.password),
+        "hashed_password": await get_password_hash(user.password),
         "disabled": False,
         "created_at": datetime.now()
     }
     
-    result = db.users.insert_one(user_dict)
+    result = await run_in_threadpool(db.users.insert_one, user_dict)
     user_id = str(result.inserted_id)
     
     # Create access token
@@ -88,7 +91,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     db = get_db()
     
     # Find user
-    user = db.users.find_one({"username": form_data.username})
+    user = await run_in_threadpool(db.users.find_one, {"username": form_data.username})
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -104,7 +107,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    if not verify_password(form_data.password, user["hashed_password"]):
+    if not await verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -139,7 +142,7 @@ async def signin(request: SignInRequest):
         
         # Find user by email
         logger.info("Searching for user in database...")
-        user = db.users.find_one({"email": request.email})
+        user = await run_in_threadpool(db.users.find_one, {"email": request.email})
         
         if not user:
             logger.warning(f"User not found with email: {request.email}")
@@ -159,7 +162,7 @@ async def signin(request: SignInRequest):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        if not verify_password(request.password, user["hashed_password"]):
+        if not await verify_password(request.password, user["hashed_password"]):
             logger.warning(f"Password verification failed for: {request.email}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -242,7 +245,7 @@ async def google_auth(request: GoogleAuthRequest):
         db = get_db()
         
         # Check if user already exists
-        user = db.users.find_one({"email": google_email})
+        user = await run_in_threadpool(db.users.find_one, {"email": google_email})
         
         if not user:
             # Auto-register Google user
@@ -250,7 +253,7 @@ async def google_auth(request: GoogleAuthRequest):
             # Ensure unique username
             base_username = username
             counter = 1
-            while db.users.find_one({"username": username}):
+            while await run_in_threadpool(db.users.find_one, {"username": username}):
                 username = f"{base_username}{counter}"
                 counter += 1
             
@@ -264,7 +267,7 @@ async def google_auth(request: GoogleAuthRequest):
                 "disabled": False,
                 "created_at": datetime.now()
             }
-            result = db.users.insert_one(user_dict)
+            result = await run_in_threadpool(db.users.insert_one, user_dict)
             user_id = str(result.inserted_id)
             logger.info(f"New Google user registered: {google_email}")
         else:
@@ -272,7 +275,8 @@ async def google_auth(request: GoogleAuthRequest):
             username = user.get("username") or google_email.split("@")[0]
             # Update picture if changed
             if google_picture and user.get("picture") != google_picture:
-                db.users.update_one(
+                await run_in_threadpool(
+                    db.users.update_one,
                     {"_id": user["_id"]},
                     {"$set": {"picture": google_picture}}
                 )

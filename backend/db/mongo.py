@@ -32,6 +32,13 @@ def init_db() -> Database:
         client.server_info()
         db = client[database_name]
         logger.info("✅ Connected to MongoDB: %s", database_name)
+        # Ensure indexes for fast auth lookups
+        try:
+            db.users.create_index("email", unique=True, sparse=True)
+            db.users.create_index("username", unique=True, sparse=True)
+            logger.info("✅ Auth indexes ensured on users collection")
+        except Exception as idx_exc:
+            logger.warning("⚠️ Could not create indexes: %s", idx_exc)
         return db
     except Exception as exc:  # pragma: no cover
         logger.error("MongoDB connection failed: %s. Switching to MOCK DATABASE.", exc)
