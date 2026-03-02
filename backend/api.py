@@ -954,6 +954,35 @@ async def health():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
+
+# --- Keep-Alive Self-Ping (prevents Render free tier cold starts) ---
+_keep_alive_task = None
+
+async def _keep_alive_loop():
+    """Ping own /health endpoint every 13 minutes to prevent Render sleep (15min idle timeout)"""
+    import httpx
+    # Determine our public URL
+    render_url = os.getenv("RENDER_EXTERNAL_URL")  # Render sets this automatically
+    base_url = render_url or os.getenv("PUBLIC_URL", "")
+    if not base_url:
+        logger.info("Keep-alive: No RENDER_EXTERNAL_URL set, skipping (local dev)")
+        return
+    health_url = f"{base_url}/health"
+    logger.info(f"Keep-alive started: pinging {health_url} every 13 min")
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            await asyncio.sleep(780)  # 13 minutes
+            try:
+                resp = await client.get(health_url)
+                logger.debug(f"Keep-alive ping: {resp.status_code}")
+            except Exception as e:
+                logger.warning(f"Keep-alive ping failed: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    global _keep_alive_task
+    _keep_alive_task = asyncio.create_task(_keep_alive_loop())
+
 @app.get("/user-session")
 async def get_latest_user_session(
     current_user: Dict = Depends(get_current_user)
