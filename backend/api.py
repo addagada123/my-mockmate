@@ -19,7 +19,7 @@ import time
 import httpx
 from endeavor_rag_service import (
     interview_rag_pipeline,
-    collection
+    get_rag_collection
 )
 from backend.db.mongo import get_db
 from backend.auth.routes import router as auth_router
@@ -1124,7 +1124,7 @@ async def upload_resume(
         # Generate questions using interview_rag_pipeline off the main thread
         try:
             # Run the blocking pipeline in a separate thread to keep server responsive
-            result = await run_in_threadpool(interview_rag_pipeline, file_path, collection)
+            result = await run_in_threadpool(interview_rag_pipeline, file_path, get_rag_collection())
             
             if not result:
                 raise HTTPException(
