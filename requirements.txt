@@ -1,5 +1,6 @@
 gunicorn
-pymongo
+pymongo[srv]
+certifi
 fastapi
 uvicorn[standard]
 python-multipart

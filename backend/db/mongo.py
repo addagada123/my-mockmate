@@ -1,6 +1,7 @@
 import logging
 import os
 
+import certifi
 from fastapi import HTTPException
 from pymongo import MongoClient
 from pymongo.database import Database
@@ -27,7 +28,7 @@ def init_db() -> Database:
     database_name = os.getenv("DATABASE_NAME") or os.getenv("MONGO_DB") or "endeavor_rag"
 
     try:
-        client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=5000, tlsAllowInvalidCertificates=True)
+        client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=5000, tlsAllowInvalidCertificates=True, tlsCAFile=certifi.where())
         # Force connection check
         client.server_info()
         db = client[database_name]
