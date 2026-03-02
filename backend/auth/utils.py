@@ -2,6 +2,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordBearer
 from typing import Optional, Dict
 import os
@@ -11,7 +12,8 @@ load_dotenv()
 
 # Password hashing
 # bcrypt_sha256 avoids the 72-byte bcrypt truncation limit by pre-hashing.
-pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
+# rounds=10 is ~4x faster than default 12 while still secure.
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto", bcrypt_sha256__rounds=10)
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -21,13 +23,21 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against hash"""
+def verify_password_sync(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against hash (sync — prefer async version)"""
     return pwd_context.verify(plain_password, hashed_password)
 
-def get_password_hash(password: str) -> str:
-    """Hash password"""
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against hash without blocking the event loop"""
+    return await run_in_threadpool(pwd_context.verify, plain_password, hashed_password)
+
+def get_password_hash_sync(password: str) -> str:
+    """Hash password (sync — prefer async version)"""
     return pwd_context.hash(password)
+
+async def get_password_hash(password: str) -> str:
+    """Hash password without blocking the event loop"""
+    return await run_in_threadpool(pwd_context.hash, password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token"""
