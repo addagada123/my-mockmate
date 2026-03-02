@@ -174,7 +174,7 @@ function Dashboard() {
                 loop
                 muted
                 playsInline
-                style={{ width: '36px', height: '36px', objectFit: 'contain', borderRadius: '8px' }}
+                style={{ width: '48px', height: '48px', objectFit: 'contain', mixBlendMode: 'screen', borderRadius: '10px' }}
               />
               <span style={{ fontSize: "24px", fontWeight: "800", background: "linear-gradient(135deg, #818cf8, #c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Mockmate</span>
             </div>
