@@ -264,7 +264,7 @@ function SignIn() {
           loop
           muted
           playsInline
-          style={{ width: '42px', height: '42px', objectFit: 'contain', borderRadius: '10px' }}
+          style={{ width: '72px', height: '72px', objectFit: 'contain', mixBlendMode: 'multiply', borderRadius: '14px' }}
         />
         <span className="signin-brand-name">Mockmate</span>
       </div>
@@ -295,8 +295,18 @@ function SignIn() {
           />
 
           <button className="signin-button" disabled={loading}>
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                <span className="auth-spinner" />
+                Signing in...
+              </span>
+            ) : "Sign In"}
           </button>
+          {loading && (
+            <p style={{ fontSize: '12px', color: '#8b5cf6', textAlign: 'center', marginTop: '8px', animation: 'pulse 2s ease-in-out infinite' }}>
+              Server may take up to 30s to wake up on first request...
+            </p>
+          )}
         </form>
 
         {/* Divider */}
