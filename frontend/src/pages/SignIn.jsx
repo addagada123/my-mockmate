@@ -203,15 +203,43 @@ function SignIn() {
 
 
 
+    // Retry helper for cold-start resilience
+
+    const attemptSignin = async (retries = 2) => {
+
+      try {
+
+        return await axios.post(`${API_BASE}/auth/signin`, {
+
+          email,
+
+          password,
+
+        }, { timeout: 60000 });
+
+      } catch (err) {
+
+        // Retry on network errors / 503 (server waking up)
+
+        if (retries > 0 && (!err.response || err.response?.status >= 500 || err.code === 'ECONNABORTED')) {
+
+          await new Promise(r => setTimeout(r, 3000));
+
+          return attemptSignin(retries - 1);
+
+        }
+
+        throw err;
+
+      }
+
+    };
+
+
+
     try {
 
-      const res = await axios.post(`${API_BASE}/auth/signin`, {
-
-        email,
-
-        password,
-
-      });
+      const res = await attemptSignin();
 
 
 

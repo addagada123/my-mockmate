@@ -197,21 +197,49 @@ function SignUp() {
 
 
 
+    // Retry helper for cold-start resilience
+
+    const attemptRegister = async (retries = 2) => {
+
+      try {
+
+        const username = email.split("@")[0];
+
+        return await axios.post(`${API_BASE}/auth/register`, {
+
+          username,
+
+          email,
+
+          password,
+
+          full_name: ""
+
+        }, { timeout: 60000 });
+
+      } catch (err) {
+
+        // Retry on network errors / 503 (server waking up)
+
+        if (retries > 0 && (!err.response || err.response?.status >= 500 || err.code === 'ECONNABORTED')) {
+
+          await new Promise(r => setTimeout(r, 3000));
+
+          return attemptRegister(retries - 1);
+
+        }
+
+        throw err;
+
+      }
+
+    };
+
+
+
     try {
 
-      const username = email.split("@")[0];
-
-      const res = await axios.post(`${API_BASE}/auth/register`, {
-
-        username,
-
-        email,
-
-        password,
-
-        full_name: ""
-
-      });
+      const res = await attemptRegister();
 
       // Auto-login: use the token returned by register
 
