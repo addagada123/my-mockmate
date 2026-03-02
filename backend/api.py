@@ -113,7 +113,7 @@ async def _call_single_provider(
             raise ValueError("Gemini API key not configured")
         import google.generativeai as genai  # type: ignore  # pyright: ignore
         genai.configure(api_key=google_key)  # type: ignore  # pyright: ignore
-        model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-1.5-flash"))  # type: ignore  # pyright: ignore
+        model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.0-flash"))  # type: ignore  # pyright: ignore
         prompt_text = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
         resp = await run_in_threadpool(
             lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
