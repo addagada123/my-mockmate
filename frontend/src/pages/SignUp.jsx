@@ -28,9 +28,29 @@ function SignUp() {
 
   const [success, setSuccess] = useState("");
 
+  const [serverReady, setServerReady] = useState(false);
+
   const googleBtnRef = useRef(null);
 
   const navigate = useNavigate();
+
+
+
+  // Pre-warm the backend on page load so it's awake by the time user submits
+
+  useEffect(() => {
+
+    let cancelled = false;
+
+    axios.get(`${API_BASE}/health`, { timeout: 60000 }).then(() => {
+
+      if (!cancelled) setServerReady(true);
+
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+
+  }, []);
 
 
 
@@ -310,9 +330,9 @@ function SignUp() {
               </span>
             ) : "Sign Up"}
           </button>
-          {loading && (
+          {loading && !serverReady && (
             <p style={{ fontSize: '12px', color: '#8b5cf6', textAlign: 'center', marginTop: '8px', animation: 'pulse 2s ease-in-out infinite' }}>
-              Server may take up to 30s to wake up on first request...
+              Waking up server, please wait...
             </p>
           )}
         </form>

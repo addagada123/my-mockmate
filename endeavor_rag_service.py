@@ -6,14 +6,15 @@ import random
 import hashlib
 import time
 from datetime import datetime
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.document_loaders import PyPDFLoader
+# Heavy imports deferred to first use to speed up server cold starts
+# from langchain_google_genai import ChatGoogleGenerativeAI  -- lazy
+# from langchain_community.document_loaders import PyPDFLoader  -- lazy
+# import numpy as np  -- lazy
 from dotenv import load_dotenv
 from typing import List, Dict, Tuple
 import os
 import tempfile
 import json
-import numpy as np
 from pydantic import BaseModel, Field, ValidationError, root_validator, SecretStr
 from typing import Literal, Optional
 
@@ -36,6 +37,7 @@ def _create_llm_for_provider(provider: str, temperature: float = 0.8):
             timeout=60,
         )
     elif provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
         model = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         kwargs = {"model": model, "temperature": temperature}
@@ -169,24 +171,41 @@ if not MONGO_URI:
         # Fallback to a plain mongodb URI
         MONGO_URI = os.getenv("MONGO_URI", f"mongodb://{MONGO_HOST}/{MONGO_DB}")
 
-try:
-    client = MongoClient(
-        MONGO_URI,
-        tlsAllowInvalidCertificates=True,
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=5000,
-        socketTimeoutMS=10000,
-    )
-    db_name = os.getenv("MONGO_DB", "Endeavor")
-    db = client[db_name]
-    collection_name = os.getenv("MONGO_COLLECTION", "ragCollection")
-    collection = db[collection_name]
-except Exception as e:
-    # Log helpful message but don't crash import; endpoints will raise clearer errors if DB is required
-    print(f"[endeavor_rag_service] Warning: could not connect to MongoDB with URI={MONGO_URI}: {e}")
-    client = None
-    db = None
-    collection = None
+# Defer RAG DB connection to first use to speed up server cold starts
+_rag_client = None
+_rag_db = None
+_rag_collection = None
+_rag_db_initialized = False
+
+def _init_rag_db():
+    global _rag_client, _rag_db, _rag_collection, _rag_db_initialized
+    if _rag_db_initialized:
+        return
+    _rag_db_initialized = True
+    try:
+        _rag_client = MongoClient(
+            MONGO_URI,
+            tlsAllowInvalidCertificates=True,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=10000,
+        )
+        db_name = os.getenv("MONGO_DB", "Endeavor")
+        _rag_db = _rag_client[db_name]
+        collection_name = os.getenv("MONGO_COLLECTION", "ragCollection")
+        _rag_collection = _rag_db[collection_name]
+    except Exception as e:
+        print(f"[endeavor_rag_service] Warning: could not connect to MongoDB with URI={MONGO_URI}: {e}")
+        _rag_client = None
+        _rag_db = None
+        _rag_collection = None
+
+def get_rag_collection():
+    """Get the RAG collection, initializing the connection on first call."""
+    _init_rag_db()
+    return _rag_collection
+
+# Backward compatibility: callers should use get_rag_collection()\nclient = None\ndb = None\ncollection = None
 
 # No local embedder in this deployment. Keep a placeholder variable for
 # backward compatibility; functions should not rely on it being populated.
@@ -203,6 +222,7 @@ class InterviewSession:
         # but different across sessions
         self.random_seed = int(self.session_id, 16) % 2147483647
         random.seed(self.random_seed)
+        import numpy as np
         np.random.seed(self.random_seed % 4294967295)
         
         # print(f"🎯 New Interview Session: {self.session_id}")
@@ -237,6 +257,7 @@ class InterviewSession:
 # --- Enhanced Skills Extraction (same as before) ---
 def extract_skills_from_resume(resume_pdf_path: str) -> Tuple[List[str], str]:
     """Extract technical skills and return resume text"""
+    from langchain_community.document_loaders import PyPDFLoader
     resume_loader = PyPDFLoader(resume_pdf_path)
     resume_docs = resume_loader.load()
     resume_text = "\n".join([doc.page_content for doc in resume_docs])
@@ -1034,7 +1055,7 @@ if __name__ == "__main__":
     resume_pdf_path = "/Users/vishnuvardhan/Downloads/Main_resume_mvv.pdf"
     
     try:
-        result = interview_rag_pipeline(resume_pdf_path, collection)
+        result = interview_rag_pipeline(resume_pdf_path, get_rag_collection())
         print(f"\n✅ Pipeline completed successfully!")
         print(f"📊 Session: {result.get('session_id', 'Unknown')}")
         print(f"📊 Summary: {len(result['skills'])} skills, {result['contexts_retrieved']} contexts retrieved")
