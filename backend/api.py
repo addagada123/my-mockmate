@@ -115,10 +115,16 @@ async def _call_single_provider(
         genai.configure(api_key=google_key)  # type: ignore  # pyright: ignore
         model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.0-flash"))  # type: ignore  # pyright: ignore
         prompt_text = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
-        resp = await run_in_threadpool(
-            lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
-        )
-        return resp.text or ""  # type: ignore  # pyright: ignore
+        try:
+            resp = await run_in_threadpool(
+                lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
+            )
+            return resp.text or ""  # type: ignore  # pyright: ignore
+        except Exception as e:
+            # Check for Gemini quota/429 error and raise special exception
+            if "quota" in str(e).lower() or "429" in str(e):
+                raise RuntimeError("Gemini quota exceeded (429)")
+            raise
     elif provider == "claude":
         import anthropic  # type: ignore  # pyright: ignore
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
@@ -126,21 +132,33 @@ async def _call_single_provider(
             raise ValueError("Anthropic API key not configured")
         acl = anthropic.Anthropic(api_key=anthropic_key)
         user_msgs: Any = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
-        resp_claude: Any = await run_in_threadpool(  # pyright: ignore
-            lambda: acl.messages.create(model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"), max_tokens=max_tokens, messages=user_msgs)  # pyright: ignore
-        )
-        # Safely extract text from the first content block
-        block = resp_claude.content[0] if resp_claude.content else None  # pyright: ignore
-        return getattr(block, "text", "") or ""  # pyright: ignore
+        try:
+            resp_claude: Any = await run_in_threadpool(  # pyright: ignore
+                lambda: acl.messages.create(model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"), max_tokens=max_tokens, messages=user_msgs)  # pyright: ignore
+            )
+            # Safely extract text from the first content block
+            block = resp_claude.content[0] if resp_claude.content else None  # pyright: ignore
+            return getattr(block, "text", "") or ""  # pyright: ignore
+        except Exception as e:
+            # Check for Claude quota/429 error and raise special exception
+            if "quota" in str(e).lower() or "429" in str(e):
+                raise RuntimeError("Claude quota exceeded (429)")
+            raise
     elif provider == "openai":
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
             raise ValueError("OpenAI API key not configured")
         client = openai.OpenAI(api_key=openai_key)
-        resp = await run_in_threadpool(
-            lambda: client.chat.completions.create(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), messages=messages, temperature=temperature, max_tokens=max_tokens)  # type: ignore
-        )
-        return resp.choices[0].message.content or ""
+        try:
+            resp = await run_in_threadpool(
+                lambda: client.chat.completions.create(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), messages=messages, temperature=temperature, max_tokens=max_tokens)  # type: ignore
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as e:
+            # Check for OpenAI quota/429 error and raise special exception
+            if "quota" in str(e).lower() or "429" in str(e):
+                raise RuntimeError("OpenAI quota exceeded (429)")
+            raise
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
@@ -171,6 +189,14 @@ async def call_ai_with_fallback(
             provider_stats.record_success(prov)
             logger.info(f"AI from {prov} (${provider_stats.stats[prov]['cost_per_1m']:.3f}/1M tokens)")
             return result, prov
+        except RuntimeError as e:
+            # Special case: Gemini quota exceeded, try next provider instantly
+            if "gemini quota exceeded" in str(e).lower():
+                errors.append(f"{prov}: {str(e)[:50]}")
+                raise e
+            provider_stats.record_failure(prov)
+            errors.append(f"{prov}: {str(e)[:50]}")
+            raise
         except Exception as e:
             provider_stats.record_failure(prov)
             errors.append(f"{prov}: {str(e)[:50]}")
@@ -181,6 +207,17 @@ async def call_ai_with_fallback(
         try:
             result, provider = await asyncio.wait_for(run_provider(primary_provider), timeout=5)
             return result, provider
+        except RuntimeError as e:
+            # If any provider quota exceeded, try next provider instantly
+            err_str = str(e).lower()
+            if ("quota exceeded" in err_str or "429" in err_str) and len(available) > 1:
+                fallback_provider = available[1][0]
+                try:
+                    result, provider = await asyncio.wait_for(run_provider(fallback_provider), timeout=15)
+                    return result, provider
+                except Exception:
+                    pass
+            raise HTTPException(status_code=503, detail="All AI providers failed or quota exceeded")
         except asyncio.TimeoutError:
             logger.warning(f"{primary_provider} timed out (5s), starting parallel fallback")
             # Try secondary provider if available
