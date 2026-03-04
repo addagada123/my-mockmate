@@ -4,7 +4,7 @@
     {"name":"Python Debugger: FastAPI","type":"debugpy","request":"launch","module":"uvicorn","args":["api:app","--reload"],"jinja":true},
     {
       "name": "Run FastAPI Backend",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "backend.api",
       "cwd": "${workspaceFolder}",
