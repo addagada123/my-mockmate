@@ -25,7 +25,7 @@ load_dotenv()
 def _create_llm_for_provider(provider: str, temperature: float = 0.8):
     """Create an LLM instance for a specific provider."""
     if provider == "openai":
-        from langchain_openai import ChatOpenAI
+        from langchain_openai import ChatOpenAI  # pyright: ignore[reportMissingImports]
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -45,7 +45,7 @@ def _create_llm_for_provider(provider: str, temperature: float = 0.8):
             kwargs["google_api_key"] = api_key
         return ChatGoogleGenerativeAI(**kwargs)
     elif provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
+        from langchain_anthropic import ChatAnthropic  # pyright: ignore[reportMissingImports]
         model = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
@@ -148,7 +148,9 @@ def call_llm_with_fallback(prompt: str) -> str:
             else:
                 text = str(response)
             print(f"[call_llm_with_fallback] Success with {provider}")
-            return text
+            if isinstance(text, str):
+                return text
+            return str(text)
         except Exception as e:
             last_error = e
             print(f"[call_llm_with_fallback] Provider {provider} failed: {e}, trying next...")

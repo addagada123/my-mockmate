@@ -7,12 +7,13 @@ from pymongo import MongoClient
 load_dotenv()
 
 uri = os.getenv("MONGO_URI")
-print(f"Testing connection to: {uri.split('@')[-1] if '@' in uri else uri}")
+safe_uri = uri or ""
+print(f"Testing connection to: {safe_uri.split('@')[-1] if '@' in safe_uri else safe_uri}")
 
 import certifi
 
 try:
-    client = MongoClient(uri, serverSelectionTimeoutMS=5000, tlsAllowInvalidCertificates=True, tlsCAFile=certifi.where())
+    client = MongoClient(safe_uri, serverSelectionTimeoutMS=5000, tlsAllowInvalidCertificates=True, tlsCAFile=certifi.where())
     info = client.server_info()
     print("✅ MongoDB Connection Successful!")
     print(f"Version: {info.get('version')}")
