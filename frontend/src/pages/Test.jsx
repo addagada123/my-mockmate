@@ -65,6 +65,7 @@ const Test = () => {
         stopSpeech();
       };
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQuestionIndex, questions, testStarted]);
 
   // Clean up speech on unmount
@@ -106,15 +107,12 @@ const Test = () => {
       };
 
       recognitionRef.current.onresult = (event) => {
-        let interimTranscript = "";
         let finalTranscript = "";
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
             finalTranscript += transcript + " ";
-          } else {
-            interimTranscript += transcript;
           }
         }
 
@@ -285,6 +283,7 @@ const Test = () => {
 
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testStarted, timeLeft]);
 
   // Detect tab/window switch
@@ -326,6 +325,7 @@ const Test = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", handleFocusChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testStarted, isFullscreen]);
 
   // Fullscreen must be triggered from a user gesture; no auto-request here.
@@ -370,6 +370,7 @@ const Test = () => {
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showWarning = (message) => {
@@ -385,7 +386,6 @@ const Test = () => {
   };
 
   const handleAnswerChange = (value) => {
-    const currentQuestion = questions[currentQuestionIndex];
     setAnswers({
       ...answers,
       [currentQuestionIndex]: value,
@@ -530,7 +530,7 @@ const Test = () => {
       console.error("Backend evaluation error, using fallback:", evalErr);
       // Fallback: lightweight client-side TF-IDF approximation
       const stopWords = new Set(["a","an","the","is","are","was","were","be","been","have","has","had","do","does","did","will","would","shall","should","may","might","can","could","and","but","or","not","if","then","else","when","of","at","by","for","with","about","to","from","in","into","what","which","who","this","that","it","how","why","where","your","you"]);
-      const tokenize = (t) => (t || "").toLowerCase().match(/[a-z0-9#+.\-]+/g)?.filter(w => !stopWords.has(w) && w.length > 1) || [];
+      const tokenize = (t) => (t || "").toLowerCase().match(/[a-z0-9#+.-]+/g)?.filter(w => !stopWords.has(w) && w.length > 1) || [];
       const ansTokens = tokenize(answerText);
       const refTokens = tokenize(question.answer || "");
       const qTokens = tokenize(question.question);
@@ -658,7 +658,6 @@ const Test = () => {
     console.log("Final local score calculated:", localScore);
     
     setTestSubmitted(true);
-    let testResultId = null;
     
     try {
       const token = localStorage.getItem("mockmate_token");

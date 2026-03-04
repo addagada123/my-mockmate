@@ -261,15 +261,7 @@ function SignUp() {
 
       
 
-      if (err.response?.data?.detail) {
-
-        errorMessage = err.response.data.detail;
-
-      } else if (err.response?.data?.message) {
-
-        errorMessage = err.response.data.message;
-
-      } else if (err.response?.status === 422 && err.response?.data?.detail) {
+      if (err.response?.status === 422 && err.response?.data?.detail) {
 
         // Handle validation errors
 
@@ -284,6 +276,14 @@ function SignUp() {
           errorMessage = detail;
 
         }
+
+      } else if (err.response?.data?.detail) {
+
+        errorMessage = err.response.data.detail;
+
+      } else if (err.response?.data?.message) {
+
+        errorMessage = err.response.data.message;
 
       } else if (err.response?.status === 422) {
 

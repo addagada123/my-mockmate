@@ -10,7 +10,6 @@ function Dashboard() {
   const fileInputRef = useRef(null);
   const user = JSON.parse(localStorage.getItem("mockmate_user"));
   const [expandedTopics, setExpandedTopics] = useState(false);
-  const [selectedTopic, setSelectedTopic] = useState(null);
   const [resumeQuestions, setResumeQuestions] = useState([]);
   const [generatedTopics, setGeneratedTopics] = useState([]);
   const [uploadingResume, setUploadingResume] = useState(false);
@@ -43,7 +42,7 @@ function Dashboard() {
           setResumeQuestions(questions);
           setGeneratedTopics(topics);
         }
-      } catch (error) {
+      } catch {
         // Silently handle error - user may not have uploaded resume yet
         console.log("No existing user session data");
       }
@@ -58,7 +57,6 @@ function Dashboard() {
   };
 
   const handleTopicClick = (topic) => {
-    setSelectedTopic(topic);
     // Navigate to proctored test page with topic
     navigate(`/test/${encodeURIComponent(topic)}`);
   };
@@ -105,7 +103,6 @@ function Dashboard() {
       });
 
       if (response.data.success) {
-        const topics = response.data.topicsDetected || [];
         const sessionId = response.data.session_id;
 
         setUploadMessage(
@@ -135,11 +132,6 @@ function Dashboard() {
     localStorage.clear();
     navigate("/signin");
   };
-
-  // Get questions for selected topic
-  const topicQuestions = selectedTopic
-    ? resumeQuestions.filter((q) => q.topic === selectedTopic)
-    : [];
 
   const displayTopics = generatedTopics;
 
