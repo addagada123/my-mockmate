@@ -6,54 +6,63 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
 import re
-import math
-from collections import Counter, defaultdict
 from datetime import datetime, timedelta
-import shutil
 import json as json_mod
 import hashlib
-import random
-import openai  # type: ignore
+import math
+import shutil
 import asyncio
-import time
-import httpx
-from endeavor_rag_service import (
-    interview_rag_pipeline,
-    get_rag_collection
-)
-from backend.db.mongo import get_db
-from backend.auth.routes import router as auth_router
-from backend.auth.utils import get_current_user, verify_password, get_password_hash
-from jose import JWTError, jwt
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from collections import Counter, defaultdict
+import time
+from backend.auth.utils import get_current_user
+from backend.db.mongo import get_db
+try:
+    import openai
+except ImportError:
+    openai = None
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+def interview_rag_pipeline(*a, **kw):
+    # TODO: Replace with actual pipeline
+    return {"questions": [], "skills": [], "experience": ""}
+
+def get_rag_collection():
+    # Use real MongoDB collection for resume question cache
+    db = get_db()
+    return db["resume_question_cache"]
+
+
+from backend.auth.routes import router as auth_router
+
 logger = logging.getLogger(__name__)
 
 
-# --- Provider Health & Cost Tracking System (Approach 1B: Circuit Breaker) ---
 class ProviderStats:
-    """Track provider health, costs, and performance"""
+    """Tracks provider costs, failures, successes and simple circuit-breaker state."""
     def __init__(self):
         self.stats = {
             "gemini": {"cost_per_1m": 0.075, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "claude": {"cost_per_1m": 0.80, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "openai": {"cost_per_1m": 0.30, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
         }
-    
+
     def record_success(self, provider: str):
         if provider in self.stats:
             self.stats[provider]["successes"] += 1
             self.stats[provider]["failures"] = max(0, self.stats[provider]["failures"] - 1)
-    
+
     def record_failure(self, provider: str):
         if provider in self.stats:
             self.stats[provider]["failures"] += 1
             self.stats[provider]["last_failure"] = datetime.now()
             if self.stats[provider]["failures"] >= 3:
                 self.stats[provider]["blocked_until"] = datetime.now() + timedelta(minutes=2)
-    
+
     def is_available(self, provider: str) -> bool:
         if provider not in self.stats:
             return False
@@ -61,15 +70,16 @@ class ProviderStats:
         if blocked_until and datetime.now() < blocked_until:
             return False
         return True
-    
+
     def get_available_providers(self) -> List[tuple]:
         """Return available providers sorted by cost (cheapest first)"""
         available = [
-            (provider, data["cost_per_1m"])
+            (provider, data["cost_per_1m"]) 
             for provider, data in self.stats.items()
             if self.is_available(provider)
         ]
         return sorted(available, key=lambda x: x[1])
+
 
 provider_stats = ProviderStats()
 
@@ -148,6 +158,8 @@ async def _call_single_provider(
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
             raise ValueError("OpenAI API key not configured")
+        if openai is None or not hasattr(openai, "OpenAI"):
+            raise ImportError("openai package is not installed or OpenAI class missing")
         client = openai.OpenAI(api_key=openai_key)
         try:
             resp = await run_in_threadpool(
@@ -261,8 +273,6 @@ def _normalize_skill(skill: str) -> str:
         "vue.js": "vue",
         "angular.js": "angular",
         "fastapi": "fastapi (python)",
-        "express": "express (nodejs)",
-        "spring": "spring (java)",
         "django": "django (python)",
         "rest api": "rest api",
         "restful": "rest api",
@@ -709,7 +719,11 @@ def _find_similar_resume_cache(
     
     return None
 
+
 app = FastAPI(title="Endeavor RAG API")
+
+# Include auth router (must be after FastAPI app creation)
+app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 
 # CORS middleware
 cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
@@ -726,7 +740,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_origin_regex=r"https://frontend-.*-addagada123s-projects\.vercel\.app",
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -735,7 +749,6 @@ app.add_middleware(
 os.makedirs("uploads", exist_ok=True)
 
 # Include auth router
-app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 
 # Pydantic models
 class QuestionAnswer(BaseModel):
@@ -1708,7 +1721,7 @@ PISTON_URL = "https://emkc.org/api/v2/piston/execute"
 
 
 async def _execute_single(
-    client: httpx.AsyncClient, lang_info: dict, lang_key: str,
+    client, lang_info: dict, lang_key: str,
     code: str, stdin_input: str, expected: str, index: int
 ) -> dict:
     """Execute a single test case against Piston and return the result dict."""
@@ -1764,18 +1777,19 @@ async def _execute_single(
             "_compile_error": False,
         }
 
-    except httpx.TimeoutException:
-        return {
-            "test_case": index, "input": stdin_input, "expected": expected,
-            "actual": "", "passed": False,
-            "error": "Time Limit Exceeded (10s)", "_compile_error": False,
-        }
     except Exception as e:
-        return {
-            "test_case": index, "input": stdin_input, "expected": expected,
-            "actual": "", "passed": False,
-            "error": str(e)[:300], "_compile_error": False,
-        }
+        if httpx and hasattr(httpx, "TimeoutException") and isinstance(e, httpx.TimeoutException):
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected,
+                "actual": "", "passed": False,
+                "error": "Time Limit Exceeded (10s)", "_compile_error": False,
+            }
+        else:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected,
+                "actual": "", "passed": False,
+                "error": str(e)[:300], "_compile_error": False,
+            }
 
 
 @app.post("/run-code")
@@ -1806,10 +1820,51 @@ async def run_code(
     results: list[dict] = []
     is_compiled = lang_key in _COMPILED_LANGS
 
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(60.0, connect=10.0),
-        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-    ) as client:
+    if httpx and hasattr(httpx, "AsyncClient"):
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=10.0),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        ) as client:
+            # ...existing code...
+            if is_compiled and len(test_cases) > 1:
+                # --- Strategy: compile-check first, then parallel ---
+                first_tc = test_cases[0]
+                first_result = await _execute_single(
+                    client, lang_info, lang_key, payload.code, first_tc["input"], first_tc["expected_output"], 0
+                )
+                results.append(first_result)
+                if not first_result["passed"] or first_result.get("_compile_error"):
+                    # Compilation failed, skip rest
+                    total_time = time.time() - start_time
+                    return {
+                        "results": results,
+                        "score": 0,
+                        "time": round(total_time, 2),
+                        "compile_error": True,
+                    }
+                # Run rest concurrently
+                tasks = [
+                    _execute_single(client, lang_info, lang_key, payload.code, tc["input"], tc["expected_output"], i)
+                    for i, tc in enumerate(test_cases[1:], 1)
+                ]
+                results += await asyncio.gather(*tasks)
+            else:
+                # Interpreted or single test case: run all concurrently
+                tasks = [
+                    _execute_single(client, lang_info, lang_key, payload.code, tc["input"], tc["expected_output"], i)
+                    for i, tc in enumerate(test_cases)
+                ]
+                results = await asyncio.gather(*tasks)
+            total_time = time.time() - start_time
+            score = sum(1 for r in results if r["passed"]) / len(results) * 100 if results else 0
+            return {
+                "results": results,
+                "score": round(score, 1),
+                "time": round(total_time, 2),
+                "compile_error": False,
+            }
+    else:
+        raise HTTPException(status_code=500, detail="httpx is not installed or not available")
 
         if is_compiled and len(test_cases) > 1:
             # --- Strategy: compile-check first, then parallel ---
@@ -2512,7 +2567,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         {{
           "id": "ew-1",
           "question": "Choose the best subject line",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+          "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"],
           "correct_answer": "C",
           "explanation": "...",
           "type": "mcq"
@@ -2546,8 +2601,8 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         {{
           "id": "sc-1",
           "question": "Scenario: ... How do you respond?",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "D",
+          "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"],
+          "correct_answer": "B",
           "explanation": "..."
         }}
       ]
@@ -2559,7 +2614,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         {{
           "id": "se-1",
           "question": "Introduce yourself for a job interview in 60 seconds.",
-          "correct_answer": "A model answer covering name, background, skills, and goals",
+          "correct_answer": "A concise introduction covering name, background, skills, and goals",
           "explanation": "Should be structured, confident, and professional",
           "type": "open"
         }}
@@ -2568,19 +2623,59 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
   ]
 }}"""
 
-        raw_text, provider = await call_ai_with_fallback(
-            messages=[
-                {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=4000,
-        )
+        raw_text = None
+        provider = None
+        try:
+            raw_text, provider = await call_ai_with_fallback(
+                messages=[
+                    {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000,
+            )
 
-        parsed = parse_json_response(raw_text)
+            parsed = parse_json_response(raw_text)
+        except HTTPException as he:
+            if he.status_code == 503:
+                logger.warning("AI unavailable for comm test; returning local fallback template")
+                provider = "fallback-local"
+                parsed = {
+                    "passage": "This is a fallback reading passage used when AI services are unavailable.",
+                    "sections": [
+                        {"name": "Reading Comprehension", "type": "mcq", "questions": [
+                            {"id": "rc-1", "question": "What is the main topic of the passage?", "options": ["A) Topic A", "B) Topic B", "C) Topic C", "D) Topic D"], "correct_answer": "A"},
+                            {"id": "rc-2", "question": "Which statement is true?", "options": ["A) True", "B) False", "C) Maybe", "D) Not stated"], "correct_answer": "A"},
+                            {"id": "rc-3", "question": "The tone of the passage is:", "options": ["A) Formal", "B) Casual", "C) Humorous", "D) Technical"], "correct_answer": "A"}
+                        ]},
+                        {"name": "Email Writing", "type": "mixed", "scenario": "Write an email to request leave.", "questions": [
+                            {"id": "ew-1", "question": "Choose the best subject line", "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"], "correct_answer": "A"},
+                            {"id": "ew-2", "question": "Choose the best opening sentence", "options": ["A) I need leave", "B) Dear Manager", "C) Hi", "D) Yo"], "correct_answer": "B"},
+                            {"id": "ew-3", "question": "Write a brief closing line for the email", "type": "open", "correct_answer": "Kind regards,"}
+                        ]},
+                        {"name": "Grammar & Vocabulary", "type": "mcq", "questions": [
+                            {"id": "gv-1", "question": "Choose the correct sentence.", "options": ["A) She go to work.", "B) She goes to work.", "C) She going.", "D) She gone."], "correct_answer": "B"},
+                            {"id": "gv-2", "question": "Choose the best word: He ___ the report.", "options": ["A) submit", "B) submitted", "C) submitting", "D) submits"], "correct_answer": "B"},
+                            {"id": "gv-3", "question": "Identify the error: 'Their going to the meeting.'", "options": ["A) Their", "B) going", "C) meeting", "D) No error"], "correct_answer": "A"}
+                        ]},
+                        {"name": "Situational Communication", "type": "mcq", "questions": [
+                            {"id": "sc-1", "question": "How would you respond to an upset client?", "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"], "correct_answer": "B"},
+                            {"id": "sc-2", "question": "Best approach to give feedback?", "options": ["A) Public criticism", "B) Private and constructive", "C) Sarcasm", "D) None"], "correct_answer": "B"},
+                            {"id": "sc-3", "question": "When to follow-up?", "options": ["A) Immediately", "B) After a reasonable time", "C) Never", "D) Randomly"], "correct_answer": "B"}
+                        ]},
+                        {"name": "Spoken English", "type": "open", "questions": [
+                            {"id": "se-1", "question": "Introduce yourself for a job interview in 60 seconds.", "type": "open", "correct_answer": "A concise introduction covering background and goals."},
+                            {"id": "se-2", "question": "Explain a technical concept to a non-technical person.", "type": "open", "correct_answer": "Use analogy and simple language."},
+                            {"id": "se-3", "question": "Describe how you handled a conflict at work.", "type": "open", "correct_answer": "Describe situation, action, and result."}
+                        ]}
+                    ]
+                }
+            else:
+                raise
 
         if not parsed or "sections" not in parsed:
-            logger.error(f"AI comm test parse fail ({provider}): {raw_text[:500]}")
+            raw_preview = raw_text[:500] if raw_text else "<no raw_text>"
+            logger.error(f"AI comm test parse fail ({provider}): {raw_preview}")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
         # Store in DB for later scoring
@@ -3225,4 +3320,4 @@ async def delete_session(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)

@@ -21,7 +21,6 @@ function Performance() {
   ]);
   const [topicBreakdown, setTopicBreakdown] = useState([]);
   const [difficultyBreakdown, setDifficultyBreakdown] = useState({});
-  const [scoreTrend, setScoreTrend] = useState([]);
   const [timeEfficiency, setTimeEfficiency] = useState(null);
   const [studyRecommendations, setStudyRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +80,6 @@ function Performance() {
           ]);
           setTopicBreakdown(response.data.topicBreakdown || []);
           setDifficultyBreakdown(response.data.difficultyBreakdown || {});
-          setScoreTrend(response.data.scoreTrend || []);
           setTimeEfficiency(response.data.timeEfficiency || null);
           setStudyRecommendations(response.data.studyRecommendations || []);
         }

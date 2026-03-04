@@ -14,42 +14,48 @@ const SectionTestWrapper = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    generateQuestions();
-  }, [sessionId, topic, difficulty]);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const token = localStorage.getItem("mockmate_token");
 
-  const generateQuestions = async () => {
-    try {
-      const token = localStorage.getItem("mockmate_token");
+        const response = await axios.post(
+          `${API_BASE}/generate-section-questions?session_id=${encodeURIComponent(
+            sessionId
+          )}&topic=${encodeURIComponent(topic)}&difficulty=${encodeURIComponent(
+            difficulty
+          )}&num_questions=8`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
-      const response = await axios.post(
-        `${API_BASE}/generate-section-questions?session_id=${encodeURIComponent(
-          sessionId
-        )}&topic=${encodeURIComponent(topic)}&difficulty=${encodeURIComponent(
-          difficulty
-        )}&num_questions=8`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        if (cancelled) return;
+
+        if (response.data.success) {
+          setQuestions(response.data.questions);
+        } else {
+          setError("Failed to generate questions");
         }
-      );
-
-      if (response.data.success) {
-        setQuestions(response.data.questions);
-        setLoading(false);
-      } else {
-        setError("Failed to generate questions");
-        setLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Error generating questions:", err);
+        setError(
+          err.response?.data?.detail || "Failed to generate questions"
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err) {
-      console.error("Error generating questions:", err);
-      setError(
-        err.response?.data?.detail || "Failed to generate questions"
-      );
-      setLoading(false);
-    }
-  };
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, topic, difficulty]);
 
   if (error) {
     return (
@@ -123,7 +129,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
   const [testSubmitted, setTestSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(questions.length * 60); // 1 min per question
   const testContainerRef = useRef(null);
@@ -152,6 +157,7 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
 
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft, testSubmitted]);
 
   // Tab switch detection
@@ -171,6 +177,7 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
     };
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showWarning = (msg) => {

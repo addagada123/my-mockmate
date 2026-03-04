@@ -9,40 +9,44 @@ const TopicDashboard = () => {
   const { sessionId } = useParams();
   const [topics, setTopics] = useState([]);
   const [languages, setLanguages] = useState([]);
-  const [experience, setExperience] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTopic, setSelectedTopic] = useState(null);
   const [selectedDifficulty, setSelectedDifficulty] = useState(null);
 
   useEffect(() => {
-    fetchSessionTopics();
-  }, [sessionId]);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const token = localStorage.getItem("mockmate_token");
+        const response = await axios.get(
+          `${API_BASE}/get-session-topics?session_id=${encodeURIComponent(sessionId)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
-  const fetchSessionTopics = async () => {
-    try {
-      const token = localStorage.getItem("mockmate_token");
-      const response = await axios.get(
-        `${API_BASE}/get-session-topics?session_id=${encodeURIComponent(sessionId)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        if (cancelled) return;
+        if (response.data.success) {
+          setTopics(response.data.topics || []);
+          setLanguages(response.data.detected_languages || []);
         }
-      );
-
-      if (response.data.success) {
-        setTopics(response.data.topics || []);
-        setLanguages(response.data.detected_languages || []);
-        setExperience(response.data.experience || "");
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Error fetching topics:", err);
+        setError("Failed to load topics");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
-    } catch (err) {
-      console.error("Error fetching topics:", err);
-      setError("Failed to load topics");
-      setLoading(false);
-    }
-  };
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   const handleSectionClick = (topic, difficulty) => {
     setSelectedTopic(topic);
