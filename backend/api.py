@@ -30,14 +30,29 @@ try:
 except ImportError:
     httpx = None
 
+try:
+    from backend.endeavor_rag_service import (
+        interview_rag_pipeline as _real_interview_rag_pipeline,
+        get_rag_collection as _real_get_rag_collection,
+    )
+except Exception:
+    _real_interview_rag_pipeline = None
+    _real_get_rag_collection = None
+
 
 def interview_rag_pipeline(*a, **kw):
-    # TODO: Replace with actual pipeline
-    return {"questions": [], "skills": [], "experience": ""}
+    """
+    Use the real resume RAG pipeline when available.
+    Keep a deterministic fallback so /upload-resume does not crash on import issues.
+    """
+    if _real_interview_rag_pipeline is not None:
+        return _real_interview_rag_pipeline(*a, **kw)
+    return {"questions": [], "skills": [], "experience": "", "questionsSource": "resume-import-fallback"}
 
 
 def get_rag_collection():
-    # Use real MongoDB collection for resume question cache
+    if _real_get_rag_collection is not None:
+        return _real_get_rag_collection()
     db = get_db()
     return db["resume_question_cache"]
 
