@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Any
 
 import certifi
 from fastapi import HTTPException
@@ -12,10 +13,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # MongoDB connection
-client = None
-db = None
+client: Any = None
+db: Any = None
 
-def init_db() -> Database:
+def init_db() -> Any:
     """Initialize MongoDB connection"""
     global client, db
 
@@ -50,7 +51,7 @@ def init_db() -> Database:
         logger.warning("⚠️ USING IN-MEMORY MOCK DATABASE. DATA WILL BE LOST ON RESTART.")
         return db
 
-def get_db() -> Database:
+def get_db() -> Any:
     """Get database instance"""
     global db
     if db is None:
