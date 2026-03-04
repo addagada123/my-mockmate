@@ -13,31 +13,33 @@ import math
 import shutil
 import asyncio
 import logging
-
-from collections import Counter, defaultdict
 import time
+from collections import Counter, defaultdict
+
 from backend.auth.utils import get_current_user
 from backend.db.mongo import get_db
+from backend.auth.routes import router as auth_router
+
 try:
     import openai
 except ImportError:
     openai = None
+
 try:
     import httpx
 except ImportError:
     httpx = None
 
+
 def interview_rag_pipeline(*a, **kw):
     # TODO: Replace with actual pipeline
     return {"questions": [], "skills": [], "experience": ""}
+
 
 def get_rag_collection():
     # Use real MongoDB collection for resume question cache
     db = get_db()
     return db["resume_question_cache"]
-
-
-from backend.auth.routes import router as auth_router
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +275,8 @@ def _normalize_skill(skill: str) -> str:
         "vue.js": "vue",
         "angular.js": "angular",
         "fastapi": "fastapi (python)",
+        "express": "express (nodejs)",
+        "spring": "spring (java)",
         "django": "django (python)",
         "rest api": "rest api",
         "restful": "rest api",
@@ -719,11 +723,7 @@ def _find_similar_resume_cache(
     
     return None
 
-
 app = FastAPI(title="Endeavor RAG API")
-
-# Include auth router (must be after FastAPI app creation)
-app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 
 # CORS middleware
 cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
@@ -749,6 +749,7 @@ app.add_middleware(
 os.makedirs("uploads", exist_ok=True)
 
 # Include auth router
+app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 
 # Pydantic models
 class QuestionAnswer(BaseModel):
@@ -1721,7 +1722,7 @@ PISTON_URL = "https://emkc.org/api/v2/piston/execute"
 
 
 async def _execute_single(
-    client, lang_info: dict, lang_key: str,
+    client: Any, lang_info: dict, lang_key: str,
     code: str, stdin_input: str, expected: str, index: int
 ) -> dict:
     """Execute a single test case against Piston and return the result dict."""
@@ -1784,12 +1785,11 @@ async def _execute_single(
                 "actual": "", "passed": False,
                 "error": "Time Limit Exceeded (10s)", "_compile_error": False,
             }
-        else:
-            return {
-                "test_case": index, "input": stdin_input, "expected": expected,
-                "actual": "", "passed": False,
-                "error": str(e)[:300], "_compile_error": False,
-            }
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": "", "passed": False,
+            "error": str(e)[:300], "_compile_error": False,
+        }
 
 
 @app.post("/run-code")
@@ -1820,51 +1820,13 @@ async def run_code(
     results: list[dict] = []
     is_compiled = lang_key in _COMPILED_LANGS
 
-    if httpx and hasattr(httpx, "AsyncClient"):
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0, connect=10.0),
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-        ) as client:
-            # ...existing code...
-            if is_compiled and len(test_cases) > 1:
-                # --- Strategy: compile-check first, then parallel ---
-                first_tc = test_cases[0]
-                first_result = await _execute_single(
-                    client, lang_info, lang_key, payload.code, first_tc["input"], first_tc["expected_output"], 0
-                )
-                results.append(first_result)
-                if not first_result["passed"] or first_result.get("_compile_error"):
-                    # Compilation failed, skip rest
-                    total_time = time.time() - start_time
-                    return {
-                        "results": results,
-                        "score": 0,
-                        "time": round(total_time, 2),
-                        "compile_error": True,
-                    }
-                # Run rest concurrently
-                tasks = [
-                    _execute_single(client, lang_info, lang_key, payload.code, tc["input"], tc["expected_output"], i)
-                    for i, tc in enumerate(test_cases[1:], 1)
-                ]
-                results += await asyncio.gather(*tasks)
-            else:
-                # Interpreted or single test case: run all concurrently
-                tasks = [
-                    _execute_single(client, lang_info, lang_key, payload.code, tc["input"], tc["expected_output"], i)
-                    for i, tc in enumerate(test_cases)
-                ]
-                results = await asyncio.gather(*tasks)
-            total_time = time.time() - start_time
-            score = sum(1 for r in results if r["passed"]) / len(results) * 100 if results else 0
-            return {
-                "results": results,
-                "score": round(score, 1),
-                "time": round(total_time, 2),
-                "compile_error": False,
-            }
-    else:
-        raise HTTPException(status_code=500, detail="httpx is not installed or not available")
+    if httpx is None:
+        raise HTTPException(status_code=503, detail="httpx is not installed")
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(60.0, connect=10.0),
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+    ) as client:
 
         if is_compiled and len(test_cases) > 1:
             # --- Strategy: compile-check first, then parallel ---
@@ -2470,6 +2432,8 @@ async def generate_comm_test(
     Falls back to live GPT generation only if the pool is empty.
     """
     try:
+        raw_text = ""
+        provider = "unknown"
         db = get_db()
         difficulty = (payload.difficulty or "medium").strip().lower()
 
@@ -2567,7 +2531,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         {{
           "id": "ew-1",
           "question": "Choose the best subject line",
-          "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"],
+          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
           "correct_answer": "C",
           "explanation": "...",
           "type": "mcq"
@@ -2601,8 +2565,8 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         {{
           "id": "sc-1",
           "question": "Scenario: ... How do you respond?",
-          "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"],
-          "correct_answer": "B",
+          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+          "correct_answer": "D",
           "explanation": "..."
         }}
       ]
@@ -2614,7 +2578,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         {{
           "id": "se-1",
           "question": "Introduce yourself for a job interview in 60 seconds.",
-          "correct_answer": "A concise introduction covering name, background, skills, and goals",
+          "correct_answer": "A model answer covering name, background, skills, and goals",
           "explanation": "Should be structured, confident, and professional",
           "type": "open"
         }}
@@ -2623,8 +2587,6 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
   ]
 }}"""
 
-        raw_text = None
-        provider = None
         try:
             raw_text, provider = await call_ai_with_fallback(
                 messages=[
@@ -2674,7 +2636,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
                 raise
 
         if not parsed or "sections" not in parsed:
-            raw_preview = raw_text[:500] if raw_text else "<no raw_text>"
+            raw_preview = raw_text[:500] if "raw_text" in locals() and raw_text else "<no raw_text>"
             logger.error(f"AI comm test parse fail ({provider}): {raw_preview}")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
