@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
@@ -8,6 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
 const Test = () => {
   const { topic } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const [difficulty, setDifficulty] = useState(null);
   const [testStarted, setTestStarted] = useState(false);
@@ -173,22 +174,28 @@ const Test = () => {
           }
 
           if (resumeResponse.data.questions && resumeResponse.data.questions.length > 0) {
-            // Filter by difficulty if specified
             let filteredQuestions = resumeResponse.data.questions;
-            if (difficulty) {
-              const difficultyFiltered = filteredQuestions.filter(
-                q => q.difficulty && q.difficulty.toLowerCase() === difficulty.toLowerCase()
+
+            if (difficulty === "coding") {
+              const codingOnly = filteredQuestions.filter(
+                (q) => (q.type || "").toLowerCase() === "coding"
               );
-              // Use difficulty-filtered if available, otherwise use all topic questions
+              if (codingOnly.length > 0) {
+                filteredQuestions = codingOnly;
+              }
+            } else if (difficulty) {
+              const difficultyFiltered = filteredQuestions.filter(
+                (q) => q.difficulty && q.difficulty.toLowerCase() === difficulty.toLowerCase()
+              );
               if (difficultyFiltered.length > 0) {
                 filteredQuestions = difficultyFiltered;
               }
             }
-            
+
             if (filteredQuestions.length > 0) {
               console.log("Using resume questions:", filteredQuestions);
               setQuestions(filteredQuestions);
-              return; // Exit early, we found resume questions
+              return;
             }
           }
         } catch (resumeError) {
@@ -201,7 +208,7 @@ const Test = () => {
           `${API_BASE}/generate-test-questions`,
           {
             topic: decodeURIComponent(topic),
-            difficulty: difficulty,
+            difficulty: difficulty === "coding" ? null : difficulty,
           },
           {
             headers: {
@@ -218,8 +225,17 @@ const Test = () => {
         }
 
         if (response.data.questions && response.data.questions.length > 0) {
-          console.log("Using general questions:", response.data.questions);
-          setQuestions(response.data.questions);
+          let fetched = response.data.questions;
+          if (difficulty === "coding") {
+            const codingOnly = fetched.filter(
+              (q) => (q.type || "").toLowerCase() === "coding"
+            );
+            if (codingOnly.length > 0) {
+              fetched = codingOnly;
+            }
+          }
+          console.log("Using general questions:", fetched);
+          setQuestions(fetched);
         } else {
           console.log("No questions in response, using fallback");
           // Last resort: Default sample questions
@@ -428,6 +444,15 @@ const Test = () => {
   const [vrBridgeToken, setVrBridgeToken] = useState("");
   const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
   const vrStartedAtRef = useRef(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const qDifficulty = (params.get("difficulty") || "").toLowerCase();
+    const allowed = new Set(["easy", "medium", "hard", "coding"]);
+    if (allowed.has(qDifficulty)) {
+      setDifficulty(qDifficulty);
+    }
+  }, [location.search]);
 
   // Track visited questions when navigating
   useEffect(() => {
@@ -892,7 +917,7 @@ const Test = () => {
           </p>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {["Easy", "Medium", "Hard"].map((level) => (
+            {["Easy", "Medium", "Hard", "Coding"].map((level) => (
               <button
                 key={level}
                  onClick={async () => {
@@ -916,7 +941,14 @@ const Test = () => {
                 }}
                 style={{
                   padding: "16px",
-                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  background:
+                    level === "Easy"
+                      ? "linear-gradient(135deg, #22c55e, #16a34a)"
+                      : level === "Medium"
+                        ? "linear-gradient(135deg, #f59e0b, #d97706)"
+                        : level === "Hard"
+                          ? "linear-gradient(135deg, #ef4444, #dc2626)"
+                          : "linear-gradient(135deg, #8b5cf6, #7c3aed)",
                   color: "white",
                   border: "none",
                   borderRadius: "12px",
@@ -935,6 +967,24 @@ const Test = () => {
               </button>
             ))}
           </div>
+
+          <button
+            onClick={() => navigate("/communication-test")}
+            style={{
+              marginTop: "14px",
+              padding: "12px 24px",
+              backgroundColor: "#06b6d4",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "600",
+              transition: "all 0.3s ease",
+            }}
+          >
+            Go to Communication Test
+          </button>
 
           <button
             onClick={() => navigate("/dashboard")}

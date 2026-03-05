@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 
@@ -51,11 +51,9 @@ const TopicDashboard = () => {
   const handleSectionClick = (topic, difficulty) => {
     setSelectedTopic(topic);
     setSelectedDifficulty(difficulty);
-    // Navigate to section test wrapper which will show loading page
+    // Route through unified test page so mode options (Take Test / Take Test in VR) always appear
     navigate(
-      `/section-test/${encodeURIComponent(sessionId)}/${encodeURIComponent(
-        topic
-      )}/${encodeURIComponent(difficulty)}`
+      `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}`
     );
   };
 
@@ -63,7 +61,7 @@ const TopicDashboard = () => {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f3ff" }}>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "48px", marginBottom: "16px" }}>⏳</div>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>Loading...</div>
           <p style={{ fontSize: "18px", color: "#666" }}>Loading your topics...</p>
         </div>
       </div>
@@ -74,7 +72,7 @@ const TopicDashboard = () => {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f3ff", padding: "20px" }}>
         <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", textAlign: "center", maxWidth: "500px", boxShadow: "0 4px 24px rgba(99,102,241,0.08)" }}>
-          <div style={{ fontSize: "48px", marginBottom: "16px" }}>❌</div>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>Error</div>
           <h2 style={{ color: "#dc2626", marginBottom: "16px" }}>Error</h2>
           <p style={{ color: "#666", marginBottom: "24px" }}>{error}</p>
           <button
@@ -98,7 +96,6 @@ const TopicDashboard = () => {
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #f5f3ff 0%, #ede9fe 30%, #f5f3ff 100%)", padding: "20px" }}>
-      {/* Header */}
       <div
         style={{
           background: "linear-gradient(135deg, #0f172a, #1e293b)",
@@ -109,14 +106,45 @@ const TopicDashboard = () => {
         }}
       >
         <h1 style={{ margin: "0 0 8px 0", color: "#ffffff", fontSize: "28px", fontWeight: "800" }}>
-          📚 Select a Topic to Practice
+          Select a Topic to Practice
         </h1>
         <p style={{ margin: 0, color: "#94a3b8", fontSize: "14px" }}>
-          Choose a topic and difficulty level to generate interview questions
+          Choose a topic and difficulty level to start.
         </p>
+        <div style={{ marginTop: "14px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <button
+            onClick={() => navigate("/communication-test")}
+            style={{
+              padding: "10px 14px",
+              backgroundColor: "#06b6d4",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: "600",
+              fontSize: "13px",
+            }}
+          >
+            Communication Test
+          </button>
+          <button
+            onClick={() => navigate("/dashboard")}
+            style={{
+              padding: "10px 14px",
+              backgroundColor: "transparent",
+              color: "#cbd5e1",
+              border: "1px solid rgba(203,213,225,0.35)",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: "600",
+              fontSize: "13px",
+            }}
+          >
+            Back
+          </button>
+        </div>
       </div>
 
-      {/* Topics Grid */}
       <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
         {topics && topics.length > 0 ? (
           topics.map((topic, index) => (
@@ -132,52 +160,37 @@ const TopicDashboard = () => {
                 transition: "all 0.2s ease",
               }}
             >
-              {/* Topic Title */}
               <h2 style={{ margin: "0 0 16px 0", color: "#1e293b", fontSize: "20px" }}>
-                🎯 {topic}
+                {topic}
               </h2>
 
-              {/* Section Buttons */}
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                {/* Coding Section (if languages detected) */}
-                {languages && languages.length > 0 && (
-                  <button
-                    onClick={() => handleSectionClick(topic, "coding")}
-                    disabled={selectedTopic === topic && selectedDifficulty === "coding"}
-                    style={{
-                      padding: "12px 20px",
-                      backgroundColor:
-                        selectedTopic === topic && selectedDifficulty === "coding"
-                          ? "#7c3aed"
-                          : "#8b5cf6",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "8px",
-                      cursor: "pointer",
-                      fontWeight: "600",
-                      fontSize: "14px",
-                      transition: "all 0.3s ease",
-                      opacity:
-                        selectedTopic === topic && selectedDifficulty === "coding"
-                          ? 0.9
-                          : 1,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!(selectedTopic === topic && selectedDifficulty === "coding")) {
-                        e.target.style.backgroundColor = "#7c3aed";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!(selectedTopic === topic && selectedDifficulty === "coding")) {
-                        e.target.style.backgroundColor = "#8b5cf6";
-                      }
-                    }}
-                  >
-                    💻 Coding
-                  </button>
-                )}
+                <button
+                  onClick={() => handleSectionClick(topic, "coding")}
+                  disabled={selectedTopic === topic && selectedDifficulty === "coding"}
+                  title={languages?.length ? `Detected languages: ${languages.join(", ")}` : "Coding practice"}
+                  style={{
+                    padding: "12px 20px",
+                    backgroundColor:
+                      selectedTopic === topic && selectedDifficulty === "coding"
+                        ? "#7c3aed"
+                        : "#8b5cf6",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    fontWeight: "600",
+                    fontSize: "14px",
+                    transition: "all 0.3s ease",
+                    opacity:
+                      selectedTopic === topic && selectedDifficulty === "coding"
+                        ? 0.9
+                        : 1,
+                  }}
+                >
+                  Coding
+                </button>
 
-                {/* Easy Section */}
                 <button
                   onClick={() => handleSectionClick(topic, "easy")}
                   disabled={selectedTopic === topic && selectedDifficulty === "easy"}
@@ -197,21 +210,10 @@ const TopicDashboard = () => {
                     opacity:
                       selectedTopic === topic && selectedDifficulty === "easy" ? 0.9 : 1,
                   }}
-                  onMouseEnter={(e) => {
-                    if (!(selectedTopic === topic && selectedDifficulty === "easy")) {
-                      e.target.style.backgroundColor = "#16a34a";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!(selectedTopic === topic && selectedDifficulty === "easy")) {
-                      e.target.style.backgroundColor = "#22c55e";
-                    }
-                  }}
                 >
-                  🟢 Easy
+                  Easy
                 </button>
 
-                {/* Medium Section */}
                 <button
                   onClick={() => handleSectionClick(topic, "medium")}
                   disabled={selectedTopic === topic && selectedDifficulty === "medium"}
@@ -233,21 +235,10 @@ const TopicDashboard = () => {
                         ? 0.9
                         : 1,
                   }}
-                  onMouseEnter={(e) => {
-                    if (!(selectedTopic === topic && selectedDifficulty === "medium")) {
-                      e.target.style.backgroundColor = "#b45309";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!(selectedTopic === topic && selectedDifficulty === "medium")) {
-                      e.target.style.backgroundColor = "#f59e0b";
-                    }
-                  }}
                 >
-                  🟡 Medium
+                  Medium
                 </button>
 
-                {/* Hard Section */}
                 <button
                   onClick={() => handleSectionClick(topic, "hard")}
                   disabled={selectedTopic === topic && selectedDifficulty === "hard"}
@@ -267,18 +258,8 @@ const TopicDashboard = () => {
                     opacity:
                       selectedTopic === topic && selectedDifficulty === "hard" ? 0.9 : 1,
                   }}
-                  onMouseEnter={(e) => {
-                    if (!(selectedTopic === topic && selectedDifficulty === "hard")) {
-                      e.target.style.backgroundColor = "#b91c1c";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!(selectedTopic === topic && selectedDifficulty === "hard")) {
-                      e.target.style.backgroundColor = "#ef4444";
-                    }
-                  }}
                 >
-                  🔴 Hard
+                  Hard
                 </button>
               </div>
             </div>
@@ -311,33 +292,6 @@ const TopicDashboard = () => {
             </button>
           </div>
         )}
-      </div>
-
-      {/* Back Button */}
-      <div style={{ textAlign: "center", marginTop: "40px" }}>
-        <button
-          onClick={() => navigate("/dashboard")}
-          style={{
-            padding: "12px 24px",
-            backgroundColor: "transparent",
-            color: "#6366f1",
-            border: "2px solid #6366f1",
-            borderRadius: "8px",
-            cursor: "pointer",
-            fontWeight: "600",
-            transition: "all 0.3s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.backgroundColor = "#6366f1";
-            e.target.style.color = "white";
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.backgroundColor = "transparent";
-            e.target.style.color = "#6366f1";
-          }}
-        >
-          ← Back to Dashboard
-        </button>
       </div>
     </div>
   );
