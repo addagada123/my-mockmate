@@ -375,6 +375,27 @@ def _extract_questions_from_ai_payload(
             "starter_code": q.get("starter_code") if q_type == "coding" else None,
             "test_cases": q.get("test_cases") if q_type == "coding" else None,
         }
+        if q_type == "coding":
+            q_lower = q_text.lower()
+            practical_markers = ("implement", "write", "code", "function", "return")
+            if not any(marker in q_lower for marker in practical_markers):
+                continue
+            if not item.get("starter_code"):
+                item["starter_code"] = "def solve(input_data):\n    # Write your solution here\n    return \"\""
+            tcs = item.get("test_cases") or []
+            if not isinstance(tcs, list) or len(tcs) == 0:
+                continue
+            normalized_tcs = []
+            for tc in tcs:
+                if not isinstance(tc, dict):
+                    continue
+                normalized_tcs.append({
+                    "input": str(tc.get("input", "")),
+                    "expected_output": str(tc.get("expected_output", tc.get("expected", ""))),
+                })
+            if len(normalized_tcs) == 0:
+                continue
+            item["test_cases"] = normalized_tcs
         normalized.append(item)
     return normalized
 
@@ -386,22 +407,61 @@ def _generate_coding_fallback_questions(
     session_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     base_topic = (topic or "General Coding").strip() or "General Coding"
-    templates = [
-        "Write a function to solve a basic {topic} problem with optimal time complexity.",
-        "Implement an algorithm for {topic} and explain edge cases.",
-        "Given an input stream, design a robust {topic} solution.",
-        "Build a clean and testable implementation for a {topic} scenario.",
-        "Code a solution for a common {topic} interview problem.",
+    coding_bank = [
+        {
+            "question": f"Write code for {base_topic}: Given integers N and K, print the sum of first N multiples of K.",
+            "starter_code": "def solve(input_data):\n    n, k = map(int, input_data.strip().split())\n    # return result as string\n    return \"\"",
+            "test_cases": [
+                {"input": "5 3", "expected_output": "45"},
+                {"input": "3 10", "expected_output": "60"},
+                {"input": "1 7", "expected_output": "7"},
+            ],
+        },
+        {
+            "question": f"Write code for {base_topic}: Given a string, return the frequency of each character sorted by character.",
+            "starter_code": "def solve(input_data):\n    s = input_data.strip()\n    # output format: a:2 b:1 ...\n    return \"\"",
+            "test_cases": [
+                {"input": "aab", "expected_output": "a:2 b:1"},
+                {"input": "zzz", "expected_output": "z:3"},
+                {"input": "abca", "expected_output": "a:2 b:1 c:1"},
+            ],
+        },
+        {
+            "question": f"Write code for {base_topic}: Given an array of integers, output the maximum subarray sum.",
+            "starter_code": "def solve(input_data):\n    arr = list(map(int, input_data.strip().split()))\n    # return max subarray sum as string\n    return \"\"",
+            "test_cases": [
+                {"input": "1 -2 3 4 -1", "expected_output": "7"},
+                {"input": "-5 -2 -1", "expected_output": "-1"},
+                {"input": "2 3 -2 5", "expected_output": "8"},
+            ],
+        },
+        {
+            "question": f"Write code for {base_topic}: Given N, print all prime numbers <= N separated by spaces.",
+            "starter_code": "def solve(input_data):\n    n = int(input_data.strip())\n    # return primes as space-separated string\n    return \"\"",
+            "test_cases": [
+                {"input": "10", "expected_output": "2 3 5 7"},
+                {"input": "2", "expected_output": "2"},
+                {"input": "1", "expected_output": ""},
+            ],
+        },
+        {
+            "question": f"Write code for {base_topic}: Given two sorted arrays, merge them into one sorted array.",
+            "starter_code": "def solve(input_data):\n    lines = [ln.strip() for ln in input_data.strip().splitlines() if ln.strip()]\n    a = list(map(int, lines[0].split())) if lines else []\n    b = list(map(int, lines[1].split())) if len(lines) > 1 else []\n    # return merged array as space-separated string\n    return \"\"",
+            "test_cases": [
+                {"input": "1 3 5\n2 4 6", "expected_output": "1 2 3 4 5 6"},
+                {"input": "1 2 3\n", "expected_output": "1 2 3"},
+                {"input": "\n4 5", "expected_output": "4 5"},
+            ],
+        },
     ]
-    starter = "def solve(input_data):\n    # Write your solution here\n    return \"\""
-    default_tests = [{"input": "sample input", "expected_output": "sample output"}]
 
     results: List[Dict[str, Any]] = []
     idx = 1
     attempts = 0
     max_attempts = max(count * 4, 20)
     while len(results) < count and attempts < max_attempts:
-        q = templates[attempts % len(templates)].format(topic=base_topic)
+        sample = coding_bank[attempts % len(coding_bank)]
+        q = sample["question"]
         q_key = q.strip().lower()
         if q_key not in existing_questions:
             existing_questions.add(q_key)
@@ -413,8 +473,8 @@ def _generate_coding_fallback_questions(
                 "topic": base_topic,
                 "type": "coding",
                 "language": "python",
-                "starter_code": starter,
-                "test_cases": default_tests,
+                "starter_code": sample["starter_code"],
+                "test_cases": sample["test_cases"],
             })
             idx += 1
         attempts += 1
@@ -456,6 +516,8 @@ Rules:
 - No markdown.
 - Ensure questions are interview-ready and non-duplicate.
 - If type is analytical, omit coding-only fields.
+- If type is coding, generate ONLY practical implementation problems (no theory/explain-only).
+- For coding questions, include at least 3 valid test_cases with input and expected_output.
 """
 
     parallel = await call_ai_parallel(

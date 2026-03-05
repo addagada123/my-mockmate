@@ -180,9 +180,7 @@ const Test = () => {
               const codingOnly = filteredQuestions.filter(
                 (q) => (q.type || "").toLowerCase() === "coding"
               );
-              if (codingOnly.length > 0) {
-                filteredQuestions = codingOnly;
-              }
+              filteredQuestions = codingOnly;
             } else if (difficulty) {
               const difficultyFiltered = filteredQuestions.filter(
                 (q) => q.difficulty && q.difficulty.toLowerCase() === difficulty.toLowerCase()
@@ -208,7 +206,7 @@ const Test = () => {
           `${API_BASE}/generate-test-questions`,
           {
             topic: decodeURIComponent(topic),
-            difficulty: difficulty === "coding" ? null : difficulty,
+            difficulty: difficulty,
           },
           {
             headers: {
@@ -230,42 +228,96 @@ const Test = () => {
             const codingOnly = fetched.filter(
               (q) => (q.type || "").toLowerCase() === "coding"
             );
-            if (codingOnly.length > 0) {
-              fetched = codingOnly;
-            }
+            fetched = codingOnly;
           }
           console.log("Using general questions:", fetched);
-          setQuestions(fetched);
+          if (difficulty === "coding" && fetched.length === 0) {
+            setQuestions([
+              {
+                question: `Write a function to compute the maximum subarray sum for ${decodeURIComponent(topic)}. Input is space-separated integers.`,
+                answer: "Use Kadane's algorithm.",
+                difficulty: "medium",
+                topic: decodeURIComponent(topic),
+                type: "coding",
+                language: "python",
+                starter_code: "def solve(input_data):\\n    arr = list(map(int, input_data.strip().split()))\\n    # write code\\n    return \\\"\\\"",
+                test_cases: [
+                  { input: "1 -2 3 4 -1", expected_output: "7" },
+                  { input: "-5 -2 -1", expected_output: "-1" },
+                  { input: "2 3 -2 5", expected_output: "8" }
+                ]
+              }
+            ]);
+          } else {
+            setQuestions(fetched);
+          }
         } else {
           console.log("No questions in response, using fallback");
-          // Last resort: Default sample questions
+          if (difficulty === "coding") {
+            setQuestions([
+              {
+                question: `Write code to merge two sorted arrays for ${decodeURIComponent(topic)}. Input: two lines of space-separated ints.`,
+                answer: "Two-pointer merge.",
+                difficulty: "medium",
+                topic: decodeURIComponent(topic),
+                type: "coding",
+                language: "python",
+                starter_code: "def solve(input_data):\\n    lines = [ln.strip() for ln in input_data.strip().splitlines() if ln.strip()]\\n    a = list(map(int, lines[0].split())) if lines else []\\n    b = list(map(int, lines[1].split())) if len(lines)>1 else []\\n    # write code\\n    return \\\"\\\"",
+                test_cases: [
+                  { input: "1 3 5\\n2 4 6", expected_output: "1 2 3 4 5 6" },
+                  { input: "1 2 3\\n", expected_output: "1 2 3" },
+                  { input: "\\n4 5", expected_output: "4 5" }
+                ]
+              }
+            ]);
+          } else {
+            setQuestions([
+              {
+                question: `Explain the key concepts of ${decodeURIComponent(topic)}`,
+                answer: "This is a comprehensive question about the topic.",
+                difficulty: difficulty || "medium",
+              },
+              {
+                question: `How would you approach a real-world ${decodeURIComponent(topic)} problem?`,
+                answer: "When dealing with this topic, consider the fundamentals and edge cases.",
+                difficulty: difficulty || "medium",
+              },
+              {
+                question: `What are common pitfalls when working with ${decodeURIComponent(topic)}?`,
+                answer: "Common mistakes include not considering edge cases and performance implications.",
+                difficulty: difficulty || "medium",
+              },
+            ]);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching questions:", error);
+        if (difficulty === "coding") {
           setQuestions([
             {
-              question: `Explain the key concepts of ${decodeURIComponent(topic)}`,
-              answer: "This is a comprehensive question about the topic.",
-              difficulty: difficulty || "medium",
-            },
+              question: `Write code to print all prime numbers <= N for ${decodeURIComponent(topic)}.`,
+              answer: "Sieve or optimized primality checks.",
+              difficulty: "medium",
+              topic: decodeURIComponent(topic),
+              type: "coding",
+              language: "python",
+              starter_code: "def solve(input_data):\\n    n = int(input_data.strip())\\n    # write code\\n    return \\\"\\\"",
+              test_cases: [
+                { input: "10", expected_output: "2 3 5 7" },
+                { input: "2", expected_output: "2" },
+                { input: "1", expected_output: "" }
+              ]
+            }
+          ]);
+        } else {
+          setQuestions([
             {
-              question: `How would you approach a real-world ${decodeURIComponent(topic)} problem?`,
-              answer: "When dealing with this topic, consider the fundamentals and edge cases.",
-              difficulty: difficulty || "medium",
-            },
-            {
-              question: `What are common pitfalls when working with ${decodeURIComponent(topic)}?`,
-              answer: "Common mistakes include not considering edge cases and performance implications.",
+              question: `Sample ${decodeURIComponent(topic)} Question 1?`,
+              answer: "Sample answer 1",
               difficulty: difficulty || "medium",
             },
           ]);
         }
-      } catch (error) {
-        console.error("Error fetching questions:", error);
-        setQuestions([
-          {
-            question: `Sample ${decodeURIComponent(topic)} Question 1?`,
-            answer: "Sample answer 1",
-            difficulty: difficulty || "medium",
-          },
-        ]);
       }
     };
 
