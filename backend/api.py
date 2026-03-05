@@ -11,6 +11,7 @@ import json as json_mod
 import hashlib
 import math
 import shutil
+import secrets
 import asyncio
 import logging
 import time
@@ -779,6 +780,7 @@ class TestSubmission(BaseModel):
     difficulty: Optional[str] = None
     time_spent: Optional[int] = None
     tab_switches: Optional[int] = None
+    mode: Optional[str] = None
 
 class GenerateTestQuestionsRequest(BaseModel):
     session_id: Optional[str] = None
@@ -805,6 +807,32 @@ class RunCodeRequest(BaseModel):
     language: str  # "python", "java", "cpp", "javascript", "c"
     code: str
     test_cases: Optional[List[Dict[str, str]]] = None  # [{input, expected_output}]
+
+
+class VRStartRequest(BaseModel):
+    session_id: str
+    topic: Optional[str] = None
+    difficulty: Optional[str] = None
+    questions: Optional[List[Dict[str, Any]]] = None
+
+
+class VRAnswerRequest(BaseModel):
+    question_index: int
+    user_answer: str
+
+
+class VRCompleteRequest(BaseModel):
+    session_id: str
+    time_spent: Optional[int] = None
+
+
+class VRBridgeAnswerRequest(BaseModel):
+    question_index: int
+    user_answer: str
+
+
+class VRBridgeCompleteRequest(BaseModel):
+    time_spent: Optional[int] = None
 
 # Upload directory
 UPLOAD_DIR = "uploads"
@@ -1921,6 +1949,444 @@ def _get_file_ext(lang: str) -> str:
     }
     return ext_map.get(lang, "txt")
 
+
+def _build_session_object_id(session_id: str):
+    try:
+        from bson import ObjectId
+        return ObjectId(session_id)
+    except Exception:
+        from backend.db.mock_mongo import MockObjectId
+        return MockObjectId(session_id)
+
+
+def _get_owned_session(db, session_id: str, current_user: Dict):
+    session_id_obj = _build_session_object_id(session_id)
+    session = db.user_sessions.find_one({"_id": session_id_obj})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.get("user_id") != current_user.get("id"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return session_id_obj, session
+
+
+def _get_session_by_bridge_token(db, bridge_token: str):
+    if not bridge_token:
+        raise HTTPException(status_code=400, detail="bridge_token is required")
+    session = db.user_sessions.find_one({"vr_test.bridge_token": bridge_token})
+    if not session:
+        raise HTTPException(status_code=404, detail="Invalid bridge_token")
+    vr_state = session.get("vr_test") or {}
+    expires_at = vr_state.get("bridge_expires_at")
+    if expires_at and datetime.now() > expires_at:
+        raise HTTPException(status_code=401, detail="bridge_token expired")
+    return session
+
+
+@app.post("/vr-test/start")
+async def start_vr_test(
+    payload: VRStartRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Initialize VR test state from already-generated questions.
+    Reuses existing normal test questions (no regeneration).
+    """
+    db = get_db()
+    session_id_obj, session = _get_owned_session(db, payload.session_id, current_user)
+
+    source_questions = payload.questions or session.get("questions", [])
+    vr_questions: List[Dict[str, Any]] = []
+    default_topic = payload.topic or session.get("topic") or "General"
+    default_difficulty = (payload.difficulty or session.get("difficulty") or "medium").lower()
+
+    for idx, q in enumerate(source_questions):
+        q_text = (q.get("question") or "").strip()
+        if not q_text:
+            continue
+        vr_questions.append({
+            "index": idx,
+            "id": q.get("id") or f"vr_q_{idx+1}",
+            "question": q_text,
+            "answer": q.get("answer") or "",
+            "topic": q.get("topic") or default_topic,
+            "difficulty": (q.get("difficulty") or default_difficulty).lower(),
+            "type": q.get("type") or "open",
+        })
+
+    if not vr_questions:
+        raise HTTPException(status_code=400, detail="No questions available to start VR test")
+
+    started_at = datetime.now()
+    bridge_token = secrets.token_urlsafe(24)
+    bridge_expires_at = started_at + timedelta(hours=6)
+    vr_state = {
+        "status": "in_progress",
+        "started_at": started_at,
+        "mode": "vr",
+        "topic": default_topic,
+        "difficulty": default_difficulty,
+        "bridge_token": bridge_token,
+        "bridge_expires_at": bridge_expires_at,
+        "current_question_index": 0,
+        "questions": vr_questions,
+        "answers": [],
+    }
+
+    db.user_sessions.update_one(
+        {"_id": session_id_obj},
+        {
+            "$set": {
+                "status": "in_progress",
+                "topic": default_topic,
+                "difficulty": default_difficulty,
+                "mode": "vr",
+                "vr_test": vr_state,
+            }
+        }
+    )
+
+    return {
+        "success": True,
+        "session_id": payload.session_id,
+        "mode": "vr",
+        "total_questions": len(vr_questions),
+        "bridge_token": bridge_token,
+        "bridge_expires_at": bridge_expires_at.isoformat(),
+        "current_question": vr_questions[0],
+    }
+
+
+@app.get("/vr-test/next")
+async def get_vr_next_question(
+    session_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    db = get_db()
+    _, session = _get_owned_session(db, session_id, current_user)
+
+    vr_state = session.get("vr_test") or {}
+    questions = vr_state.get("questions") or []
+    idx = int(vr_state.get("current_question_index", 0))
+
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+
+    if idx >= len(questions):
+        return {
+            "success": True,
+            "completed": True,
+            "current_question": None,
+            "current_question_index": idx,
+            "total_questions": len(questions),
+        }
+
+    return {
+        "success": True,
+        "completed": False,
+        "current_question_index": idx,
+        "total_questions": len(questions),
+        "current_question": questions[idx],
+    }
+
+
+@app.post("/vr-test/answer")
+async def submit_vr_answer(
+    payload: VRAnswerRequest,
+    session_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    db = get_db()
+    session_id_obj, session = _get_owned_session(db, session_id, current_user)
+
+    vr_state = session.get("vr_test") or {}
+    questions = vr_state.get("questions") or []
+    answers = vr_state.get("answers") or []
+    idx = int(vr_state.get("current_question_index", 0))
+
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+    if idx >= len(questions):
+        raise HTTPException(status_code=400, detail="VR test already completed")
+    if payload.question_index != idx:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Expected answer for question_index={idx}, got {payload.question_index}"
+        )
+
+    q = questions[idx]
+    evaluation = simple_evaluate_answer(
+        q.get("question", ""),
+        payload.user_answer,
+        q.get("answer", ""),
+    )
+
+    answer_record = {
+        "question_index": idx,
+        "question": q.get("question", ""),
+        "user_answer": payload.user_answer,
+        "correct_answer": q.get("answer", ""),
+        "score": evaluation.get("score", 0),
+        "feedback": evaluation.get("feedback", ""),
+        "is_correct": evaluation.get("is_correct", False),
+        "submitted_at": datetime.now(),
+    }
+    answers.append(answer_record)
+    next_idx = idx + 1
+
+    db.user_sessions.update_one(
+        {"_id": session_id_obj},
+        {
+            "$set": {
+                "vr_test.answers": answers,
+                "vr_test.current_question_index": next_idx,
+            }
+        }
+    )
+
+    running_avg = round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0
+    done = next_idx >= len(questions)
+    next_question = None if done else questions[next_idx]
+
+    return {
+        "success": True,
+        "completed": done,
+        "saved_answer": answer_record,
+        "running_percentage": running_avg,
+        "next_question_index": next_idx,
+        "next_question": next_question,
+        "total_questions": len(questions),
+    }
+
+
+@app.post("/vr-test/complete")
+async def complete_vr_test(
+    payload: VRCompleteRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    db = get_db()
+    session_id_obj, session = _get_owned_session(db, payload.session_id, current_user)
+
+    vr_state = session.get("vr_test") or {}
+    questions = vr_state.get("questions") or []
+    answers = vr_state.get("answers") or []
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+
+    total_score = sum(a.get("score", 0) for a in answers)
+    max_score = len(questions) * 100
+    percentage = (total_score / max_score * 100) if max_score > 0 else 0
+    completed_at = datetime.now()
+    difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
+    derived_topic = vr_state.get("topic") or session.get("topic") or "General"
+
+    db.user_sessions.update_one(
+        {"_id": session_id_obj},
+        {
+            "$set": {
+                "status": "completed",
+                "mode": "vr",
+                "completed_at": completed_at,
+                "total_score": total_score,
+                "max_score": max_score,
+                "percentage": percentage,
+                "evaluated_answers": answers,
+                "topic": derived_topic,
+                "difficulty": difficulty_label,
+                "time_spent": payload.time_spent,
+                "tab_switches": 0,
+                "vr_test.status": "completed",
+                "vr_test.completed_at": completed_at,
+            },
+            "$push": {
+                "test_attempts": {
+                    "completed_at": completed_at,
+                    "percentage": percentage,
+                    "topic": derived_topic,
+                    "difficulty": difficulty_label,
+                    "time_spent": payload.time_spent,
+                    "tab_switches": 0,
+                    "mode": "vr",
+                }
+            }
+        }
+    )
+
+    return {
+        "success": True,
+        "session_id": payload.session_id,
+        "mode": "vr",
+        "answered": len(answers),
+        "total_questions": len(questions),
+        "total_score": total_score,
+        "max_score": max_score,
+        "percentage": round(percentage, 2),
+        "evaluated_answers": answers,
+    }
+
+
+@app.get("/vr-bridge/next")
+async def get_vr_bridge_next_question(bridge_token: str):
+    db = get_db()
+    session = _get_session_by_bridge_token(db, bridge_token)
+
+    vr_state = session.get("vr_test") or {}
+    questions = vr_state.get("questions") or []
+    idx = int(vr_state.get("current_question_index", 0))
+
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+
+    if idx >= len(questions):
+        return {
+            "success": True,
+            "completed": True,
+            "current_question": None,
+            "current_question_index": idx,
+            "total_questions": len(questions),
+        }
+
+    return {
+        "success": True,
+        "completed": False,
+        "current_question_index": idx,
+        "total_questions": len(questions),
+        "current_question": questions[idx],
+    }
+
+
+@app.post("/vr-bridge/answer")
+async def submit_vr_bridge_answer(
+    payload: VRBridgeAnswerRequest,
+    bridge_token: str,
+):
+    db = get_db()
+    session = _get_session_by_bridge_token(db, bridge_token)
+    session_id_obj = session["_id"]
+
+    vr_state = session.get("vr_test") or {}
+    questions = vr_state.get("questions") or []
+    answers = vr_state.get("answers") or []
+    idx = int(vr_state.get("current_question_index", 0))
+
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+    if idx >= len(questions):
+        raise HTTPException(status_code=400, detail="VR test already completed")
+    if payload.question_index != idx:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Expected answer for question_index={idx}, got {payload.question_index}"
+        )
+
+    q = questions[idx]
+    evaluation = simple_evaluate_answer(
+        q.get("question", ""),
+        payload.user_answer,
+        q.get("answer", ""),
+    )
+    answer_record = {
+        "question_index": idx,
+        "question": q.get("question", ""),
+        "user_answer": payload.user_answer,
+        "correct_answer": q.get("answer", ""),
+        "score": evaluation.get("score", 0),
+        "feedback": evaluation.get("feedback", ""),
+        "is_correct": evaluation.get("is_correct", False),
+        "submitted_at": datetime.now(),
+    }
+    answers.append(answer_record)
+    next_idx = idx + 1
+
+    db.user_sessions.update_one(
+        {"_id": session_id_obj},
+        {
+            "$set": {
+                "vr_test.answers": answers,
+                "vr_test.current_question_index": next_idx,
+            }
+        }
+    )
+
+    running_avg = round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0
+    done = next_idx >= len(questions)
+    next_question = None if done else questions[next_idx]
+
+    return {
+        "success": True,
+        "completed": done,
+        "saved_answer": answer_record,
+        "running_percentage": running_avg,
+        "next_question_index": next_idx,
+        "next_question": next_question,
+        "total_questions": len(questions),
+    }
+
+
+@app.post("/vr-bridge/complete")
+async def complete_vr_bridge_test(
+    payload: VRBridgeCompleteRequest,
+    bridge_token: str,
+):
+    db = get_db()
+    session = _get_session_by_bridge_token(db, bridge_token)
+    session_id_obj = session["_id"]
+
+    vr_state = session.get("vr_test") or {}
+    questions = vr_state.get("questions") or []
+    answers = vr_state.get("answers") or []
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+
+    total_score = sum(a.get("score", 0) for a in answers)
+    max_score = len(questions) * 100
+    percentage = (total_score / max_score * 100) if max_score > 0 else 0
+    completed_at = datetime.now()
+    difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
+    derived_topic = vr_state.get("topic") or session.get("topic") or "General"
+
+    db.user_sessions.update_one(
+        {"_id": session_id_obj},
+        {
+            "$set": {
+                "status": "completed",
+                "mode": "vr",
+                "completed_at": completed_at,
+                "total_score": total_score,
+                "max_score": max_score,
+                "percentage": percentage,
+                "evaluated_answers": answers,
+                "topic": derived_topic,
+                "difficulty": difficulty_label,
+                "time_spent": payload.time_spent,
+                "tab_switches": 0,
+                "vr_test.status": "completed",
+                "vr_test.completed_at": completed_at,
+            },
+            "$push": {
+                "test_attempts": {
+                    "completed_at": completed_at,
+                    "percentage": percentage,
+                    "topic": derived_topic,
+                    "difficulty": difficulty_label,
+                    "time_spent": payload.time_spent,
+                    "tab_switches": 0,
+                    "mode": "vr",
+                }
+            }
+        }
+    )
+
+    return {
+        "success": True,
+        "mode": "vr",
+        "answered": len(answers),
+        "total_questions": len(questions),
+        "total_score": total_score,
+        "max_score": max_score,
+        "percentage": round(percentage, 2),
+        "evaluated_answers": answers,
+    }
+
 @app.post("/submit-test")
 async def submit_test(
     submission: TestSubmission,
@@ -1993,12 +2459,14 @@ async def submit_test(
         # Update session in database
         completed_at = datetime.now()
         difficulty_label = submission.difficulty or session.get("difficulty") or "medium"
+        submission_mode = (submission.mode or "normal").lower()
 
         db.user_sessions.update_one(
             {"_id": session_id_obj},
             {
                 "$set": {
                     "status": "completed",
+                    "mode": submission_mode,
                     "completed_at": completed_at,
                     "total_score": total_score,
                     "max_score": max_score,
@@ -2016,7 +2484,8 @@ async def submit_test(
                         "topic": derived_topic,
                         "difficulty": difficulty_label,
                         "time_spent": submission.time_spent,
-                        "tab_switches": submission.tab_switches
+                        "tab_switches": submission.tab_switches,
+                        "mode": submission_mode,
                     }
                 }
             }
@@ -2125,6 +2594,7 @@ async def get_performance(
                         "score": round(attempt.get("percentage", 0), 2),
                         "status": "completed",
                         "tabSwitches": attempt.get("tab_switches") or 0,
+                        "mode": attempt.get("mode") or s.get("mode") or "normal",
                     })
             elif s.get("status") == "completed" or (s.get("max_score") or 0) > 0:
                 submitted_at = s.get("completed_at") or s.get("created_at")
@@ -2136,6 +2606,7 @@ async def get_performance(
                     "score": round(s.get("percentage", 0), 2),
                     "status": s.get("status") or "completed",
                     "tabSwitches": s.get("tab_switches") or 0,
+                    "mode": s.get("mode") or "normal",
                 })
         
         total_tests = len(attempts)
@@ -2157,6 +2628,7 @@ async def get_performance(
                 "score": a.get("score") or 0,
                 "status": a.get("status") or "completed",
                 "tabSwitches": a.get("tabSwitches") or 0,
+                "mode": a.get("mode") or "normal",
             })
         
         # ── 4. Topic-wise breakdown ──
