@@ -1612,8 +1612,11 @@ async def upload_resume(
 
         db = get_db()
 
-        # Stage 1: Check byte-exact match (fastest)
-        cached_resume = db.resume_question_cache.find_one({"resume_hash": resume_hash})
+        # Stage 1: Check byte-exact match for THIS USER only (no cross-user reuse)
+        cached_resume = db.resume_question_cache.find_one({
+            "resume_hash": resume_hash,
+            "user_id": current_user["id"],
+        })
         
         # Stage 2: Check TTL - if expired, treat as cache miss (Approach 3C)
         if cached_resume and _has_expired_cache(cached_resume, ttl_days=90):
@@ -1743,6 +1746,7 @@ async def upload_resume(
                 semantic_hash = _semantic_resume_hash(all_skills, experience_text)
                 
                 db.resume_question_cache.insert_one({
+                    "user_id": current_user["id"],
                     "resume_hash": resume_hash,  # Exact byte match
                     "semantic_hash": semantic_hash,  # Semantic content match (Approach 3A)
                     "skills": limited_topics,
