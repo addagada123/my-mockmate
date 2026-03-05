@@ -16,6 +16,7 @@ const Test = () => {
   const [questions, setQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
+  const [testMode, setTestMode] = useState(null); // "normal" | "vr"
   const [questionResults, setQuestionResults] = useState({}); // per-question score/feedback
   const [codingResults, setCodingResults] = useState({}); // per-question coding run results
   const [isListening, setIsListening] = useState(false);
@@ -55,7 +56,7 @@ const Test = () => {
 
   // Trigger TTS when question changes
   useEffect(() => {
-    if (testStarted && questions.length > 0 && questions[currentQuestionIndex]) {
+    if (testMode === "normal" && testStarted && questions.length > 0 && questions[currentQuestionIndex]) {
       // Small delay to ensure smooth transition
       const timer = setTimeout(() => {
         speakQuestion(questions[currentQuestionIndex].question);
@@ -66,7 +67,7 @@ const Test = () => {
       };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQuestionIndex, questions, testStarted]);
+  }, [currentQuestionIndex, questions, testStarted, testMode]);
 
   // Clean up speech on unmount
   useEffect(() => {
@@ -77,6 +78,7 @@ const Test = () => {
 
   // Initialize speech recognition
   useEffect(() => {
+    if (testMode !== "normal") return;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       recognitionRef.current = new SpeechRecognition();
@@ -145,7 +147,7 @@ const Test = () => {
         showWarning(`🎙 Error: ${event.error}`);
       };
     }
-  }, [currentQuestionIndex]);
+  }, [currentQuestionIndex, testMode]);
 
   // Fetch questions for the topic when difficulty is selected
   useEffect(() => {
@@ -251,10 +253,10 @@ const Test = () => {
       }
     };
 
-    if (testStarted && difficulty) {
+    if (difficulty) {
       fetchQuestions();
     }
-  }, [testStarted, difficulty, topic]);
+  }, [difficulty, topic]);
 
   // Set timer when questions are loaded
   useEffect(() => {
@@ -268,7 +270,7 @@ const Test = () => {
 
   // Timer countdown
   useEffect(() => {
-    if (testStarted && timeLeft !== null && timeLeft > 0) {
+    if (testMode === "normal" && testStarted && timeLeft !== null && timeLeft > 0) {
       const timer = setTimeout(() => {
         setTimeLeft(timeLeft - 1);
       }, 1000);
@@ -284,11 +286,11 @@ const Test = () => {
       return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testStarted, timeLeft]);
+  }, [testStarted, timeLeft, testMode]);
 
   // Detect tab/window switch
   useEffect(() => {
-    if (!testStarted) return;
+    if (!testStarted || testMode !== "normal") return;
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -326,7 +328,7 @@ const Test = () => {
       window.removeEventListener("blur", handleFocusChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testStarted, isFullscreen]);
+  }, [testStarted, isFullscreen, testMode]);
 
   // Fullscreen must be triggered from a user gesture; no auto-request here.
 
@@ -356,9 +358,9 @@ const Test = () => {
   // Exit fullscreen handler
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        setIsFullscreen(false);
-        if (testStarted) {
+        if (!document.fullscreenElement) {
+          setIsFullscreen(false);
+        if (testStarted && testMode === "normal") {
           showWarning("Please enter full screen or you will be suspended from test");
         }
       } else {
@@ -371,7 +373,7 @@ const Test = () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [testStarted, testMode]);
 
   const showWarning = (message) => {
     if (tabSwitchWarningRef.current) {
@@ -382,6 +384,10 @@ const Test = () => {
           tabSwitchWarningRef.current.style.display = "none";
         }
       }, 3000);
+      return;
+    }
+    if (testMode !== "normal") {
+      window.alert(message);
     }
   };
 
@@ -413,6 +419,15 @@ const Test = () => {
   const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
   const [markedForReview, setMarkedForReview] = useState(new Set());
   const [showQuestionPanel, setShowQuestionPanel] = useState(true);
+  const [vrCurrentQuestion, setVrCurrentQuestion] = useState(null);
+  const [vrCurrentIndex, setVrCurrentIndex] = useState(0);
+  const [vrRunningScore, setVrRunningScore] = useState(0);
+  const [vrTranscript, setVrTranscript] = useState("");
+  const [vrBusy, setVrBusy] = useState(false);
+  const [vrCompleted, setVrCompleted] = useState(false);
+  const [vrBridgeToken, setVrBridgeToken] = useState("");
+  const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
+  const vrStartedAtRef = useRef(null);
 
   // Track visited questions when navigating
   useEffect(() => {
@@ -640,6 +655,135 @@ const Test = () => {
     }
   };
 
+  const startVRTest = async () => {
+    if (!sessionId) {
+      showWarning("No session available for VR mode");
+      return;
+    }
+
+    try {
+      setVrBusy(true);
+      const token = localStorage.getItem("mockmate_token");
+      const response = await axios.post(
+        `${API_BASE}/vr-test/start`,
+        {
+          session_id: sessionId,
+          topic: decodeURIComponent(topic),
+          difficulty: difficulty || "medium",
+          questions,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      setTestMode("vr");
+      setVrCurrentQuestion(response.data.current_question || null);
+      setVrCurrentIndex(0);
+      setVrRunningScore(0);
+      setVrTranscript("");
+      setVrCompleted(false);
+      setVrBridgeToken(response.data.bridge_token || "");
+      setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
+      vrStartedAtRef.current = Date.now();
+      showWarning("VR mode initialized. Unity can now fetch the current question.");
+    } catch (error) {
+      showWarning(`VR start failed: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setVrBusy(false);
+    }
+  };
+
+  const refreshVRQuestion = async () => {
+    if (!sessionId) return;
+    try {
+      const token = localStorage.getItem("mockmate_token");
+      const response = await axios.get(
+        `${API_BASE}/vr-test/next?session_id=${encodeURIComponent(sessionId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      setVrCompleted(!!response.data.completed);
+      setVrCurrentQuestion(response.data.current_question || null);
+      setVrCurrentIndex(response.data.current_question_index || 0);
+    } catch (error) {
+      showWarning(`VR sync failed: ${error.response?.data?.detail || error.message}`);
+    }
+  };
+
+  const submitVRAnswer = async () => {
+    if (!sessionId || !vrCurrentQuestion) return;
+    if (!vrTranscript.trim()) {
+      showWarning("Please paste or type the transcript from Unity");
+      return;
+    }
+
+    try {
+      setVrBusy(true);
+      const token = localStorage.getItem("mockmate_token");
+      const response = await axios.post(
+        `${API_BASE}/vr-test/answer?session_id=${encodeURIComponent(sessionId)}`,
+        {
+          question_index: vrCurrentIndex,
+          user_answer: vrTranscript.trim(),
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      setVrRunningScore(response.data.running_percentage || 0);
+      setVrCurrentQuestion(response.data.next_question || null);
+      setVrCurrentIndex(response.data.next_question_index || vrCurrentIndex);
+      setVrTranscript("");
+      setVrCompleted(!!response.data.completed);
+      showWarning("VR answer saved.");
+    } catch (error) {
+      showWarning(`VR answer save failed: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setVrBusy(false);
+    }
+  };
+
+  const completeVRTest = async () => {
+    if (!sessionId) return;
+    try {
+      setVrBusy(true);
+      const token = localStorage.getItem("mockmate_token");
+      const elapsedSecs = vrStartedAtRef.current
+        ? Math.max(1, Math.floor((Date.now() - vrStartedAtRef.current) / 1000))
+        : null;
+      const response = await axios.post(
+        `${API_BASE}/vr-test/complete`,
+        {
+          session_id: sessionId,
+          time_spent: elapsedSecs,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      localStorage.setItem("lastTestScore", response.data.percentage ?? 0);
+      setTestSubmitted(true);
+    } catch (error) {
+      showWarning(`VR completion failed: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setVrBusy(false);
+    }
+  };
+
   const submitTest = async () => {
     console.log("submitTest called with questionResults:", questionResults);
     console.log("submitTest called with questions count:", questions.length);
@@ -686,6 +830,7 @@ const Test = () => {
           difficulty: difficulty || "medium",
           time_spent: elapsed,
           tab_switches: tabSwitchCount,
+          mode: "normal",
         },
         {
           headers: {
@@ -751,9 +896,23 @@ const Test = () => {
               <button
                 key={level}
                  onClick={async () => {
+                  setQuestions([]);
+                  setCurrentQuestionIndex(0);
+                  setAnswers({});
+                  setQuestionResults({});
+                  setCodingResults({});
+                  setCurrentScore(0);
+                  setTimeLeft(null);
+                  setTestSubmitted(false);
+                  setTestMode(null);
+                  setVrCurrentQuestion(null);
+                  setVrCurrentIndex(0);
+                  setVrRunningScore(0);
+                  setVrTranscript("");
+                  setVrCompleted(false);
+                  setVrBridgeToken("");
+                  setVrBridgeExpiresAt("");
                   setDifficulty(level.toLowerCase());
-                  await requestFullscreen();
-                  setTestStarted(true);
                 }}
                 style={{
                   padding: "16px",
@@ -801,6 +960,117 @@ const Test = () => {
             }}
           >
             ← Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (difficulty && !testMode) {
+    if (questions.length === 0) {
+      return (
+        <div
+          style={{
+            minHeight: "100vh",
+            background: "#f5f3ff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div style={{ color: "#334155", textAlign: "center" }}>
+            <p style={{ fontSize: "18px" }}>Loading generated questions...</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#f5f3ff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "20px",
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "20px",
+            padding: "40px",
+            maxWidth: "560px",
+            boxShadow: "0 20px 60px rgba(99,102,241,0.12)",
+            textAlign: "center",
+          }}
+        >
+          <h1 style={{ fontSize: "30px", margin: "0 0 14px 0", color: "#1e1b4b" }}>
+            Questions Ready
+          </h1>
+          <p style={{ color: "#666", marginBottom: "24px", lineHeight: "1.6" }}>
+            {questions.length} questions were generated for <strong>{decodeURIComponent(topic)}</strong> ({difficulty}).
+          </p>
+          <p style={{ color: "#475569", fontSize: "14px", marginBottom: "20px" }}>
+            Choose how you want to take the test:
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <button
+              onClick={async () => {
+                setTestMode("normal");
+                await requestFullscreen();
+                setTestStarted(true);
+              }}
+              style={{
+                padding: "14px",
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                cursor: "pointer",
+                fontSize: "16px",
+                fontWeight: "600",
+              }}
+            >
+              Take Test
+            </button>
+            <button
+              onClick={startVRTest}
+              disabled={vrBusy}
+              style={{
+                padding: "14px",
+                background: vrBusy ? "#94a3b8" : "#0f766e",
+                color: "white",
+                border: "none",
+                borderRadius: "10px",
+                cursor: vrBusy ? "not-allowed" : "pointer",
+                fontSize: "16px",
+                fontWeight: "600",
+              }}
+            >
+              {vrBusy ? "Starting VR..." : "Take Test in VR"}
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setDifficulty(null);
+              setTestMode(null);
+            }}
+            style={{
+              marginTop: "18px",
+              padding: "10px 16px",
+              backgroundColor: "transparent",
+              color: "#6366f1",
+              border: "1px solid #6366f1",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "13px",
+              fontWeight: "600",
+            }}
+          >
+            Back
           </button>
         </div>
       </div>
@@ -911,6 +1181,188 @@ const Test = () => {
           >
             Back to Dashboard
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (testMode === "vr") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#f5f3ff",
+          padding: "24px",
+        }}
+      >
+        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "14px",
+              boxShadow: "0 8px 30px rgba(15,23,42,0.08)",
+              padding: "24px",
+              marginBottom: "16px",
+            }}
+          >
+            <h1 style={{ margin: "0 0 8px 0", color: "#0f172a", fontSize: "28px" }}>
+              VR Test Control
+            </h1>
+            <p style={{ margin: 0, color: "#475569" }}>
+              Unity flow: fetch question from backend, run TTS/avatar/audio/STT in Unity, then submit transcript here or directly to API.
+            </p>
+            <p style={{ margin: "10px 0 0 0", color: "#64748b", fontSize: "14px" }}>
+              Session: <strong>{sessionId}</strong> | Running score: <strong>{vrRunningScore}%</strong>
+            </p>
+            {vrBridgeToken && (
+              <div style={{ marginTop: "12px", padding: "10px", borderRadius: "8px", backgroundColor: "#eef2ff", color: "#1e293b", fontSize: "13px" }}>
+                <div><strong>Unity bridge_token:</strong> <code>{vrBridgeToken}</code></div>
+                <div style={{ marginTop: "4px" }}><strong>Expires:</strong> {vrBridgeExpiresAt || "N/A"}</div>
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "14px",
+              boxShadow: "0 8px 30px rgba(15,23,42,0.08)",
+              padding: "24px",
+              marginBottom: "16px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <h2 style={{ margin: 0, color: "#1e293b", fontSize: "20px" }}>
+                Current Question ({vrCurrentIndex + 1}/{questions.length})
+              </h2>
+              <button
+                onClick={refreshVRQuestion}
+                style={{
+                  padding: "8px 12px",
+                  border: "none",
+                  borderRadius: "8px",
+                  backgroundColor: "#6366f1",
+                  color: "white",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                }}
+              >
+                Sync with Backend
+              </button>
+            </div>
+            <div style={{ padding: "14px", borderRadius: "10px", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0" }}>
+              {vrCompleted ? (
+                <p style={{ margin: 0, color: "#0f766e", fontWeight: "700" }}>
+                  All questions answered in VR.
+                </p>
+              ) : (
+                <p style={{ margin: 0, color: "#334155", lineHeight: "1.7" }}>
+                  {vrCurrentQuestion?.question || "No active question. Click Sync with Backend."}
+                </p>
+                )}
+              </div>
+            {vrBridgeToken && (
+              <div style={{ marginTop: "12px", padding: "12px", borderRadius: "8px", backgroundColor: "#f8fafc", border: "1px dashed #94a3b8", fontSize: "12px", color: "#334155" }}>
+                <div><strong>Unity endpoints:</strong></div>
+                <div><code>GET {API_BASE}/vr-bridge/next?bridge_token=...</code></div>
+                <div><code>POST {API_BASE}/vr-bridge/answer?bridge_token=...</code></div>
+                <div><code>POST {API_BASE}/vr-bridge/complete?bridge_token=...</code></div>
+              </div>
+            )}
+          </div>
+
+          {!vrCompleted && (
+            <div
+              style={{
+                backgroundColor: "white",
+                borderRadius: "14px",
+                boxShadow: "0 8px 30px rgba(15,23,42,0.08)",
+                padding: "24px",
+                marginBottom: "16px",
+              }}
+            >
+              <h3 style={{ marginTop: 0, color: "#1e293b" }}>Transcript from Unity STT</h3>
+              <textarea
+                value={vrTranscript}
+                onChange={(e) => setVrTranscript(e.target.value)}
+                placeholder="Paste STT output for the current question"
+                style={{
+                  width: "100%",
+                  minHeight: "140px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  padding: "12px",
+                  resize: "vertical",
+                  fontSize: "14px",
+                  boxSizing: "border-box",
+                }}
+              />
+              <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+                <button
+                  onClick={submitVRAnswer}
+                  disabled={vrBusy}
+                  style={{
+                    padding: "10px 14px",
+                    border: "none",
+                    borderRadius: "8px",
+                    backgroundColor: vrBusy ? "#94a3b8" : "#0f766e",
+                    color: "white",
+                    cursor: vrBusy ? "not-allowed" : "pointer",
+                    fontWeight: "600",
+                  }}
+                >
+                  {vrBusy ? "Saving..." : "Save Answer and Move Next"}
+                </button>
+                <button
+                  onClick={completeVRTest}
+                  style={{
+                    padding: "10px 14px",
+                    border: "none",
+                    borderRadius: "8px",
+                    backgroundColor: "#059669",
+                    color: "white",
+                    cursor: "pointer",
+                    fontWeight: "600",
+                  }}
+                >
+                  Complete VR Test
+                </button>
+              </div>
+            </div>
+          )}
+
+          {vrCompleted && (
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button
+                onClick={completeVRTest}
+                style={{
+                  padding: "12px 16px",
+                  border: "none",
+                  borderRadius: "8px",
+                  backgroundColor: "#059669",
+                  color: "white",
+                  cursor: "pointer",
+                  fontWeight: "700",
+                }}
+              >
+                Save to Performance Tab
+              </button>
+              <button
+                onClick={() => navigate("/performance")}
+                style={{
+                  padding: "12px 16px",
+                  border: "1px solid #64748b",
+                  borderRadius: "8px",
+                  backgroundColor: "white",
+                  color: "#334155",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                }}
+              >
+                Open Performance
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
