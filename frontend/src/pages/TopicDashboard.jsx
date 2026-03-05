@@ -51,10 +51,13 @@ const TopicDashboard = () => {
   const handleSectionClick = (topic, difficulty) => {
     setSelectedTopic(topic);
     setSelectedDifficulty(difficulty);
-    // Route through unified test page so mode options (Take Test / Take Test in VR) always appear
-    navigate(
-      `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}`
-    );
+    const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}`;
+    // Coding should open normal test directly (no VR option screen).
+    if ((difficulty || "").toLowerCase() === "coding") {
+      navigate(`${base}&mode=normal`);
+      return;
+    }
+    navigate(base);
   };
 
   if (loading) {

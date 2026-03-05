@@ -541,11 +541,26 @@ const Test = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qDifficulty = (params.get("difficulty") || "").toLowerCase();
+    const qMode = (params.get("mode") || "").toLowerCase();
     const allowed = new Set(["easy", "medium", "hard", "coding"]);
     if (allowed.has(qDifficulty)) {
       setDifficulty(qDifficulty);
+      if (qDifficulty === "coding") {
+        setTestMode("normal");
+        setTestStarted(true);
+      } else if (qMode === "normal" || qMode === "vr") {
+        setTestMode(qMode);
+        setTestStarted(true);
+      }
     }
   }, [location.search]);
+
+  useEffect(() => {
+    if (difficulty === "coding" && questions.length > 0 && !testMode) {
+      setTestMode("normal");
+      setTestStarted(true);
+    }
+  }, [difficulty, questions.length, testMode]);
 
   // Track visited questions when navigating
   useEffect(() => {
@@ -1179,22 +1194,24 @@ const Test = () => {
             >
               Take Test
             </button>
-            <button
-              onClick={startVRTest}
-              disabled={vrBusy}
-              style={{
-                padding: "14px",
-                background: vrBusy ? "#94a3b8" : "#0f766e",
-                color: "white",
-                border: "none",
-                borderRadius: "10px",
-                cursor: vrBusy ? "not-allowed" : "pointer",
-                fontSize: "16px",
-                fontWeight: "600",
-              }}
-            >
-              {vrBusy ? "Starting VR..." : "Take Test in VR"}
-            </button>
+            {difficulty !== "coding" && (
+              <button
+                onClick={startVRTest}
+                disabled={vrBusy}
+                style={{
+                  padding: "14px",
+                  background: vrBusy ? "#94a3b8" : "#0f766e",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "10px",
+                  cursor: vrBusy ? "not-allowed" : "pointer",
+                  fontSize: "16px",
+                  fontWeight: "600",
+                }}
+              >
+                {vrBusy ? "Starting VR..." : "Take Test in VR"}
+              </button>
+            )}
           </div>
           <button
             onClick={() => {
