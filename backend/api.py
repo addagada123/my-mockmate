@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
+﻿from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,6 +15,10 @@ import secrets
 import asyncio
 import logging
 import time
+import sys
+import sqlite3
+import tempfile
+import subprocess
 from collections import Counter, defaultdict
 
 from backend.auth.utils import get_current_user
@@ -407,7 +411,52 @@ def _generate_coding_fallback_questions(
     session_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     base_topic = (topic or "General Coding").strip() or "General Coding"
-    coding_bank = [
+    lower_topic = base_topic.lower()
+    is_sql_topic = any(k in lower_topic for k in ["sql", "mysql", "postgres", "database", "sequel"])
+
+    if is_sql_topic:
+        sql_bank = [
+            {
+                "question": f"Write an SQL query for {base_topic}: Return each department name with the count of employees in it, ordered by count descending.",
+                "starter_code": "-- Write SQL query here\nSELECT 1;",
+                "test_cases": [
+                    {
+                        "setup_sql": "CREATE TABLE departments(id INTEGER PRIMARY KEY, name TEXT);"
+                                     "CREATE TABLE employees(id INTEGER PRIMARY KEY, name TEXT, department_id INTEGER);"
+                                     "INSERT INTO departments(id,name) VALUES (1,'Engineering'),(2,'HR');"
+                                     "INSERT INTO employees(id,name,department_id) VALUES (1,'A',1),(2,'B',1),(3,'C',2);",
+                        "expected_output": "Engineering|2\nHR|1",
+                    }
+                ],
+            },
+            {
+                "question": f"Write an SQL query for {base_topic}: Find customers who placed more than 2 orders.",
+                "starter_code": "-- Write SQL query here\nSELECT 1;",
+                "test_cases": [
+                    {
+                        "setup_sql": "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT);"
+                                     "CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INTEGER);"
+                                     "INSERT INTO customers VALUES (1,'A'),(2,'B'),(3,'C');"
+                                     "INSERT INTO orders VALUES (1,1),(2,1),(3,1),(4,2);",
+                        "expected_output": "A",
+                    }
+                ],
+            },
+            {
+                "question": f"Write an SQL query for {base_topic}: Return the second highest salary from Employees table.",
+                "starter_code": "-- Write SQL query here\nSELECT 1;",
+                "test_cases": [
+                    {
+                        "setup_sql": "CREATE TABLE employees(id INTEGER PRIMARY KEY, salary INTEGER);"
+                                     "INSERT INTO employees VALUES (1,100),(2,300),(3,200),(4,300);",
+                        "expected_output": "200",
+                    }
+                ],
+            },
+        ]
+        coding_bank = sql_bank
+    else:
+        coding_bank = [
         {
             "question": f"Write code for {base_topic}: Given integers N and K, print the sum of first N multiples of K.",
             "starter_code": "def solve(input_data):\n    n, k = map(int, input_data.strip().split())\n    # return result as string\n    return \"\"",
@@ -453,7 +502,7 @@ def _generate_coding_fallback_questions(
                 {"input": "\n4 5", "expected_output": "4 5"},
             ],
         },
-    ]
+        ]
 
     results: List[Dict[str, Any]] = []
     idx = 1
@@ -472,7 +521,7 @@ def _generate_coding_fallback_questions(
                 "difficulty": "Medium",
                 "topic": base_topic,
                 "type": "coding",
-                "language": "python",
+                "language": "sql" if is_sql_topic else "python",
                 "starter_code": sample["starter_code"],
                 "test_cases": sample["test_cases"],
             })
@@ -1107,6 +1156,7 @@ class RunCodeRequest(BaseModel):
     language: str  # "python", "java", "cpp", "javascript", "c"
     code: str
     test_cases: Optional[List[Dict[str, str]]] = None  # [{input, expected_output}]
+    compile_only: Optional[bool] = False
 
 
 class VRStartRequest(BaseModel):
@@ -1215,10 +1265,10 @@ _TECHNICAL_MARKERS = {
 def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
     """
     Advanced multi-signal answer evaluation algorithm:
-      1. TF-IDF cosine similarity between answer ↔ correct_answer (40% weight)
+      1. TF-IDF cosine similarity between answer â†” correct_answer (40% weight)
       2. Question-relevance score via keyword coverage (20% weight)
-      3. Answer depth — word count, sentence count, technical markers (20% weight)
-      4. Structural quality — transitions, examples, coherence signals (10% weight)
+      3. Answer depth â€” word count, sentence count, technical markers (20% weight)
+      4. Structural quality â€” transitions, examples, coherence signals (10% weight)
       5. Correct-answer n-gram overlap for factual recall (10% weight)
     Falls back gracefully when correct_answer is empty.
     """
@@ -1250,7 +1300,7 @@ def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str 
         coverage_ratio = 0.5  # neutral
     signal_relevance = coverage_ratio * 20
 
-    # --- Signal 3: Answer depth — length + technical richness (0-20) ---
+    # --- Signal 3: Answer depth â€” length + technical richness (0-20) ---
     # Length component (0-10): reward detailed answers, diminishing returns after ~120 words
     length_score = min(10, (word_count / 120) * 10) if word_count > 0 else 0
 
@@ -1263,7 +1313,7 @@ def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str 
 
     signal_depth = length_score + tech_score
 
-    # --- Signal 4: Structural quality — coherence markers (0-10) ---
+    # --- Signal 4: Structural quality â€” coherence markers (0-10) ---
     structure_hits = sum(1 for m in _TECHNICAL_MARKERS["structure"] if m in ans_lower)
     signal_structure = min(10, structure_hits * 2)
 
@@ -1307,7 +1357,7 @@ def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str 
     elif score >= 55:
         feedback_parts.append("Acceptable answer, but could use more depth.")
     else:
-        feedback_parts.append("Needs improvement — try to address the core concepts.")
+        feedback_parts.append("Needs improvement â€” try to address the core concepts.")
 
     if word_count < 20:
         feedback_parts.append("Consider providing a more detailed response.")
@@ -1318,7 +1368,7 @@ def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str 
     if structure_hits < 2 and word_count > 30:
         feedback_parts.append("Use transition words (e.g., 'because', 'for example') to improve clarity.")
     if ref_tokens and cosine_sim < 0.2:
-        feedback_parts.append("Review the expected answer — your response diverges from the key points.")
+        feedback_parts.append("Review the expected answer â€” your response diverges from the key points.")
 
     return {
         "score": score,
@@ -2070,6 +2120,7 @@ PISTON_LANG_MAP = {
     "js": {"language": "javascript", "version": "18.15.0"},
     "c": {"language": "c", "version": "10.2.0"},
     "typescript": {"language": "typescript", "version": "5.0.3"},
+    "sql": {"language": "sql", "version": "0"},
 }
 
 # Compiled languages that should early-bail on compile errors
@@ -2149,20 +2200,110 @@ async def _execute_single(
         }
 
 
+def _normalize_output(text: str) -> str:
+    return "\n".join(line.rstrip() for line in (text or "").strip().splitlines()).strip()
+
+
+def _execute_python_local(code: str, stdin_input: str, expected: str, index: int) -> dict:
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tmp:
+            tmp.write(code)
+            tmp_path = tmp.name
+        proc = subprocess.run(
+            [sys.executable, tmp_path],
+            input=stdin_input or "",
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if proc.returncode != 0:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected,
+                "actual": "", "passed": False,
+                "error": (proc.stderr or "Runtime error").strip()[:500],
+                "_compile_error": False,
+            }
+        actual = _normalize_output(proc.stdout)
+        passed = (actual == expected) if expected else True
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": actual, "passed": passed, "error": None, "_compile_error": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": "", "passed": False,
+            "error": "Time Limit Exceeded (8s)", "_compile_error": False,
+        }
+    except Exception as e:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected,
+            "actual": "", "passed": False,
+            "error": str(e)[:300], "_compile_error": False,
+        }
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def _execute_sql_local(query: str, tc: Dict[str, str], index: int) -> dict:
+    setup_sql = tc.get("setup_sql") or ""
+    expected = _normalize_output(tc.get("expected_output", ""))
+    try:
+        conn = sqlite3.connect(":memory:")
+        cur = conn.cursor()
+        if setup_sql.strip():
+            cur.executescript(setup_sql)
+        cur.execute(query)
+        rows = cur.fetchall()
+        actual_lines = ["|".join("" if v is None else str(v) for v in row) for row in rows]
+        actual = _normalize_output("\n".join(actual_lines))
+        passed = (actual == expected) if expected else True
+        return {
+            "test_case": index,
+            "input": tc.get("input", ""),
+            "expected": expected,
+            "actual": actual,
+            "passed": passed,
+            "error": None,
+            "_compile_error": False,
+        }
+    except Exception as e:
+        return {
+            "test_case": index,
+            "input": tc.get("input", ""),
+            "expected": expected,
+            "actual": "",
+            "passed": False,
+            "error": f"SQL error: {str(e)[:300]}",
+            "_compile_error": False,
+        }
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 @app.post("/run-code")
 async def run_code(
     payload: RunCodeRequest,
     current_user: Dict = Depends(get_current_user)
 ):
     """
-    Execute code against test cases using the Piston API.
-    - Compiled languages: run first test case to check compilation, then run rest concurrently.
-    - Interpreted languages: run ALL test cases concurrently from the start.
-    Returns per-test-case results with pass/fail, score, and execution time.
+    Execute code against test cases.
+    - Primary runner: external Piston-like service.
+    - Fallback: local Python execution when external runner is unavailable/unauthorized.
+    - SQL: local sqlite execution with per-test setup_sql + expected_output.
     """
     start_time = time.time()
 
     lang_key = payload.language.strip().lower()
+    compile_only = bool(payload.compile_only)
     lang_info = PISTON_LANG_MAP.get(lang_key)
     if not lang_info:
         raise HTTPException(
@@ -2171,45 +2312,89 @@ async def run_code(
         )
 
     test_cases = payload.test_cases or []
-    if not test_cases:
+    if lang_key == "sql" and not test_cases:
+        test_cases = [{
+            "setup_sql": "CREATE TABLE t(a INTEGER); INSERT INTO t VALUES (1),(2);",
+            "expected_output": "",
+        }]
+    elif not test_cases:
         test_cases = [{"input": "", "expected_output": ""}]
+
+    if compile_only:
+        if lang_key == "python":
+            try:
+                compile(payload.code, "<user_code>", "exec")
+                return {"success": True, "language": "python", "compile_ok": True, "message": "Compilation successful"}
+            except Exception as ce:
+                return {"success": True, "language": "python", "compile_ok": False, "message": str(ce)}
+        if lang_key == "sql":
+            res = _execute_sql_local(payload.code, test_cases[0], 1)
+            return {
+                "success": True,
+                "language": "sql",
+                "compile_ok": res.get("error") is None,
+                "message": "SQL syntax looks valid" if res.get("error") is None else res.get("error"),
+            }
+        return {"success": True, "language": lang_key, "compile_ok": True, "message": "Compile check not supported for this language yet."}
 
     results: list[dict] = []
     is_compiled = lang_key in _COMPILED_LANGS
 
-    if httpx is None:
-        raise HTTPException(status_code=503, detail="httpx is not installed")
+    if lang_key == "sql":
+        for i, tc in enumerate(test_cases, start=1):
+            results.append(_execute_sql_local(payload.code, tc, i))
+    elif httpx is None:
+        if lang_key == "python":
+            for i, tc in enumerate(test_cases, start=1):
+                results.append(
+                    _execute_python_local(
+                        payload.code,
+                        tc.get("input", ""),
+                        _normalize_output(tc.get("expected_output", "")),
+                        i,
+                    )
+                )
+        else:
+            raise HTTPException(status_code=503, detail="Execution service unavailable for this language")
+    else:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=10.0),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        ) as client:
 
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(60.0, connect=10.0),
-        limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-    ) as client:
+            if is_compiled and len(test_cases) > 1:
+                first_tc = test_cases[0]
+                first_result = await _execute_single(
+                    client, lang_info, lang_key, payload.code,
+                    first_tc.get("input", ""),
+                    first_tc.get("expected_output", "").strip(),
+                    1,
+                )
+                results.append(first_result)
 
-        if is_compiled and len(test_cases) > 1:
-            # --- Strategy: compile-check first, then parallel ---
-            first_tc = test_cases[0]
-            first_result = await _execute_single(
-                client, lang_info, lang_key, payload.code,
-                first_tc.get("input", ""),
-                first_tc.get("expected_output", "").strip(),
-                1,
-            )
-            results.append(first_result)
-
-            if first_result.get("_compile_error"):
-                # Compile failed — propagate same error to all remaining test cases
-                for i, tc in enumerate(test_cases[1:], start=2):
-                    results.append({
-                        "test_case": i,
-                        "input": tc.get("input", ""),
-                        "expected": tc.get("expected_output", "").strip(),
-                        "actual": "",
-                        "passed": False,
-                        "error": first_result["error"],
-                        "_compile_error": True,
-                    })
+                if first_result.get("_compile_error"):
+                    for i, tc in enumerate(test_cases[1:], start=2):
+                        results.append({
+                            "test_case": i,
+                            "input": tc.get("input", ""),
+                            "expected": tc.get("expected_output", "").strip(),
+                            "actual": "",
+                            "passed": False,
+                            "error": first_result["error"],
+                            "_compile_error": True,
+                        })
+                else:
+                    tasks = [
+                        _execute_single(
+                            client, lang_info, lang_key, payload.code,
+                            tc.get("input", ""),
+                            tc.get("expected_output", "").strip(),
+                            i,
+                        )
+                        for i, tc in enumerate(test_cases[1:], start=2)
+                    ]
+                    results.extend(await asyncio.gather(*tasks))
             else:
-                # Compilation OK — run remaining test cases concurrently
                 tasks = [
                     _execute_single(
                         client, lang_info, lang_key, payload.code,
@@ -2217,29 +2402,31 @@ async def run_code(
                         tc.get("expected_output", "").strip(),
                         i,
                     )
-                    for i, tc in enumerate(test_cases[1:], start=2)
+                    for i, tc in enumerate(test_cases, start=1)
                 ]
-                remaining = await asyncio.gather(*tasks)
-                results.extend(remaining)
-        else:
-            # --- Strategy: run ALL test cases concurrently ---
-            tasks = [
-                _execute_single(
-                    client, lang_info, lang_key, payload.code,
-                    tc.get("input", ""),
-                    tc.get("expected_output", "").strip(),
-                    i,
-                )
-                for i, tc in enumerate(test_cases, start=1)
-            ]
-            results = await asyncio.gather(*tasks)
-            results = list(results)
+                results = list(await asyncio.gather(*tasks))
 
-    # Strip internal _compile_error flag before returning
+        if lang_key == "python":
+            external_auth_error = len(results) > 0 and all(
+                (not r.get("passed")) and isinstance(r.get("error"), str) and "HTTP 401" in r.get("error")
+                for r in results
+            )
+            if external_auth_error:
+                local_results: List[dict] = []
+                for i, tc in enumerate(test_cases, start=1):
+                    local_results.append(
+                        _execute_python_local(
+                            payload.code,
+                            tc.get("input", ""),
+                            _normalize_output(tc.get("expected_output", "")),
+                            i,
+                        )
+                    )
+                results = local_results
+
     for r in results:
         r.pop("_compile_error", None)
 
-    # Sort by test_case number to maintain order
     results.sort(key=lambda r: r["test_case"])
 
     total = len(results)
@@ -2254,12 +2441,11 @@ async def run_code(
         "score": round((passed_count / total) * 100) if total > 0 else 0,
         "execution_time_ms": elapsed_ms,
     }
-
 def _get_file_ext(lang: str) -> str:
     """Return file extension for a language."""
     ext_map = {
         "python": "py", "java": "java", "cpp": "cpp", "c++": "cpp",
-        "javascript": "js", "js": "js", "c": "c", "typescript": "ts",
+        "javascript": "js", "js": "js", "c": "c", "typescript": "ts", "sql": "sql",
     }
     return ext_map.get(lang, "txt")
 
@@ -2880,7 +3066,7 @@ async def get_performance(
     try:
         db = get_db()
         
-        # ── 1. Gather user's completed sessions ──
+        # â”€â”€ 1. Gather user's completed sessions â”€â”€
         sessions = list(db.user_sessions.find(
             {"user_id": current_user["id"]},
             {
@@ -2895,7 +3081,7 @@ async def get_performance(
         for session in sessions:
             session["_id"] = str(session["_id"])
         
-        # ── 2. Flatten all attempts ──
+        # â”€â”€ 2. Flatten all attempts â”€â”€
         attempts: List[Dict[str, Any]] = []
         for s in sessions:
             if s.get("test_attempts"):
@@ -2930,7 +3116,7 @@ async def get_performance(
             sum(1 for s in scores if s >= 70) / total_tests * 100
         ) if total_tests else 0
         
-        # ── 3. Build results list ──
+        # â”€â”€ 3. Build results list â”€â”€
         results = []
         for a in attempts:
             submitted_at = a.get("submittedAt")
@@ -2945,7 +3131,7 @@ async def get_performance(
                 "mode": a.get("mode") or "normal",
             })
         
-        # ── 4. Topic-wise breakdown ──
+        # â”€â”€ 4. Topic-wise breakdown â”€â”€
         topic_map: Dict[str, List[float]] = defaultdict(list)
         for a in attempts:
             topic_map[a["topic"]].append(a["score"])
@@ -2970,7 +3156,7 @@ async def get_performance(
         # Sort: weakest first for study priority
         topic_breakdown.sort(key=lambda x: x["averageScore"])
         
-        # ── 5. Difficulty-level breakdown ──
+        # â”€â”€ 5. Difficulty-level breakdown â”€â”€
         diff_map: Dict[str, List[float]] = defaultdict(list)
         for a in attempts:
             diff_map[a["difficulty"].lower()].append(a["score"])
@@ -2983,7 +3169,7 @@ async def get_performance(
                 "bestScore": round(max(diff_scores), 2),
             }
         
-        # ── 6. Score trend with Exponential Moving Average (EMA) ──
+        # â”€â”€ 6. Score trend with Exponential Moving Average (EMA) â”€â”€
         sorted_attempts = sorted(
             [a for a in attempts if a.get("submittedAt")],
             key=lambda a: a["submittedAt"]
@@ -3016,7 +3202,7 @@ async def get_performance(
             denominator = sum((i - x_mean) ** 2 for i in range(n))
             improvement_rate = round(numerator / denominator, 2) if denominator else 0
         
-        # ── 7. Streak tracking ──
+        # â”€â”€ 7. Streak tracking â”€â”€
         current_streak = 0
         best_streak = 0
         temp_streak = 0
@@ -3033,7 +3219,7 @@ async def get_performance(
             else:
                 break
         
-        # ── 8. Percentile ranking among all users ──
+        # â”€â”€ 8. Percentile ranking among all users â”€â”€
         percentile_rank = 50.0  # default
         try:
             all_user_sessions = list(db.user_sessions.find(
@@ -3055,7 +3241,7 @@ async def get_performance(
         except Exception:
             pass
         
-        # ── 9. Time efficiency metrics ──
+        # â”€â”€ 9. Time efficiency metrics â”€â”€
         time_efficiency = None
         timed_attempts = [a for a in attempts if (a.get("timeSpent") or 0) > 0]
         if timed_attempts:
@@ -3073,7 +3259,7 @@ async def get_performance(
                 "slowestTest": round(max(a["timeSpent"] for a in timed_attempts) / 60, 1),
             }
         
-        # ── 10. Weak areas & study recommendations ──
+        # â”€â”€ 10. Weak areas & study recommendations â”€â”€
         weak_topics = [t for t in topic_breakdown if t["status"] == "weak"]
         moderate_topics = [t for t in topic_breakdown if t["status"] == "moderate"]
         
@@ -3089,7 +3275,7 @@ async def get_performance(
             study_recommendations.append({
                 "topic": mt["topic"],
                 "priority": "medium",
-                "reason": f"Average score {mt['averageScore']}% — close to proficiency",
+                "reason": f"Average score {mt['averageScore']}% â€” close to proficiency",
                 "action": f"Practice harder questions in {mt['topic']} to solidify your understanding.",
             })
         
@@ -3101,11 +3287,11 @@ async def get_performance(
                 study_recommendations.append({
                     "topic": "General",
                     "priority": "growth",
-                    "reason": f"Average of {round(avg_score, 1)}% on {dominant_diff} — ready for more challenge",
+                    "reason": f"Average of {round(avg_score, 1)}% on {dominant_diff} â€” ready for more challenge",
                     "action": f"Try switching to {next_diff} difficulty to continue improving.",
                 })
         
-        # ── 11. Build stats ──
+        # â”€â”€ 11. Build stats â”€â”€
         stats = {
             "totalTests": total_tests,
             "averageScore": round(avg_score, 2),
@@ -3927,7 +4113,7 @@ async def recommend_jobs(
         user_skills = list(set(latest_session.get("all_skills") or latest_session.get("skills") or []))
         resume_path = latest_session.get("resume_path", "")
 
-        # ── Performance-weighted skill analysis ──
+        # â”€â”€ Performance-weighted skill analysis â”€â”€
         # Gather performance data per topic to identify strong vs weak skills
         skill_performance: Dict[str, Dict[str, Any]] = {}
         all_sessions = list(db.user_sessions.find(
@@ -4106,7 +4292,7 @@ Return ONLY valid JSON (no markdown, no explanation):
         university_city = parsed.get("university_city", "Unknown")
         experience_level = parsed.get("experience_level", "unknown")
 
-        # ── Enhanced match scoring algorithm ──
+        # â”€â”€ Enhanced match scoring algorithm â”€â”€
         user_skills_lower = {s.lower() for s in user_skills}
         strong_skills_lower = {s.lower() for s in strong_skills}
         
@@ -4140,7 +4326,7 @@ Return ONLY valid JSON (no markdown, no explanation):
             if "apply_url" not in job:
                 job["apply_url"] = job["apply_urls"].get("linkedin", "")
 
-        # ── Hybrid sort: match_score_pct (60%) + proximity (40%) ──
+        # â”€â”€ Hybrid sort: match_score_pct (60%) + proximity (40%) â”€â”€
         proximity_score = {"Same City": 1.0, "Nearby": 0.6, "Distant": 0.2}
         jobs.sort(
             key=lambda j: (
@@ -4150,7 +4336,7 @@ Return ONLY valid JSON (no markdown, no explanation):
             reverse=True,
         )
 
-        # ── Skill gap analysis ──
+        # â”€â”€ Skill gap analysis â”€â”€
         all_required = set()
         for j in jobs:
             all_required.update(s.lower() for s in j.get("required_skills", []))
@@ -4227,3 +4413,4 @@ async def delete_session(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)
+
