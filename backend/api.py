@@ -67,6 +67,7 @@ class ProviderStats:
             "gemini": {"cost_per_1m": 0.075, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "claude": {"cost_per_1m": 0.80, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "openai": {"cost_per_1m": 0.30, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
+            "deepseek": {"cost_per_1m": 0.20, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
         }
 
     def record_success(self, provider: str):
@@ -189,6 +190,40 @@ async def _call_single_provider(
             if "quota" in str(e).lower() or "429" in str(e):
                 raise RuntimeError("OpenAI quota exceeded (429)")
             raise
+    elif provider == "deepseek":
+        deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+        if not deepseek_key:
+            raise ValueError("DeepSeek API key not configured")
+        if httpx is None:
+            raise ImportError("httpx package is required for DeepSeek")
+
+        model_name = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+                resp = await client.post(
+                    "https://api.deepseek.com/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {deepseek_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+            if resp.status_code == 429:
+                raise RuntimeError("DeepSeek quota exceeded (429)")
+            if resp.status_code >= 400:
+                raise RuntimeError(f"DeepSeek HTTP {resp.status_code}: {resp.text[:120]}")
+            data = resp.json()
+            return (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "") or ""
+        except Exception as e:
+            if "quota" in str(e).lower() or "429" in str(e):
+                raise RuntimeError("DeepSeek quota exceeded (429)")
+            raise
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
@@ -265,6 +300,209 @@ async def call_ai_with_fallback(
         error_msg = "; ".join(errors)[:100] if errors else "Unknown error"
         logger.error(f"AI provider failure: {error_msg}")
         raise HTTPException(status_code=503, detail=f"AI services unavailable: {error_msg}")
+
+
+async def call_ai_parallel(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.7,
+    max_tokens: int = 2000,
+    providers: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Run multiple providers in parallel.
+    Returns:
+      {
+        "successes": [{"provider": str, "raw_text": str}, ...],
+        "failures": [{"provider": str, "error": str}, ...]
+      }
+    """
+    available = [p for p, _ in provider_stats.get_available_providers()]
+    if providers:
+        allowed = {p.strip().lower() for p in providers}
+        available = [p for p in available if p in allowed]
+
+    if not available:
+        return {"successes": [], "failures": [{"provider": "none", "error": "No providers available"}]}
+
+    async def _run_one(provider: str) -> Dict[str, str]:
+        try:
+            raw = await _call_single_provider(provider, messages, temperature, max_tokens)
+            provider_stats.record_success(provider)
+            return {"provider": provider, "raw_text": raw}
+        except Exception as e:
+            provider_stats.record_failure(provider)
+            return {"provider": provider, "error": str(e)[:200]}
+
+    results = await asyncio.gather(*[_run_one(p) for p in available])
+    successes: List[Dict[str, str]] = []
+    failures: List[Dict[str, str]] = []
+    for r in results:
+        if r.get("raw_text"):
+            successes.append({"provider": r["provider"], "raw_text": r["raw_text"]})
+        else:
+            failures.append({"provider": r.get("provider", "unknown"), "error": r.get("error", "unknown error")})
+
+    return {"successes": successes, "failures": failures}
+
+
+def _extract_questions_from_ai_payload(
+    parsed: Dict[str, Any],
+    topic: str,
+    difficulty: str,
+    provider: str,
+) -> List[Dict[str, Any]]:
+    questions = parsed.get("questions") if isinstance(parsed, dict) else None
+    if not isinstance(questions, list):
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    diff_label = _difficulty_label(difficulty)
+    for i, q in enumerate(questions, start=1):
+        if not isinstance(q, dict):
+            continue
+        q_text = (q.get("question") or "").strip()
+        if not q_text:
+            continue
+        q_type = (q.get("type") or ("coding" if difficulty == "coding" else "analytical")).strip().lower()
+        item = {
+            "id": q.get("id") or f"{provider}_{difficulty}_{i}",
+            "question": q_text,
+            "answer": (q.get("answer") or "").strip() or f"Provide a complete answer for {topic}.",
+            "difficulty": q.get("difficulty") or diff_label,
+            "topic": q.get("topic") or topic,
+            "type": q_type,
+            "language": (q.get("language") or "python") if q_type == "coding" else q.get("language"),
+            "starter_code": q.get("starter_code") if q_type == "coding" else None,
+            "test_cases": q.get("test_cases") if q_type == "coding" else None,
+        }
+        normalized.append(item)
+    return normalized
+
+
+def _generate_coding_fallback_questions(
+    topic: Optional[str],
+    count: int,
+    existing_questions: set,
+    session_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    base_topic = (topic or "General Coding").strip() or "General Coding"
+    templates = [
+        "Write a function to solve a basic {topic} problem with optimal time complexity.",
+        "Implement an algorithm for {topic} and explain edge cases.",
+        "Given an input stream, design a robust {topic} solution.",
+        "Build a clean and testable implementation for a {topic} scenario.",
+        "Code a solution for a common {topic} interview problem.",
+    ]
+    starter = "def solve(input_data):\n    # Write your solution here\n    return \"\""
+    default_tests = [{"input": "sample input", "expected_output": "sample output"}]
+
+    results: List[Dict[str, Any]] = []
+    idx = 1
+    attempts = 0
+    max_attempts = max(count * 4, 20)
+    while len(results) < count and attempts < max_attempts:
+        q = templates[attempts % len(templates)].format(topic=base_topic)
+        q_key = q.strip().lower()
+        if q_key not in existing_questions:
+            existing_questions.add(q_key)
+            results.append({
+                "id": f"{session_id or 'generated'}_coding_{idx}",
+                "question": q,
+                "answer": f"Provide a correct and efficient implementation for {base_topic}.",
+                "difficulty": "Medium",
+                "topic": base_topic,
+                "type": "coding",
+                "language": "python",
+                "starter_code": starter,
+                "test_cases": default_tests,
+            })
+            idx += 1
+        attempts += 1
+    return results
+
+
+async def _generate_questions_parallel_with_backfill(
+    topic: Optional[str],
+    difficulty: Optional[str],
+    needed_count: int,
+    existing_questions: set,
+    session_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    if needed_count <= 0:
+        return []
+
+    base_topic = (topic or "General").strip() or "General"
+    diff_key = (difficulty or "medium").strip().lower()
+    desired_type = "coding" if diff_key == "coding" else "analytical"
+    per_provider_count = max(needed_count, 5)
+
+    prompt = f"""Generate {per_provider_count} unique {diff_key} interview questions for topic: {base_topic}.
+Return ONLY JSON with this schema:
+{{
+  "questions": [
+    {{
+      "question": "text",
+      "answer": "ideal answer",
+      "difficulty": "{_difficulty_label(diff_key)}",
+      "topic": "{base_topic}",
+      "type": "{desired_type}",
+      "language": "python",
+      "starter_code": "",
+      "test_cases": [{{"input": "", "expected_output": ""}}]
+    }}
+  ]
+}}
+Rules:
+- No markdown.
+- Ensure questions are interview-ready and non-duplicate.
+- If type is analytical, omit coding-only fields.
+"""
+
+    parallel = await call_ai_parallel(
+        messages=[
+            {"role": "system", "content": "Return strict JSON only."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=2500,
+        providers=["gemini", "claude", "openai", "deepseek"],
+    )
+
+    pooled: List[Dict[str, Any]] = []
+    for success in parallel["successes"]:
+        provider = success["provider"]
+        parsed = parse_json_response(success["raw_text"])
+        if not parsed:
+            continue
+        pooled.extend(_extract_questions_from_ai_payload(parsed, base_topic, diff_key, provider))
+
+    merged: List[Dict[str, Any]] = []
+    for q in pooled:
+        q_key = (q.get("question") or "").strip().lower()
+        if not q_key or q_key in existing_questions:
+            continue
+        if diff_key == "coding" and (q.get("type") or "").lower() != "coding":
+            continue
+        existing_questions.add(q_key)
+        merged.append(q)
+        if len(merged) >= needed_count:
+            break
+
+    remaining = needed_count - len(merged)
+    if remaining > 0:
+        if diff_key == "coding":
+            merged.extend(_generate_coding_fallback_questions(base_topic, remaining, existing_questions, session_id=session_id))
+        else:
+            merged.extend(
+                _generate_topic_questions(
+                    base_topic,
+                    diff_key,
+                    remaining,
+                    existing_questions,
+                    session_id=session_id,
+                )
+            )
+    return merged
 
 
 def _normalize_skill(skill: str) -> str:
@@ -1190,6 +1428,7 @@ async def upload_resume(
                 "all_skills": all_skills,
                 "experience": experience,
                 "detected_languages": detected_languages,
+                "questions": all_cached_questions,
                 "all_questions": all_cached_questions,
                 "created_at": datetime.now(),
                 "status": "in_progress",
@@ -1297,6 +1536,7 @@ async def upload_resume(
                 "all_skills": result.get("skills", []),
                 "experience": result.get("experience", ""),
                 "detected_languages": detected_languages,
+                "questions": questions,
                 "all_questions": questions,  # Store all questions for section-based generation
                 "created_at": datetime.now(),
                 "status": "in_progress",
@@ -1357,7 +1597,7 @@ async def get_resume_questions(
         if not latest_session:
             return {"questions": [], "total_available": 0}
 
-        questions = latest_session.get("questions", [])
+        questions = latest_session.get("questions") or latest_session.get("all_questions", [])
 
         filtered_questions = questions
         if topic:
@@ -1371,10 +1611,16 @@ async def get_resume_questions(
 
         if difficulty:
             normalized_diff = difficulty.strip().lower()
-            filtered_questions = [
-                q for q in filtered_questions
-                if (q.get("difficulty") or "").strip().lower() == normalized_diff
-            ]
+            if normalized_diff == "coding":
+                filtered_questions = [
+                    q for q in filtered_questions
+                    if (q.get("type") or "").strip().lower() == "coding"
+                ]
+            else:
+                filtered_questions = [
+                    q for q in filtered_questions
+                    if (q.get("difficulty") or "").strip().lower() == normalized_diff
+                ]
 
         if topic or difficulty:
             questions = filtered_questions
@@ -1451,7 +1697,7 @@ async def generate_test_questions(
         if session["user_id"] != current_user["id"]:
             raise HTTPException(status_code=403, detail="Not authorized")
 
-        questions = session.get("questions", [])
+        questions = session.get("questions") or session.get("all_questions", [])
 
         filtered_questions = questions
         if payload.topic:
@@ -1465,10 +1711,16 @@ async def generate_test_questions(
 
         if payload.difficulty:
             normalized_diff = payload.difficulty.strip().lower()
-            filtered_questions = [
-                q for q in filtered_questions
-                if (q.get("difficulty") or "").strip().lower() == normalized_diff
-            ]
+            if normalized_diff == "coding":
+                filtered_questions = [
+                    q for q in filtered_questions
+                    if (q.get("type") or "").strip().lower() == "coding"
+                ]
+            else:
+                filtered_questions = [
+                    q for q in filtered_questions
+                    if (q.get("difficulty") or "").strip().lower() == normalized_diff
+                ]
 
         if payload.topic or payload.difficulty:
             questions = filtered_questions
@@ -1477,15 +1729,15 @@ async def generate_test_questions(
         min_required = 5 if payload.difficulty else 0
         target_count = max(num_questions, min_required) if min_required else num_questions
 
-        existing_questions = { (q.get("question") or "").strip().lower() for q in questions }
+        existing_questions = {(q.get("question") or "").strip().lower() for q in questions}
         if target_count and len(questions) < target_count:
             questions.extend(
-                _generate_topic_questions(
-                    payload.topic,
-                    payload.difficulty,
-                    target_count - len(questions),
-                    existing_questions,
-                    session_id=str(session.get("_id"))
+                await _generate_questions_parallel_with_backfill(
+                    topic=payload.topic,
+                    difficulty=payload.difficulty,
+                    needed_count=target_count - len(questions),
+                    existing_questions=existing_questions,
+                    session_id=str(session.get("_id")),
                 )
             )
 
@@ -2908,6 +3160,122 @@ async def comm_pool_status():
     return {"pool": status, "total": sum(status.values())}
 
 
+def _local_comm_test_template() -> Dict[str, Any]:
+    return {
+        "passage": "This is a fallback reading passage used when AI services are unavailable.",
+        "sections": [
+            {"name": "Reading Comprehension", "type": "mcq", "questions": [
+                {"id": "rc-1", "question": "What is the main topic of the passage?", "options": ["A) Topic A", "B) Topic B", "C) Topic C", "D) Topic D"], "correct_answer": "A"},
+                {"id": "rc-2", "question": "Which statement is true?", "options": ["A) True", "B) False", "C) Maybe", "D) Not stated"], "correct_answer": "A"},
+                {"id": "rc-3", "question": "The tone of the passage is:", "options": ["A) Formal", "B) Casual", "C) Humorous", "D) Technical"], "correct_answer": "A"},
+            ]},
+            {"name": "Email Writing", "type": "mixed", "scenario": "Write an email to request leave.", "questions": [
+                {"id": "ew-1", "question": "Choose the best subject line", "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"], "correct_answer": "A", "type": "mcq"},
+                {"id": "ew-2", "question": "Choose the best opening sentence", "options": ["A) I need leave", "B) Dear Manager", "C) Hi", "D) Yo"], "correct_answer": "B", "type": "mcq"},
+                {"id": "ew-3", "question": "Write a brief closing line for the email", "type": "open", "correct_answer": "Kind regards,"},
+            ]},
+            {"name": "Grammar & Vocabulary", "type": "mcq", "questions": [
+                {"id": "gv-1", "question": "Choose the correct sentence.", "options": ["A) She go to work.", "B) She goes to work.", "C) She going.", "D) She gone."], "correct_answer": "B"},
+                {"id": "gv-2", "question": "Choose the best word: He ___ the report.", "options": ["A) submit", "B) submitted", "C) submitting", "D) submits"], "correct_answer": "B"},
+                {"id": "gv-3", "question": "Identify the error: 'Their going to the meeting.'", "options": ["A) Their", "B) going", "C) meeting", "D) No error"], "correct_answer": "A"},
+            ]},
+            {"name": "Situational Communication", "type": "mcq", "questions": [
+                {"id": "sc-1", "question": "How would you respond to an upset client?", "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"], "correct_answer": "B"},
+                {"id": "sc-2", "question": "Best approach to give feedback?", "options": ["A) Public criticism", "B) Private and constructive", "C) Sarcasm", "D) None"], "correct_answer": "B"},
+                {"id": "sc-3", "question": "When to follow-up?", "options": ["A) Immediately", "B) After a reasonable time", "C) Never", "D) Randomly"], "correct_answer": "B"},
+            ]},
+            {"name": "Spoken English", "type": "open", "questions": [
+                {"id": "se-1", "question": "Introduce yourself for a job interview in 60 seconds.", "type": "open", "correct_answer": "A concise introduction covering background and goals."},
+                {"id": "se-2", "question": "Explain a technical concept to a non-technical person.", "type": "open", "correct_answer": "Use analogy and simple language."},
+                {"id": "se-3", "question": "Describe how you handled a conflict at work.", "type": "open", "correct_answer": "Describe situation, action, and result."},
+            ]},
+        ],
+    }
+
+
+def _merge_comm_test_candidates(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    template = _local_comm_test_template()
+    if not candidates:
+        return template
+
+    section_order = [
+        ("Reading Comprehension", "mcq"),
+        ("Email Writing", "mixed"),
+        ("Grammar & Vocabulary", "mcq"),
+        ("Situational Communication", "mcq"),
+        ("Spoken English", "open"),
+    ]
+    key_map = {
+        "reading comprehension": "reading comprehension",
+        "email writing": "email writing",
+        "grammar & vocabulary": "grammar & vocabulary",
+        "situational communication": "situational communication",
+        "spoken english": "spoken english",
+    }
+
+    pooled: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    passage = ""
+    email_scenario = ""
+
+    for parsed in candidates:
+        if not passage:
+            passage = (parsed.get("passage") or "").strip()
+        for sec in parsed.get("sections", []):
+            if not isinstance(sec, dict):
+                continue
+            sec_name = (sec.get("name") or "").strip().lower()
+            canonical = key_map.get(sec_name)
+            if not canonical:
+                continue
+            if canonical == "email writing" and not email_scenario:
+                email_scenario = (sec.get("scenario") or "").strip()
+            for q in sec.get("questions", []):
+                if isinstance(q, dict) and (q.get("question") or "").strip():
+                    pooled[canonical].append(q)
+
+    merged_sections: List[Dict[str, Any]] = []
+    template_sections = {((s.get("name") or "").strip().lower()): s for s in template.get("sections", [])}
+
+    for section_name, section_type in section_order:
+        canonical = section_name.lower()
+        seen = set()
+        picked: List[Dict[str, Any]] = []
+
+        for q in pooled.get(canonical, []):
+            q_key = ((q.get("id") or "") + "|" + (q.get("question") or "")).strip().lower()
+            if not q_key or q_key in seen:
+                continue
+            seen.add(q_key)
+            picked.append(q)
+            if len(picked) >= 3:
+                break
+
+        if len(picked) < 3:
+            fallback_sec = template_sections.get(canonical, {})
+            for q in fallback_sec.get("questions", []):
+                q_key = ((q.get("id") or "") + "|" + (q.get("question") or "")).strip().lower()
+                if not q_key or q_key in seen:
+                    continue
+                seen.add(q_key)
+                picked.append(q)
+                if len(picked) >= 3:
+                    break
+
+        section_payload: Dict[str, Any] = {
+            "name": section_name,
+            "type": section_type,
+            "questions": picked[:3],
+        }
+        if section_name == "Email Writing":
+            section_payload["scenario"] = email_scenario or template_sections.get(canonical, {}).get("scenario", "")
+        merged_sections.append(section_payload)
+
+    return {
+        "passage": passage or template.get("passage", ""),
+        "sections": merged_sections,
+    }
+
+
 @app.post("/generate-comm-test")
 async def generate_comm_test(
     payload: CommTestRequest,
@@ -3074,57 +3442,35 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
   ]
 }}"""
 
-        try:
-            raw_text, provider = await call_ai_with_fallback(
-                messages=[
-                    {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=4000,
-            )
+        parallel = await call_ai_parallel(
+            messages=[
+                {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+            max_tokens=4000,
+            providers=["gemini", "claude", "openai", "deepseek"],
+        )
 
-            parsed = parse_json_response(raw_text)
-        except HTTPException as he:
-            if he.status_code == 503:
-                logger.warning("AI unavailable for comm test; returning local fallback template")
-                provider = "fallback-local"
-                parsed = {
-                    "passage": "This is a fallback reading passage used when AI services are unavailable.",
-                    "sections": [
-                        {"name": "Reading Comprehension", "type": "mcq", "questions": [
-                            {"id": "rc-1", "question": "What is the main topic of the passage?", "options": ["A) Topic A", "B) Topic B", "C) Topic C", "D) Topic D"], "correct_answer": "A"},
-                            {"id": "rc-2", "question": "Which statement is true?", "options": ["A) True", "B) False", "C) Maybe", "D) Not stated"], "correct_answer": "A"},
-                            {"id": "rc-3", "question": "The tone of the passage is:", "options": ["A) Formal", "B) Casual", "C) Humorous", "D) Technical"], "correct_answer": "A"}
-                        ]},
-                        {"name": "Email Writing", "type": "mixed", "scenario": "Write an email to request leave.", "questions": [
-                            {"id": "ew-1", "question": "Choose the best subject line", "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"], "correct_answer": "A"},
-                            {"id": "ew-2", "question": "Choose the best opening sentence", "options": ["A) I need leave", "B) Dear Manager", "C) Hi", "D) Yo"], "correct_answer": "B"},
-                            {"id": "ew-3", "question": "Write a brief closing line for the email", "type": "open", "correct_answer": "Kind regards,"}
-                        ]},
-                        {"name": "Grammar & Vocabulary", "type": "mcq", "questions": [
-                            {"id": "gv-1", "question": "Choose the correct sentence.", "options": ["A) She go to work.", "B) She goes to work.", "C) She going.", "D) She gone."], "correct_answer": "B"},
-                            {"id": "gv-2", "question": "Choose the best word: He ___ the report.", "options": ["A) submit", "B) submitted", "C) submitting", "D) submits"], "correct_answer": "B"},
-                            {"id": "gv-3", "question": "Identify the error: 'Their going to the meeting.'", "options": ["A) Their", "B) going", "C) meeting", "D) No error"], "correct_answer": "A"}
-                        ]},
-                        {"name": "Situational Communication", "type": "mcq", "questions": [
-                            {"id": "sc-1", "question": "How would you respond to an upset client?", "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"], "correct_answer": "B"},
-                            {"id": "sc-2", "question": "Best approach to give feedback?", "options": ["A) Public criticism", "B) Private and constructive", "C) Sarcasm", "D) None"], "correct_answer": "B"},
-                            {"id": "sc-3", "question": "When to follow-up?", "options": ["A) Immediately", "B) After a reasonable time", "C) Never", "D) Randomly"], "correct_answer": "B"}
-                        ]},
-                        {"name": "Spoken English", "type": "open", "questions": [
-                            {"id": "se-1", "question": "Introduce yourself for a job interview in 60 seconds.", "type": "open", "correct_answer": "A concise introduction covering background and goals."},
-                            {"id": "se-2", "question": "Explain a technical concept to a non-technical person.", "type": "open", "correct_answer": "Use analogy and simple language."},
-                            {"id": "se-3", "question": "Describe how you handled a conflict at work.", "type": "open", "correct_answer": "Describe situation, action, and result."}
-                        ]}
-                    ]
-                }
-            else:
-                raise
+        parsed_candidates: List[Dict[str, Any]] = []
+        successful_providers: List[str] = []
+        for s in parallel.get("successes", []):
+            provider_name = s.get("provider", "unknown")
+            parsed_item = parse_json_response(s.get("raw_text", ""))
+            if parsed_item and isinstance(parsed_item, dict) and "sections" in parsed_item:
+                parsed_candidates.append(parsed_item)
+                successful_providers.append(provider_name)
+
+        if not parsed_candidates:
+            logger.warning("All AI providers failed/invalid for comm test; using local fallback template")
+            provider = "fallback-local"
+            parsed = _local_comm_test_template()
+        else:
+            parsed = _merge_comm_test_candidates(parsed_candidates)
+            provider = f"parallel:{','.join(successful_providers)}"
 
         if not parsed or "sections" not in parsed:
-            raw_preview = raw_text[:500] if "raw_text" in locals() and raw_text else "<no raw_text>"
-            logger.error(f"AI comm test parse fail ({provider}): {raw_preview}")
+            logger.error("Communication test generation produced invalid payload after merge/fallback")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
         # Store in DB for later scoring
