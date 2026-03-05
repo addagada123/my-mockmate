@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import json as json_mod
 import hashlib
 import math
+import random
 import shutil
 import secrets
 import asyncio
@@ -754,6 +755,122 @@ def _difficulty_label(value: Optional[str]) -> str:
     if v == "hard":
         return "Hard"
     return "Medium"
+
+
+def _canonical_question_text(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _collect_user_seen_questions(db, user_id: str, max_sessions: int = 30) -> set:
+    """
+    Collect normalized question text seen by this user in prior sessions.
+    Used to avoid re-serving the same questions across uploads.
+    """
+    seen: set = set()
+    try:
+        cursor = db.user_sessions.find(
+            {"user_id": user_id},
+            {"questions": 1, "all_questions": 1},
+            sort=[("created_at", -1)],
+            limit=max_sessions,
+        )
+        for session in cursor:
+            q_list = session.get("questions") or session.get("all_questions") or []
+            for q in q_list:
+                q_text = _canonical_question_text((q or {}).get("question") or "")
+                if q_text:
+                    seen.add(q_text)
+    except Exception as e:
+        logger.warning(f"Failed to collect user seen questions: {e}")
+    return seen
+
+
+async def _freshen_questions_for_user(
+    db,
+    user_id: str,
+    questions: List[Dict[str, Any]],
+    session_id: Optional[str] = None,
+    max_replacements: int = 40,
+) -> List[Dict[str, Any]]:
+    """
+    Replace questions previously seen by the same user with newly generated ones.
+    Keeps cache speed by reusing existing pools first, then backfilling only deltas.
+    """
+    if not questions:
+        return []
+
+    seen_history = _collect_user_seen_questions(db, user_id=user_id)
+    if not seen_history:
+        # No prior history for this user; preserve original ordering.
+        return questions
+
+    fresh: List[Dict[str, Any]] = []
+    current_seen: set = set()
+    replacement_plan: Dict[tuple, int] = defaultdict(int)
+
+    for q in questions:
+        q_text = _canonical_question_text((q or {}).get("question") or "")
+        if not q_text:
+            continue
+        if q_text in current_seen:
+            continue
+        if q_text in seen_history:
+            topic = ((q or {}).get("topic") or "General").strip() or "General"
+            q_type = (((q or {}).get("type") or "").strip().lower())
+            raw_diff = (((q or {}).get("difficulty") or "medium").strip().lower())
+            diff_key = "coding" if q_type == "coding" else (raw_diff if raw_diff in {"easy", "medium", "hard"} else "medium")
+            replacement_plan[(topic, diff_key)] += 1
+            continue
+
+        current_seen.add(q_text)
+        fresh.append(q)
+
+    if not replacement_plan:
+        random.shuffle(fresh)
+        return fresh
+
+    blocked = set(seen_history) | set(current_seen)
+    replacements_done = 0
+
+    for (topic, diff_key), needed in replacement_plan.items():
+        if replacements_done >= max_replacements:
+            break
+        remaining_budget = max_replacements - replacements_done
+        ask = min(needed, remaining_budget)
+        if ask <= 0:
+            continue
+        generated = await _generate_questions_parallel_with_backfill(
+            topic=topic,
+            difficulty=diff_key,
+            needed_count=ask,
+            existing_questions=blocked,
+            session_id=session_id,
+        )
+        for g in generated:
+            q_key = _canonical_question_text(g.get("question") or "")
+            if not q_key or q_key in blocked:
+                continue
+            blocked.add(q_key)
+            fresh.append(g)
+            replacements_done += 1
+            if replacements_done >= max_replacements:
+                break
+
+    # Keep size stable if backfill cannot fully satisfy due to provider/fallback limits.
+    if len(fresh) < len(questions):
+        for q in questions:
+            q_key = _canonical_question_text((q or {}).get("question") or "")
+            if not q_key or q_key in blocked:
+                continue
+            blocked.add(q_key)
+            fresh.append(q)
+            if len(fresh) >= len(questions):
+                break
+
+    random.shuffle(fresh)
+    return fresh[: len(questions)]
 
 def _detect_programming_languages(questions: List[Dict[str, Any]], skills: List[str]) -> List[str]:
     """
@@ -1522,6 +1639,12 @@ async def upload_resume(
             experience = cached_resume.get("experience", "")
             detected_languages = cached_resume.get("detected_languages", [])
             all_cached_questions = cached_resume.get("questions", [])
+            session_questions = await _freshen_questions_for_user(
+                db=db,
+                user_id=current_user["id"],
+                questions=all_cached_questions,
+                session_id=f"{current_user['id']}_cache",
+            )
 
             # Increment cache hit counter
             db.resume_question_cache.update_one(
@@ -1540,8 +1663,8 @@ async def upload_resume(
                 "all_skills": all_skills,
                 "experience": experience,
                 "detected_languages": detected_languages,
-                "questions": all_cached_questions,
-                "all_questions": all_cached_questions,
+                "questions": session_questions,
+                "all_questions": session_questions,
                 "created_at": datetime.now(),
                 "status": "in_progress",
                 "session_type": "resume-guided"
@@ -1637,6 +1760,14 @@ async def upload_resume(
             except Exception as cache_err:
                 logger.warning(f"Failed to cache resume questions: {cache_err}")
 
+            # Ensure this user gets a fresh set versus prior sessions.
+            session_questions = await _freshen_questions_for_user(
+                db=db,
+                user_id=current_user["id"],
+                questions=questions,
+                session_id=f"{current_user['id']}_new",
+            )
+
             # Create session in MongoDB (topics only, questions on-demand)
             session_data = {
                 "user_id": current_user["id"],
@@ -1648,8 +1779,8 @@ async def upload_resume(
                 "all_skills": result.get("skills", []),
                 "experience": result.get("experience", ""),
                 "detected_languages": detected_languages,
-                "questions": questions,
-                "all_questions": questions,  # Store all questions for section-based generation
+                "questions": session_questions,
+                "all_questions": session_questions,  # Store all questions for section-based generation
                 "created_at": datetime.now(),
                 "status": "in_progress",
                 "session_type": "resume-guided"
@@ -1739,6 +1870,7 @@ async def get_resume_questions(
 
         min_required = 5 if difficulty else 0
         existing_questions = { (q.get("question") or "").strip().lower() for q in questions }
+        existing_questions |= _collect_user_seen_questions(db, current_user["id"])
 
         if min_required and len(questions) < min_required:
             questions.extend(
@@ -1842,6 +1974,7 @@ async def generate_test_questions(
         target_count = max(num_questions, min_required) if min_required else num_questions
 
         existing_questions = {(q.get("question") or "").strip().lower() for q in questions}
+        existing_questions |= _collect_user_seen_questions(db, current_user["id"])
         if target_count and len(questions) < target_count:
             questions.extend(
                 await _generate_questions_parallel_with_backfill(
@@ -1995,6 +2128,7 @@ async def generate_section_questions(
         
         # If not enough questions from cache, generate more
         existing_questions = {(q.get("question") or "").strip().lower() for q in filtered_questions}
+        existing_questions |= _collect_user_seen_questions(db, current_user["id"])
         
         if len(filtered_questions) < num_questions:
             generated_count = num_questions - len(filtered_questions)
