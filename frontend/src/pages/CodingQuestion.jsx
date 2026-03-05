@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import axios from "axios";
 
@@ -16,30 +16,88 @@ const LANG_MONACO_MAP = {
   sql: "sql",
 };
 
+const LANG_EXT_MAP = {
+  python: "py",
+  java: "java",
+  cpp: "cpp",
+  "c++": "cpp",
+  javascript: "js",
+  js: "js",
+  c: "c",
+  typescript: "ts",
+  sql: "sql",
+};
+
+const STARTER_BY_LANG = {
+  python: "def solve(input_data):\n    # Write your solution\n    return \"\"",
+  java: "import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        // Write your solution\n        System.out.println();\n    }\n}",
+  cpp: "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    ios::sync_with_stdio(false);\n    cin.tie(nullptr);\n    // Write your solution\n    return 0;\n}",
+  c: "#include <stdio.h>\n\nint main() {\n    // Write your solution\n    return 0;\n}",
+  javascript: "const fs = require('fs');\nconst input = fs.readFileSync(0, 'utf8').trim();\n// Write your solution\nconsole.log('');",
+  typescript: "import * as fs from 'fs';\nconst input = fs.readFileSync(0, 'utf8').trim();\n// Write your solution\nconsole.log('');",
+  sql: "-- Write SQL query here\nSELECT 1;",
+};
+
+const normalizeLang = (lang) => {
+  const raw = (lang || "python").toLowerCase().trim();
+  if (raw === "c++") return "cpp";
+  if (raw === "js") return "javascript";
+  return raw;
+};
+
 const CodingQuestion = ({ question, onCodeChange, onRunResult, initialCode }) => {
-  const [code, setCode] = useState(initialCode || question.starter_code || "");
-  const [selectedLang, setSelectedLang] = useState(question.language || "python");
+  const initialLang = normalizeLang(question.language || "python");
+  const initialText = initialCode || question.starter_code || STARTER_BY_LANG[initialLang] || "";
+
+  const [code, setCode] = useState(initialText);
+  const [selectedLang, setSelectedLang] = useState(initialLang);
   const [results, setResults] = useState(null);
   const [compileResult, setCompileResult] = useState(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
   const [execTime, setExecTime] = useState(null);
+
   const editorRef = useRef(null);
+  const monacoRef = useRef(null);
 
   const testCases = question.test_cases || [];
 
-  const handleEditorDidMount = (editor) => {
+  const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
   };
 
   const handleCodeChange = (value) => {
-    setCode(value || "");
-    if (onCodeChange) onCodeChange(value || "");
+    const text = value || "";
+    setCode(text);
+    if (onCodeChange) onCodeChange(text);
   };
 
   const handleLangChange = (e) => {
-    setSelectedLang(e.target.value);
+    const nextLang = normalizeLang(e.target.value);
+    setSelectedLang(nextLang);
+    if (!code.trim()) {
+      const starter = STARTER_BY_LANG[nextLang] || "";
+      setCode(starter);
+      if (onCodeChange) onCodeChange(starter);
+    }
   };
+
+  useEffect(() => {
+    const nextLang = normalizeLang(question.language || "python");
+    const nextCode = initialCode || question.starter_code || STARTER_BY_LANG[nextLang] || "";
+    setSelectedLang(nextLang);
+    setCode(nextCode);
+  }, [question.id, question.language, question.starter_code, initialCode]);
+
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    const editor = editorRef.current;
+    if (!monaco || !editor) return;
+    const model = editor.getModel();
+    if (!model) return;
+    monaco.editor.setModelLanguage(model, LANG_MONACO_MAP[selectedLang] || "plaintext");
+  }, [selectedLang]);
 
   const checkCompile = async () => {
     setRunning(true);
@@ -98,6 +156,7 @@ const CodingQuestion = ({ question, onCodeChange, onRunResult, initialCode }) =>
   };
 
   const monacoLang = LANG_MONACO_MAP[selectedLang] || "plaintext";
+  const fileExt = LANG_EXT_MAP[selectedLang] || "txt";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -174,8 +233,10 @@ const CodingQuestion = ({ question, onCodeChange, onRunResult, initialCode }) =>
 
       <div style={{ border: "1px solid #e0e7ff", borderRadius: "8px", overflow: "hidden" }}>
         <Editor
+          key={`${question.id || "q"}-${selectedLang}`}
           height="350px"
           language={monacoLang}
+          path={`main.${fileExt}`}
           value={code}
           onChange={handleCodeChange}
           onMount={handleEditorDidMount}

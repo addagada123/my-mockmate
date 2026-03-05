@@ -2427,6 +2427,290 @@ def _execute_sql_local(query: str, tc: Dict[str, str], index: int) -> dict:
             pass
 
 
+def _cmd_exists(cmd: str) -> bool:
+    return bool(shutil.which(cmd))
+
+
+def _run_local_process(command: List[str], stdin_input: str = "", timeout: int = 10, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        command,
+        input=stdin_input or "",
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
+    )
+
+
+def _execute_javascript_local(code: str, stdin_input: str, expected: str, index: int) -> dict:
+    if not _cmd_exists("node"):
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Node.js is not installed on the server", "_compile_error": False,
+        }
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as tmp:
+            tmp.write(code)
+            tmp_path = tmp.name
+        proc = _run_local_process(["node", tmp_path], stdin_input=stdin_input, timeout=8)
+        if proc.returncode != 0:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+                "passed": False, "error": (proc.stderr or "Runtime error").strip()[:500], "_compile_error": False,
+            }
+        actual = _normalize_output(proc.stdout)
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": actual,
+            "passed": (actual == expected) if expected else True, "error": None, "_compile_error": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Time Limit Exceeded (8s)", "_compile_error": False,
+        }
+    except Exception as e:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": str(e)[:300], "_compile_error": False,
+        }
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def _execute_c_family_local(lang_key: str, code: str, stdin_input: str, expected: str, index: int) -> dict:
+    compiler = "g++" if lang_key in {"cpp", "c++"} else "gcc"
+    if not _cmd_exists(compiler):
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": f"{compiler} is not installed on the server", "_compile_error": False,
+        }
+    tmp_dir = tempfile.mkdtemp(prefix="code_run_")
+    source_ext = "cpp" if lang_key in {"cpp", "c++"} else "c"
+    source_path = os.path.join(tmp_dir, f"main.{source_ext}")
+    exe_path = os.path.join(tmp_dir, "main_exec")
+    try:
+        with open(source_path, "w", encoding="utf-8") as f:
+            f.write(code)
+        compile_cmd = [compiler, source_path, "-O2", "-o", exe_path]
+        if lang_key in {"cpp", "c++"}:
+            compile_cmd.insert(2, "-std=c++17")
+        else:
+            compile_cmd.insert(2, "-std=c11")
+        cproc = _run_local_process(compile_cmd, timeout=12)
+        if cproc.returncode != 0:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+                "passed": False, "error": (cproc.stderr or "Compilation failed").strip()[:500], "_compile_error": True,
+            }
+        rproc = _run_local_process([exe_path], stdin_input=stdin_input, timeout=8)
+        if rproc.returncode != 0:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+                "passed": False, "error": (rproc.stderr or "Runtime error").strip()[:500], "_compile_error": False,
+            }
+        actual = _normalize_output(rproc.stdout)
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": actual,
+            "passed": (actual == expected) if expected else True, "error": None, "_compile_error": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Time Limit Exceeded", "_compile_error": False,
+        }
+    except Exception as e:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": str(e)[:300], "_compile_error": False,
+        }
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _extract_java_class_name(code: str) -> Optional[str]:
+    m = re.search(r"public\s+class\s+([A-Za-z_]\w*)", code)
+    if m:
+        return m.group(1)
+    m = re.search(r"class\s+([A-Za-z_]\w*)", code)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _execute_java_local(code: str, stdin_input: str, expected: str, index: int) -> dict:
+    if not _cmd_exists("javac") or not _cmd_exists("java"):
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Java JDK is not installed on the server", "_compile_error": False,
+        }
+    class_name = _extract_java_class_name(code)
+    if not class_name:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Java code must contain a class declaration (e.g., public class Main)", "_compile_error": True,
+        }
+
+    tmp_dir = tempfile.mkdtemp(prefix="java_run_")
+    source_path = os.path.join(tmp_dir, f"{class_name}.java")
+    try:
+        with open(source_path, "w", encoding="utf-8") as f:
+            f.write(code)
+        cproc = _run_local_process(["javac", source_path], timeout=14, cwd=tmp_dir)
+        if cproc.returncode != 0:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+                "passed": False, "error": (cproc.stderr or "Compilation failed").strip()[:500], "_compile_error": True,
+            }
+        rproc = _run_local_process(["java", "-cp", tmp_dir, class_name], stdin_input=stdin_input, timeout=8, cwd=tmp_dir)
+        if rproc.returncode != 0:
+            return {
+                "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+                "passed": False, "error": (rproc.stderr or "Runtime error").strip()[:500], "_compile_error": False,
+            }
+        actual = _normalize_output(rproc.stdout)
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": actual,
+            "passed": (actual == expected) if expected else True, "error": None, "_compile_error": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Time Limit Exceeded", "_compile_error": False,
+        }
+    except Exception as e:
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": str(e)[:300], "_compile_error": False,
+        }
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _execute_local_by_language(lang_key: str, code: str, stdin_input: str, expected: str, index: int) -> dict:
+    if lang_key == "python":
+        return _execute_python_local(code, stdin_input, expected, index)
+    if lang_key == "sql":
+        return {
+            "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+            "passed": False, "error": "Internal error: SQL local dispatcher mismatch", "_compile_error": False,
+        }
+    if lang_key in {"javascript", "js"}:
+        return _execute_javascript_local(code, stdin_input, expected, index)
+    if lang_key in {"c", "cpp", "c++"}:
+        return _execute_c_family_local(lang_key, code, stdin_input, expected, index)
+    if lang_key == "java":
+        return _execute_java_local(code, stdin_input, expected, index)
+    return {
+        "test_case": index, "input": stdin_input, "expected": expected, "actual": "",
+        "passed": False, "error": f"Local execution not supported for {lang_key}", "_compile_error": False,
+    }
+
+
+def _compile_check_local(lang_key: str, code: str, test_cases: List[Dict[str, str]]) -> Optional[Dict[str, Any]]:
+    if lang_key == "python":
+        try:
+            compile(code, "<user_code>", "exec")
+            return {"success": True, "language": "python", "compile_ok": True, "message": "Compilation successful"}
+        except Exception as ce:
+            return {"success": True, "language": "python", "compile_ok": False, "message": str(ce)}
+    if lang_key == "sql":
+        tc = test_cases[0] if test_cases else {"setup_sql": "", "expected_output": ""}
+        res = _execute_sql_local(code, tc, 1)
+        return {
+            "success": True,
+            "language": "sql",
+            "compile_ok": res.get("error") is None,
+            "message": "SQL syntax looks valid" if res.get("error") is None else res.get("error"),
+        }
+    if lang_key in {"javascript", "js"}:
+        if not _cmd_exists("node"):
+            return {"success": True, "language": lang_key, "compile_ok": False, "message": "Node.js is not installed on the server"}
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as tmp:
+                tmp.write(code)
+                tmp_path = tmp.name
+            proc = _run_local_process(["node", "--check", tmp_path], timeout=8)
+            return {
+                "success": True,
+                "language": lang_key,
+                "compile_ok": proc.returncode == 0,
+                "message": "Compilation successful" if proc.returncode == 0 else (proc.stderr or "Syntax error").strip()[:500],
+            }
+        except Exception as e:
+            return {"success": True, "language": lang_key, "compile_ok": False, "message": str(e)}
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+    if lang_key in {"c", "cpp", "c++"}:
+        compiler = "g++" if lang_key in {"cpp", "c++"} else "gcc"
+        if not _cmd_exists(compiler):
+            return {"success": True, "language": lang_key, "compile_ok": False, "message": f"{compiler} is not installed on the server"}
+        tmp_dir = tempfile.mkdtemp(prefix="compile_")
+        source_ext = "cpp" if lang_key in {"cpp", "c++"} else "c"
+        source_path = os.path.join(tmp_dir, f"main.{source_ext}")
+        exe_path = os.path.join(tmp_dir, "main_exec")
+        try:
+            with open(source_path, "w", encoding="utf-8") as f:
+                f.write(code)
+            compile_cmd = [compiler, source_path, "-O2", "-o", exe_path]
+            compile_cmd.insert(2, "-std=c++17" if lang_key in {"cpp", "c++"} else "-std=c11")
+            proc = _run_local_process(compile_cmd, timeout=12)
+            return {
+                "success": True,
+                "language": lang_key,
+                "compile_ok": proc.returncode == 0,
+                "message": "Compilation successful" if proc.returncode == 0 else (proc.stderr or "Compilation failed").strip()[:500],
+            }
+        except Exception as e:
+            return {"success": True, "language": lang_key, "compile_ok": False, "message": str(e)}
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+    if lang_key == "java":
+        if not _cmd_exists("javac"):
+            return {"success": True, "language": "java", "compile_ok": False, "message": "javac is not installed on the server"}
+        class_name = _extract_java_class_name(code)
+        if not class_name:
+            return {"success": True, "language": "java", "compile_ok": False, "message": "Java code must contain a class declaration (e.g., public class Main)"}
+        tmp_dir = tempfile.mkdtemp(prefix="java_compile_")
+        source_path = os.path.join(tmp_dir, f"{class_name}.java")
+        try:
+            with open(source_path, "w", encoding="utf-8") as f:
+                f.write(code)
+            proc = _run_local_process(["javac", source_path], timeout=14, cwd=tmp_dir)
+            return {
+                "success": True,
+                "language": "java",
+                "compile_ok": proc.returncode == 0,
+                "message": "Compilation successful" if proc.returncode == 0 else (proc.stderr or "Compilation failed").strip()[:500],
+            }
+        except Exception as e:
+            return {"success": True, "language": "java", "compile_ok": False, "message": str(e)}
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+    return None
+
+
 @app.post("/run-code")
 async def run_code(
     payload: RunCodeRequest,
@@ -2459,21 +2743,10 @@ async def run_code(
         test_cases = [{"input": "", "expected_output": ""}]
 
     if compile_only:
-        if lang_key == "python":
-            try:
-                compile(payload.code, "<user_code>", "exec")
-                return {"success": True, "language": "python", "compile_ok": True, "message": "Compilation successful"}
-            except Exception as ce:
-                return {"success": True, "language": "python", "compile_ok": False, "message": str(ce)}
-        if lang_key == "sql":
-            res = _execute_sql_local(payload.code, test_cases[0], 1)
-            return {
-                "success": True,
-                "language": "sql",
-                "compile_ok": res.get("error") is None,
-                "message": "SQL syntax looks valid" if res.get("error") is None else res.get("error"),
-            }
-        return {"success": True, "language": lang_key, "compile_ok": True, "message": "Compile check not supported for this language yet."}
+        local_compile = _compile_check_local(lang_key, payload.code, test_cases)
+        if local_compile is not None:
+            return local_compile
+        return {"success": True, "language": lang_key, "compile_ok": True, "message": "Compile check is not configured for this language."}
 
     results: list[dict] = []
     is_compiled = lang_key in _COMPILED_LANGS
@@ -2482,10 +2755,11 @@ async def run_code(
         for i, tc in enumerate(test_cases, start=1):
             results.append(_execute_sql_local(payload.code, tc, i))
     elif httpx is None:
-        if lang_key == "python":
+        if lang_key in {"python", "java", "c", "cpp", "c++", "javascript", "js"}:
             for i, tc in enumerate(test_cases, start=1):
                 results.append(
-                    _execute_python_local(
+                    _execute_local_by_language(
+                        lang_key,
                         payload.code,
                         tc.get("input", ""),
                         _normalize_output(tc.get("expected_output", "")),
@@ -2544,23 +2818,23 @@ async def run_code(
                 ]
                 results = list(await asyncio.gather(*tasks))
 
-        if lang_key == "python":
-            external_auth_error = len(results) > 0 and all(
-                (not r.get("passed")) and isinstance(r.get("error"), str) and "HTTP 401" in r.get("error")
-                for r in results
-            )
-            if external_auth_error:
-                local_results: List[dict] = []
-                for i, tc in enumerate(test_cases, start=1):
-                    local_results.append(
-                        _execute_python_local(
-                            payload.code,
-                            tc.get("input", ""),
-                            _normalize_output(tc.get("expected_output", "")),
-                            i,
-                        )
+        external_auth_error = len(results) > 0 and all(
+            (not r.get("passed")) and isinstance(r.get("error"), str) and "HTTP 401" in r.get("error")
+            for r in results
+        )
+        if external_auth_error and lang_key in {"python", "java", "c", "cpp", "c++", "javascript", "js"}:
+            local_results: List[dict] = []
+            for i, tc in enumerate(test_cases, start=1):
+                local_results.append(
+                    _execute_local_by_language(
+                        lang_key,
+                        payload.code,
+                        tc.get("input", ""),
+                        _normalize_output(tc.get("expected_output", "")),
+                        i,
                     )
-                results = local_results
+                )
+            results = local_results
 
     for r in results:
         r.pop("_compile_error", None)
