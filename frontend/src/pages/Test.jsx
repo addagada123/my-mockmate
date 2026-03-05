@@ -6,6 +6,11 @@ import CodingQuestion from "./CodingQuestion";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
+const isSqlTopic = (topicText) => {
+  const t = (topicText || "").toLowerCase();
+  return t.includes("sql") || t.includes("mysql") || t.includes("postgres") || t.includes("database") || t.includes("sequel");
+};
+
 const Test = () => {
   const { topic } = useParams();
   const location = useLocation();
@@ -232,20 +237,32 @@ const Test = () => {
           }
           console.log("Using general questions:", fetched);
           if (difficulty === "coding" && fetched.length === 0) {
+            const sqlMode = isSqlTopic(decodeURIComponent(topic));
             setQuestions([
               {
-                question: `Write a function to compute the maximum subarray sum for ${decodeURIComponent(topic)}. Input is space-separated integers.`,
-                answer: "Use Kadane's algorithm.",
+                question: sqlMode
+                  ? `Write an SQL query for ${decodeURIComponent(topic)}: return each department name with employee count, ordered by count desc.`
+                  : `Write a function to compute the maximum subarray sum for ${decodeURIComponent(topic)}. Input is space-separated integers.`,
+                answer: sqlMode ? "Use GROUP BY and ORDER BY." : "Use Kadane's algorithm.",
                 difficulty: "medium",
                 topic: decodeURIComponent(topic),
                 type: "coding",
-                language: "python",
-                starter_code: "def solve(input_data):\\n    arr = list(map(int, input_data.strip().split()))\\n    # write code\\n    return \\\"\\\"",
-                test_cases: [
-                  { input: "1 -2 3 4 -1", expected_output: "7" },
-                  { input: "-5 -2 -1", expected_output: "-1" },
-                  { input: "2 3 -2 5", expected_output: "8" }
-                ]
+                language: sqlMode ? "sql" : "python",
+                starter_code: sqlMode
+                  ? "-- Write SQL query\\nSELECT 1;"
+                  : "def solve(input_data):\\n    arr = list(map(int, input_data.strip().split()))\\n    # write code\\n    return \\\"\\\"",
+                test_cases: sqlMode
+                  ? [
+                      {
+                        setup_sql: "CREATE TABLE departments(id INTEGER PRIMARY KEY, name TEXT);CREATE TABLE employees(id INTEGER PRIMARY KEY, name TEXT, department_id INTEGER);INSERT INTO departments(id,name) VALUES (1,'Engineering'),(2,'HR');INSERT INTO employees(id,name,department_id) VALUES (1,'A',1),(2,'B',1),(3,'C',2);",
+                        expected_output: "Engineering|2\\nHR|1"
+                      }
+                    ]
+                  : [
+                      { input: "1 -2 3 4 -1", expected_output: "7" },
+                      { input: "-5 -2 -1", expected_output: "-1" },
+                      { input: "2 3 -2 5", expected_output: "8" }
+                    ]
               }
             ]);
           } else {
@@ -254,20 +271,32 @@ const Test = () => {
         } else {
           console.log("No questions in response, using fallback");
           if (difficulty === "coding") {
+            const sqlMode = isSqlTopic(decodeURIComponent(topic));
             setQuestions([
               {
-                question: `Write code to merge two sorted arrays for ${decodeURIComponent(topic)}. Input: two lines of space-separated ints.`,
-                answer: "Two-pointer merge.",
+                question: sqlMode
+                  ? `Write an SQL query for ${decodeURIComponent(topic)}: find customers who placed more than 2 orders.`
+                  : `Write code to merge two sorted arrays for ${decodeURIComponent(topic)}. Input: two lines of space-separated ints.`,
+                answer: sqlMode ? "GROUP BY customer and filter count > 2." : "Two-pointer merge.",
                 difficulty: "medium",
                 topic: decodeURIComponent(topic),
                 type: "coding",
-                language: "python",
-                starter_code: "def solve(input_data):\\n    lines = [ln.strip() for ln in input_data.strip().splitlines() if ln.strip()]\\n    a = list(map(int, lines[0].split())) if lines else []\\n    b = list(map(int, lines[1].split())) if len(lines)>1 else []\\n    # write code\\n    return \\\"\\\"",
-                test_cases: [
-                  { input: "1 3 5\\n2 4 6", expected_output: "1 2 3 4 5 6" },
-                  { input: "1 2 3\\n", expected_output: "1 2 3" },
-                  { input: "\\n4 5", expected_output: "4 5" }
-                ]
+                language: sqlMode ? "sql" : "python",
+                starter_code: sqlMode
+                  ? "-- Write SQL query\\nSELECT 1;"
+                  : "def solve(input_data):\\n    lines = [ln.strip() for ln in input_data.strip().splitlines() if ln.strip()]\\n    a = list(map(int, lines[0].split())) if lines else []\\n    b = list(map(int, lines[1].split())) if len(lines)>1 else []\\n    # write code\\n    return \\\"\\\"",
+                test_cases: sqlMode
+                  ? [
+                      {
+                        setup_sql: "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT);CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INTEGER);INSERT INTO customers VALUES (1,'A'),(2,'B'),(3,'C');INSERT INTO orders VALUES (1,1),(2,1),(3,1),(4,2);",
+                        expected_output: "A"
+                      }
+                    ]
+                  : [
+                      { input: "1 3 5\\n2 4 6", expected_output: "1 2 3 4 5 6" },
+                      { input: "1 2 3\\n", expected_output: "1 2 3" },
+                      { input: "\\n4 5", expected_output: "4 5" }
+                    ]
               }
             ]);
           } else {
@@ -293,20 +322,32 @@ const Test = () => {
       } catch (error) {
         console.error("Error fetching questions:", error);
         if (difficulty === "coding") {
+          const sqlMode = isSqlTopic(decodeURIComponent(topic));
           setQuestions([
             {
-              question: `Write code to print all prime numbers <= N for ${decodeURIComponent(topic)}.`,
-              answer: "Sieve or optimized primality checks.",
+              question: sqlMode
+                ? `Write an SQL query for ${decodeURIComponent(topic)}: return second highest salary from Employees table.`
+                : `Write code to print all prime numbers <= N for ${decodeURIComponent(topic)}.`,
+              answer: sqlMode ? "Use DISTINCT with ORDER BY and LIMIT/OFFSET." : "Sieve or optimized primality checks.",
               difficulty: "medium",
               topic: decodeURIComponent(topic),
               type: "coding",
-              language: "python",
-              starter_code: "def solve(input_data):\\n    n = int(input_data.strip())\\n    # write code\\n    return \\\"\\\"",
-              test_cases: [
-                { input: "10", expected_output: "2 3 5 7" },
-                { input: "2", expected_output: "2" },
-                { input: "1", expected_output: "" }
-              ]
+              language: sqlMode ? "sql" : "python",
+              starter_code: sqlMode
+                ? "-- Write SQL query\\nSELECT 1;"
+                : "def solve(input_data):\\n    n = int(input_data.strip())\\n    # write code\\n    return \\\"\\\"",
+              test_cases: sqlMode
+                ? [
+                    {
+                      setup_sql: "CREATE TABLE employees(id INTEGER PRIMARY KEY, salary INTEGER);INSERT INTO employees VALUES (1,100),(2,300),(3,200),(4,300);",
+                      expected_output: "200"
+                    }
+                  ]
+                : [
+                    { input: "10", expected_output: "2 3 5 7" },
+                    { input: "2", expected_output: "2" },
+                    { input: "1", expected_output: "" }
+                  ]
             }
           ]);
         } else {
