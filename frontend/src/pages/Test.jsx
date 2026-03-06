@@ -822,7 +822,15 @@ const Test = () => {
       setVrBridgeToken(response.data.bridge_token || "");
       setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
       vrStartedAtRef.current = Date.now();
-      showWarning("VR mode initialized. Unity can now fetch the current question.");
+      const bridgeToken = response.data.bridge_token || "";
+      const deepLink = `mockmate://start-vr?bridge_token=${encodeURIComponent(bridgeToken)}&api_base=${encodeURIComponent(API_BASE)}`;
+      try {
+        // Try to open installed Unity VR app with token pre-filled.
+        window.location.href = deepLink;
+        showWarning("VR mode initialized. Attempted to open Unity VR app automatically.");
+      } catch {
+        showWarning("VR mode initialized. Unity app launch failed, use bridge token manually.");
+      }
     } catch (error) {
       showWarning(`VR start failed: ${error.response?.data?.detail || error.message}`);
     } finally {

@@ -78,15 +78,20 @@ internal class VrCompleteRequest
 public class MockmateVRApiClient : MonoBehaviour
 {
     [Header("Backend")]
-    [SerializeField] private string apiBase = "http://127.0.0.1:8000";
+    [SerializeField] private string apiBase = "https://mockmate-api-production.up.railway.app";
     [SerializeField] private string bridgeToken;
 
     public string ApiBase => apiBase;
     public string BridgeToken => bridgeToken;
 
+    public void SetApiBase(string baseUrl)
+    {
+        apiBase = string.IsNullOrWhiteSpace(baseUrl) ? apiBase : baseUrl.TrimEnd('/');
+    }
+
     public void SetBridgeToken(string token)
     {
-        bridgeToken = token;
+        bridgeToken = token ?? string.Empty;
     }
 
     public IEnumerator FetchNextQuestion(Action<VrNextResponse, string> callback)
