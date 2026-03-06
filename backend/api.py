@@ -2391,6 +2391,7 @@ def _execute_python_local(code: str, stdin_input: str, expected: str, index: int
 def _execute_sql_local(query: str, tc: Dict[str, str], index: int) -> dict:
     setup_sql = tc.get("setup_sql") or ""
     expected = _normalize_output(tc.get("expected_output", ""))
+    conn: Optional[sqlite3.Connection] = None
     try:
         conn = sqlite3.connect(":memory:")
         cur = conn.cursor()
@@ -2421,10 +2422,11 @@ def _execute_sql_local(query: str, tc: Dict[str, str], index: int) -> dict:
             "_compile_error": False,
         }
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _cmd_exists(cmd: str) -> bool:
@@ -2748,7 +2750,7 @@ async def run_code(
             return local_compile
         return {"success": True, "language": lang_key, "compile_ok": True, "message": "Compile check is not configured for this language."}
 
-    results: list[dict] = []
+    results: List[Dict[str, Any]] = []
     is_compiled = lang_key in _COMPILED_LANGS
 
     if lang_key == "sql":
@@ -2818,8 +2820,12 @@ async def run_code(
                 ]
                 results = list(await asyncio.gather(*tasks))
 
+        def _has_http_401_error(result_row: Dict[str, Any]) -> bool:
+            err_val = result_row.get("error")
+            return isinstance(err_val, str) and ("HTTP 401" in err_val)
+
         external_auth_error = len(results) > 0 and all(
-            (not r.get("passed")) and isinstance(r.get("error"), str) and "HTTP 401" in r.get("error")
+            (not bool(r.get("passed"))) and _has_http_401_error(r)
             for r in results
         )
         if external_auth_error and lang_key in {"python", "java", "c", "cpp", "c++", "javascript", "js"}:
