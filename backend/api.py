@@ -4746,9 +4746,15 @@ Return ONLY valid JSON (no markdown, no explanation):
             jobs = fallback_payload.get("jobs", [])
             provider = "fallback-local"
             fallback_reason = (fallback_reason + "; invalid AI jobs payload") if fallback_reason else "invalid AI jobs payload"
-        university = parsed.get("university", "Not detected")
-        university_city = parsed.get("university_city", "Unknown")
-        experience_level = parsed.get("experience_level", "unknown")
+        # Defensive: parsed may be None or not a dict
+        if isinstance(parsed, dict):
+            university = parsed.get("university", "Not detected")
+            university_city = parsed.get("university_city", "Unknown")
+            experience_level = parsed.get("experience_level", "unknown")
+        else:
+            university = "Not detected"
+            university_city = "Unknown"
+            experience_level = "unknown"
 
         # â”€â”€ Enhanced match scoring algorithm â”€â”€
         user_skills_lower = {s.lower() for s in user_skills}
