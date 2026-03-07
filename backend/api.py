@@ -4736,7 +4736,16 @@ Return ONLY valid JSON (no markdown, no explanation):
                 parsed = _fallback_job_payload()
                 provider = "fallback-local"
 
-        jobs = parsed.get("jobs", [])
+        raw_jobs = parsed.get("jobs", []) if isinstance(parsed, dict) else []
+        jobs = [j for j in (raw_jobs or []) if isinstance(j, dict)]
+        if len(jobs) < len(raw_jobs or []):
+            logger.warning("Dropped non-dict job entries from AI payload in /recommend-jobs")
+        if not jobs:
+            logger.warning("AI payload had no valid jobs after sanitization; using local fallback jobs")
+            fallback_payload = _fallback_job_payload()
+            jobs = fallback_payload.get("jobs", [])
+            provider = "fallback-local"
+            fallback_reason = (fallback_reason + "; invalid AI jobs payload") if fallback_reason else "invalid AI jobs payload"
         university = parsed.get("university", "Not detected")
         university_city = parsed.get("university_city", "Unknown")
         experience_level = parsed.get("experience_level", "unknown")
@@ -4747,7 +4756,8 @@ Return ONLY valid JSON (no markdown, no explanation):
         
         for i, job in enumerate(jobs):
             job["id"] = job.get("id", f"job-{i+1}")
-            required = [s for s in job.get("required_skills", [])]
+            required_raw = job.get("required_skills", [])
+            required = [s for s in (required_raw if isinstance(required_raw, list) else []) if isinstance(s, str)]
             matching = [s for s in required if s.lower() in user_skills_lower]
             strong_match = [s for s in matching if s.lower() in strong_skills_lower]
             
@@ -4763,7 +4773,7 @@ Return ONLY valid JSON (no markdown, no explanation):
             job["strong_matches"] = strong_match
             
             # Backward compat: ensure apply_urls exists
-            if "apply_urls" not in job:
+            if "apply_urls" not in job or not isinstance(job.get("apply_urls"), dict):
                 title_enc = job.get("title", "").replace(" ", "+")
                 loc_enc = job.get("location", "").replace(" ", "+")
                 job["apply_urls"] = {
