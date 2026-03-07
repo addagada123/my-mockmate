@@ -4689,6 +4689,11 @@ Return ONLY valid JSON (no markdown, no explanation):
         parsed: Optional[Dict[str, Any]] = None
         provider = "fallback-local"
         raw_text = ""
+        fallback_reason: Optional[str] = None
+
+        def _is_valid_jobs_payload(payload: Optional[Dict[str, Any]]) -> bool:
+            return bool(payload and isinstance(payload.get("jobs"), list) and len(payload.get("jobs", [])) > 0)
+
         try:
             raw_text, provider = await call_ai_with_fallback(
                 messages=[
@@ -4699,11 +4704,37 @@ Return ONLY valid JSON (no markdown, no explanation):
                 max_tokens=4000,
             )
             parsed = parse_json_response(raw_text)
-            if not parsed or "jobs" not in parsed:
+            if not _is_valid_jobs_payload(parsed):
                 raise ValueError("AI response missing jobs")
         except Exception as ai_err:
-            logger.warning(f"Job AI unavailable, serving fallback recommendations: {ai_err}")
-            parsed = _fallback_job_payload()
+            # Secondary recovery: ask multiple providers in parallel before local fallback.
+            logger.warning(f"Primary job AI call failed, retrying via parallel providers: {ai_err}")
+            fallback_reason = str(ai_err)
+            try:
+                parallel = await call_ai_parallel(
+                    messages=[
+                        {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=4000,
+                    providers=["gemini", "deepseek", "openai", "claude"],
+                )
+                successes = parallel.get("successes", [])
+                for success in successes:
+                    maybe_parsed = parse_json_response(success.get("raw_text", ""))
+                    if _is_valid_jobs_payload(maybe_parsed):
+                        parsed = maybe_parsed
+                        provider = f"parallel:{success.get('provider', 'unknown')}"
+                        fallback_reason = None
+                        break
+            except Exception as parallel_err:
+                fallback_reason = f"{fallback_reason}; parallel: {parallel_err}" if fallback_reason else str(parallel_err)
+
+            if not _is_valid_jobs_payload(parsed):
+                logger.warning(f"Job AI unavailable, serving fallback recommendations: {fallback_reason}")
+                parsed = _fallback_job_payload()
+                provider = "fallback-local"
 
         jobs = parsed.get("jobs", [])
         university = parsed.get("university", "Not detected")
@@ -4772,6 +4803,9 @@ Return ONLY valid JSON (no markdown, no explanation):
             "jobs": jobs,
             "skill_gap": skill_gap[:15],
             "total_jobs": len(jobs),
+            "jobs_source": provider,
+            "is_live_generated": provider != "fallback-local",
+            "fallback_reason": fallback_reason if provider == "fallback-local" else None,
         }
 
     except HTTPException:

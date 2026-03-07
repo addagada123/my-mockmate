@@ -19,35 +19,47 @@ function Jobs() {
   const [error, setError] = useState("");
   const [unverifiedSkills, setUnverifiedSkills] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [jobsSource, setJobsSource] = useState("");
+  const [isLiveGenerated, setIsLiveGenerated] = useState(true);
+  const [fallbackReason, setFallbackReason] = useState("");
+
+  const fetchJobs = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const token = localStorage.getItem("mockmate_token");
+      const response = await axios.get(
+        `${API_BASE}/recommend-jobs`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { _ts: Date.now() },
+        }
+      );
+      if (response.data.success) {
+        setJobs(response.data.jobs || []);
+        setUserSkills(response.data.user_skills || []);
+        setStrongSkills(response.data.strong_skills || []);
+        setWeakSkills(response.data.weak_skills || []);
+        setSkillGap(response.data.skill_gap || []);
+        setUniversity(response.data.university || "");
+        setUniversityCity(response.data.university_city || "");
+        setExperienceLevel(response.data.experience_level || "");
+        setUnverifiedSkills(response.data.unverified_skills || []);
+        setJobsSource(response.data.jobs_source || "");
+        setIsLiveGenerated(response.data.is_live_generated !== false);
+        setFallbackReason(response.data.fallback_reason || "");
+      } else {
+        setError(response.data.message || "No jobs found");
+      }
+    } catch (err) {
+      console.error("Error fetching jobs:", err);
+      setError(err.response?.data?.detail || "Failed to load job recommendations");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        const token = localStorage.getItem("mockmate_token");
-        const response = await axios.get(
-          `${API_BASE}/recommend-jobs`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (response.data.success) {
-          setJobs(response.data.jobs || []);
-          setUserSkills(response.data.user_skills || []);
-          setStrongSkills(response.data.strong_skills || []);
-          setWeakSkills(response.data.weak_skills || []);
-          setSkillGap(response.data.skill_gap || []);
-          setUniversity(response.data.university || "");
-          setUniversityCity(response.data.university_city || "");
-          setExperienceLevel(response.data.experience_level || "");
-          setUnverifiedSkills(response.data.unverified_skills || []);
-        } else {
-          setError(response.data.message || "No jobs found");
-        }
-      } catch (err) {
-        console.error("Error fetching jobs:", err);
-        setError(err.response?.data?.detail || "Failed to load job recommendations");
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchJobs();
   }, []);
 
@@ -81,9 +93,21 @@ function Jobs() {
               Real-time recommendations powered by AI {"\u2022"} {user?.email}
             </p>
           </div>
-          <div style={{ display: "flex", gap: "12px" }}>
-            <button
-              onClick={() => navigate("/dashboard")}
+	          <div style={{ display: "flex", gap: "12px" }}>
+	            <button
+	              onClick={fetchJobs}
+	              style={{
+	                padding: "10px 20px", background: "#6366f1", color: "white",
+	                border: "none", borderRadius: "8px", fontWeight: "600",
+	                cursor: "pointer", transition: "all 0.3s ease",
+	              }}
+	              onMouseEnter={(e) => (e.target.style.opacity = "0.9")}
+	              onMouseLeave={(e) => (e.target.style.opacity = "1")}
+	            >
+	              Refresh Jobs
+	            </button>
+	            <button
+	              onClick={() => navigate("/dashboard")}
               style={{
                 padding: "10px 20px", background: "white", color: "#6366f1",
                 border: "none", borderRadius: "8px", fontWeight: "600",
@@ -107,9 +131,21 @@ function Jobs() {
               Logout
             </button>
           </div>
-        </div>
+	        </div>
+	        {!loading && !isLiveGenerated && (
+	          <div style={{ background: "#fff7ed", borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", border: "1px solid #fdba74" }}>
+	            <p style={{ margin: 0, color: "#9a3412", fontSize: "13px", fontWeight: "600" }}>
+	              Showing fallback job suggestions right now (source: {jobsSource || "fallback-local"}).
+	            </p>
+	            {fallbackReason && (
+	              <p style={{ margin: "4px 0 0 0", color: "#9a3412", fontSize: "12px" }}>
+	                Reason: {fallbackReason}
+	              </p>
+	            )}
+	          </div>
+	        )}
 
-        {/* University & Skills Banner */}
+	        {/* University & Skills Banner */}
         {(university || userSkills.length > 0) && !loading && (
           <div style={{ background: "white", borderRadius: "16px", padding: "20px", marginBottom: "24px", boxShadow: "0 4px 16px rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.08)" }}>
             {university && (
