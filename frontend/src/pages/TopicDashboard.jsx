@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 
@@ -57,6 +57,13 @@ const TopicDashboard = () => {
       navigate(`${base}&mode=normal`);
       return;
     }
+    navigate(base);
+  };
+
+  const handleVRClick = (topic, difficulty) => {
+    setSelectedTopic(topic);
+    setSelectedDifficulty(difficulty);
+    const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}&mode=vr`;
     navigate(base);
   };
 
@@ -194,77 +201,70 @@ const TopicDashboard = () => {
                   Coding
                 </button>
 
-                <button
-                  onClick={() => handleSectionClick(topic, "easy")}
-                  disabled={selectedTopic === topic && selectedDifficulty === "easy"}
-                  style={{
-                    padding: "12px 20px",
-                    backgroundColor:
-                      selectedTopic === topic && selectedDifficulty === "easy"
-                        ? "#16a34a"
-                        : "#22c55e",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    fontSize: "14px",
-                    transition: "all 0.3s ease",
-                    opacity:
-                      selectedTopic === topic && selectedDifficulty === "easy" ? 0.9 : 1,
-                  }}
-                >
-                  Easy
-                </button>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", width: "100%" }}>
+                  <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minWidth: "250px" }}>
+                    <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", color: "#334155" }}>🟢 Easy Mode</h3>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        onClick={() => handleSectionClick(topic, "easy")}
+                        style={{ padding: "10px 14px", backgroundColor: "#22c55e", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", flex: 1 }}
+                      >
+                        Normal Test
+                      </button>
+                      <button
+                        onClick={() => handleVRClick(topic, "easy")}
+                        style={{ padding: "10px 14px", backgroundColor: "#06b6d4", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", flex: 1 }}
+                      >
+                        Take Test in VR
+                      </button>
+                    </div>
+                  </div>
 
-                <button
-                  onClick={() => handleSectionClick(topic, "medium")}
-                  disabled={selectedTopic === topic && selectedDifficulty === "medium"}
-                  style={{
-                    padding: "12px 20px",
-                    backgroundColor:
-                      selectedTopic === topic && selectedDifficulty === "medium"
-                        ? "#b45309"
-                        : "#f59e0b",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    fontSize: "14px",
-                    transition: "all 0.3s ease",
-                    opacity:
-                      selectedTopic === topic && selectedDifficulty === "medium"
-                        ? 0.9
-                        : 1,
-                  }}
-                >
-                  Medium
-                </button>
+                  <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minWidth: "250px" }}>
+                    <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", color: "#334155" }}>🟡 Medium Mode</h3>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        onClick={() => handleSectionClick(topic, "medium")}
+                        style={{ padding: "10px 14px", backgroundColor: "#f59e0b", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", flex: 1 }}
+                      >
+                        Normal Test
+                      </button>
+                      <button
+                        onClick={() => handleVRClick(topic, "medium")}
+                        style={{ padding: "10px 14px", backgroundColor: "#06b6d4", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", flex: 1 }}
+                      >
+                        Take Test in VR
+                      </button>
+                    </div>
+                  </div>
 
-                <button
-                  onClick={() => handleSectionClick(topic, "hard")}
-                  disabled={selectedTopic === topic && selectedDifficulty === "hard"}
-                  style={{
-                    padding: "12px 20px",
-                    backgroundColor:
-                      selectedTopic === topic && selectedDifficulty === "hard"
-                        ? "#b91c1c"
-                        : "#ef4444",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    fontSize: "14px",
-                    transition: "all 0.3s ease",
-                    opacity:
-                      selectedTopic === topic && selectedDifficulty === "hard" ? 0.9 : 1,
-                  }}
-                >
-                  Hard
-                </button>
-              </div>
+                  <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minWidth: "250px" }}>
+                    <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", color: "#334155" }}>🔴 Hard Mode</h3>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        onClick={() => handleSectionClick(topic, "hard")}
+                        style={{ padding: "10px 14px", backgroundColor: "#ef4444", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", flex: 1 }}
+                      >
+                        Normal Test
+                      </button>
+                      <button
+                        onClick={() => handleVRClick(topic, "hard")}
+                        style={{ padding: "10px 14px", backgroundColor: "#06b6d4", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", flex: 1 }}
+                      >
+                        Take Test in VR
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 0.5, minWidth: "150px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                    <button
+                      onClick={() => handleSectionClick(topic, "coding")}
+                      style={{ padding: "12px 20px", backgroundColor: "#8b5cf6", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "14px" }}
+                    >
+                      💻 Coding Test
+                    </button>
+                  </div>
+                </div>
             </div>
           ))
         ) : (
