@@ -4113,35 +4113,187 @@ async def comm_pool_status():
 
 
 def _local_comm_test_template() -> Dict[str, Any]:
+    """
+    Returns a high-quality, professional communication test template.
+    Used as a fallback when AI generation fails.
+    """
     return {
-        "passage": "This is a fallback reading passage used when AI services are unavailable.",
+        "passage": (
+            "Effective communication is the cornerstone of a productive workplace. "
+            "It involves not only the clear transmission of information but also active listening and environmental awareness. "
+            "In a globalized economy, cultural sensitivity and the ability to adapt one's communication style to different audiences "
+            "are essential skills. Failure to communicate effectively can lead to misunderstandings, missed deadlines, and decreased morale. "
+            "Conversely, strong communication fosters innovation, strengthens team cohesion, and ensures that all stakeholders are aligned "
+            "with the organization's strategic goals."
+        ),
         "sections": [
-            {"name": "Reading Comprehension", "type": "mcq", "questions": [
-                {"id": "rc-1", "question": "What is the main topic of the passage?", "options": ["A) Topic A", "B) Topic B", "C) Topic C", "D) Topic D"], "correct_answer": "A"},
-                {"id": "rc-2", "question": "Which statement is true?", "options": ["A) True", "B) False", "C) Maybe", "D) Not stated"], "correct_answer": "A"},
-                {"id": "rc-3", "question": "The tone of the passage is:", "options": ["A) Formal", "B) Casual", "C) Humorous", "D) Technical"], "correct_answer": "A"},
-            ]},
-            {"name": "Email Writing", "type": "mixed", "scenario": "Write an email to request leave.", "questions": [
-                {"id": "ew-1", "question": "Choose the best subject line", "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"], "correct_answer": "A", "type": "mcq"},
-                {"id": "ew-2", "question": "Choose the best opening sentence", "options": ["A) I need leave", "B) Dear Manager", "C) Hi", "D) Yo"], "correct_answer": "B", "type": "mcq"},
-                {"id": "ew-3", "question": "Write a brief closing line for the email", "type": "open", "correct_answer": "Kind regards,"},
-            ]},
-            {"name": "Grammar & Vocabulary", "type": "mcq", "questions": [
-                {"id": "gv-1", "question": "Choose the correct sentence.", "options": ["A) She go to work.", "B) She goes to work.", "C) She going.", "D) She gone."], "correct_answer": "B"},
-                {"id": "gv-2", "question": "Choose the best word: He ___ the report.", "options": ["A) submit", "B) submitted", "C) submitting", "D) submits"], "correct_answer": "B"},
-                {"id": "gv-3", "question": "Identify the error: 'Their going to the meeting.'", "options": ["A) Their", "B) going", "C) meeting", "D) No error"], "correct_answer": "A"},
-            ]},
-            {"name": "Situational Communication", "type": "mcq", "questions": [
-                {"id": "sc-1", "question": "How would you respond to an upset client?", "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"], "correct_answer": "B"},
-                {"id": "sc-2", "question": "Best approach to give feedback?", "options": ["A) Public criticism", "B) Private and constructive", "C) Sarcasm", "D) None"], "correct_answer": "B"},
-                {"id": "sc-3", "question": "When to follow-up?", "options": ["A) Immediately", "B) After a reasonable time", "C) Never", "D) Randomly"], "correct_answer": "B"},
-            ]},
-            {"name": "Spoken English", "type": "open", "questions": [
-                {"id": "se-1", "question": "Introduce yourself for a job interview in 60 seconds.", "type": "open", "correct_answer": "A concise introduction covering background and goals."},
-                {"id": "se-2", "question": "Explain a technical concept to a non-technical person.", "type": "open", "correct_answer": "Use analogy and simple language."},
-                {"id": "se-3", "question": "Describe how you handled a conflict at work.", "type": "open", "correct_answer": "Describe situation, action, and result."},
-            ]},
-        ],
+            {
+                "name": "Reading Comprehension",
+                "type": "mcq",
+                "questions": [
+                    {
+                        "id": "rc-1",
+                        "question": "According to the passage, what is a key component of effective communication besides transmitting information?",
+                        "options": ["A) High-speed internet", "B) Active listening", "C) Technical jargon", "D) Authoritative tone"],
+                        "correct_answer": "B",
+                        "explanation": "The passage explicitly mentions active listening as a component of effective communication."
+                    },
+                    {
+                        "id": "rc-2",
+                        "question": "What is identified as a consequence of poor communication in the workplace?",
+                        "options": ["A) Increased innovation", "B) Missed deadlines", "C) Better team cohesion", "D) Higher morale"],
+                        "correct_answer": "B",
+                        "explanation": "The passage states that failure to communicate effectively can lead to missed deadlines."
+                    },
+                    {
+                        "id": "rc-3",
+                        "question": "What skill is specifically highlighted as important in a globalized economy?",
+                        "options": ["A) Advanced coding", "B) Cultural sensitivity", "C) Financial accounting", "D) Physical stamina"],
+                        "correct_answer": "B",
+                        "explanation": "The passage mentions cultural sensitivity is essential in a globalized economy."
+                    }
+                ]
+            },
+            {
+                "name": "Email Writing",
+                "type": "mixed",
+                "scenario": "You need to inform a client that their project delivery will be delayed by two days due to an unforeseen technical issue.",
+                "questions": [
+                    {
+                        "id": "ew-1",
+                        "question": "Choose the most professional subject line for this situation:",
+                        "options": [
+                            "A) Bad news about the project",
+                            "B) Project Update: Revised Delivery Timeline",
+                            "C) Sorry for the delay",
+                            "D) URRGENT: PLEASE READ"
+                        ],
+                        "correct_answer": "B",
+                        "explanation": "Option B is professional, clear, and action-oriented."
+                    },
+                    {
+                        "id": "ew-2",
+                        "question": "Which opening sentence is most appropriate?",
+                        "options": [
+                            "A) I am writing to inform you of a slight shift in our project schedule.",
+                            "B) Hey, we have a problem and the project is late.",
+                            "C) Don't be mad, but we need more time.",
+                            "D) The project is delayed and it's not our fault."
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Option A is professional and sets a constructive tone."
+                    },
+                    {
+                        "id": "ew-3",
+                        "question": "Write a professional closing line that maintains a positive relationship with the client.",
+                        "type": "open",
+                        "correct_answer": "We appreciate your understanding and are committed to delivering the highest quality results. Please let us know if you have any questions.",
+                        "explanation": "A good closing should express appreciation and offer further support."
+                    }
+                ]
+            },
+            {
+                "name": "Grammar & Vocabulary",
+                "type": "mcq",
+                "questions": [
+                    {
+                        "id": "gv-1",
+                        "question": "Choose the grammatically correct sentence:",
+                        "options": [
+                            "A) Each of the employees have completed their training.",
+                            "B) Each of the employees has completed their training.",
+                            "C) All of the employee has completed their training.",
+                            "D) Every employees have completed their training."
+                        ],
+                        "correct_answer": "B",
+                        "explanation": "'Each' is a singular subject and requires a singular verb ('has')."
+                    },
+                    {
+                        "id": "gv-2",
+                        "question": "Select the word that best completes the sentence: The manager's ____ approach helped resolve the conflict quickly.",
+                        "options": ["A) abrasive", "B) diplomatic", "C) indifferent", "D) chaotic"],
+                        "correct_answer": "B",
+                        "explanation": "'Diplomatic' is the most positive and appropriate trait for resolving conflict."
+                    },
+                    {
+                        "id": "gv-3",
+                        "question": "Identify the error in this sentence: 'Between you and I, the new policy is quite confusing.'",
+                        "options": ["A) Between", "B) you", "C) I", "D) confusing"],
+                        "correct_answer": "C",
+                        "explanation": "'Between' is a preposition and should be followed by the objective case 'me' (not 'I')."
+                    }
+                ]
+            },
+            {
+                "name": "Situational Communication",
+                "type": "mcq",
+                "questions": [
+                    {
+                        "id": "sc-1",
+                        "question": "During a team meeting, a colleague keeps interrupting you while you're presenting. How do you handle it?",
+                        "options": [
+                            "A) Stop speaking and wait for them to finish angrily.",
+                            "B) Politely say, 'I'm almost finished, could you please hold your thoughts until the end?'",
+                            "C) Interrupt them back and speak louder.",
+                            "D) Leave the meeting immediately."
+                        ],
+                        "correct_answer": "B",
+                        "explanation": "Option B is assertive yet professional."
+                    },
+                    {
+                        "id": "sc-2",
+                        "question": "You realize you missed a minor detail in a report you just submitted to your supervisor. What is the best action?",
+                        "options": [
+                            "A) Hope they don't notice.",
+                            "B) Wait for them to point it out and then apologize.",
+                            "C) Immediately send an updated version with a brief explanation.",
+                            "D) Blame a teammate for the oversight."
+                        ],
+                        "correct_answer": "C",
+                        "explanation": "Proactive transparency is the most professional approach."
+                    },
+                    {
+                        "id": "sc-3",
+                        "question": "A client asks for a feature that is outside the current project scope. How do you respond?",
+                        "options": [
+                            "A) Say 'No' flatly.",
+                            "B) Say 'Yes' and worry about the extra work later.",
+                            "C) Say 'That's interesting. Let me check the feasibility and impact on the timeline with my team.'",
+                            "D) Ignore the request."
+                        ],
+                        "correct_answer": "C",
+                        "explanation": "Option C manages expectations while remaining open to discussion."
+                    }
+                ]
+            },
+            {
+                "name": "Spoken English",
+                "type": "open",
+                "questions": [
+                    {
+                        "id": "se-1",
+                        "question": "Introduce yourself and describe your professional background in a way that highlights your suitability for a corporate role.",
+                        "type": "open",
+                        "correct_answer": "A structured introduction covering education, key skills, and career aspirations.",
+                        "explanation": "Evaluation focuses on structure, clarity, and professional tone."
+                    },
+                    {
+                        "id": "se-2",
+                        "question": "Explain the importance of teamwork in a high-pressure environment using a personal example.",
+                        "type": "open",
+                        "correct_answer": "Response should highlight collaboration, problem-solving, and emotional intelligence.",
+                        "explanation": "Evaluation focuses on storytelling ability and coherence."
+                    },
+                    {
+                        "id": "se-3",
+                        "question": "If you were to disagree with a strategy proposed by your manager, how would you express your concerns professionally?",
+                        "type": "open",
+                        "correct_answer": "Focus on using data-backed arguments and respectful, non-confrontational language.",
+                        "explanation": "Evaluation focuses on diplomacy and critical thinking."
+                    }
+                ]
+            }
+        ]
     }
 
 
@@ -4242,7 +4394,10 @@ async def generate_comm_test(
         raw_text = ""
         provider = "unknown"
         db = get_db()
-        difficulty = (payload.difficulty or "medium").strip().lower()
+
+        # Communication tests are comprehensive and don't use 3 difficulty levels like technical topics.
+        # We use a single, high-quality professional difficulty for everyone.
+        difficulty = "comprehensive"
 
         # --- Try cached pool first ---
         cached_test = db.comm_test_pool.find_one(
@@ -4252,7 +4407,7 @@ async def generate_comm_test(
 
         if cached_test and "test_data" in cached_test:
             parsed = cached_test["test_data"]
-            logger.info(f"Serving cached comm test (id={cached_test.get('_id')}, difficulty={difficulty})")
+            logger.info(f"Serving cached comm test (id={cached_test.get('_id')})")
 
             # Increment times_served so we rotate through the pool
             db.comm_test_pool.update_one(
@@ -4282,121 +4437,36 @@ async def generate_comm_test(
                 "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
             }
 
-        # --- Fallback: generate live via AI (multi-provider fallback) ---
+        # --- Fallback: generate live via AI ---
         logger.info(f"No cached tests for difficulty={difficulty}, falling back to live AI")
-        difficulty = (payload.difficulty or "medium").capitalize()
 
-        prompt = f"""You are an expert corporate communication assessment designer used by top companies like TCS, Infosys, Wipro, Cognizant, and Accenture for hiring.
+        prompt = f"""You are an expert corporate communication assessment designer used by top companies (TCS, Infosys, IBM, etc.) to evaluate high-potential candidates.
 
-Generate a complete Communication Skills Test at {difficulty} difficulty level.
+Generate a comprehensive "Corporate Professional Communication Assessment".
 
 The test MUST contain exactly 15 questions divided into these 5 sections (3 questions each):
 
-**Section 1: Reading Comprehension**
-- Provide a short professional passage (80-120 words) about a workplace/business scenario.
-- Ask 3 MCQ questions based on the passage.
-- Each question has 4 options (A, B, C, D) with one correct answer.
-
-**Section 2: Email / Business Writing**
-- Give a workplace scenario (e.g., "Write an email to your manager requesting leave").
-- Ask 3 questions: one asking to choose the best subject line (MCQ), one choosing the correct email body (MCQ), one asking the user to write a professional email response (open-ended, 3-5 sentences).
-
-**Section 3: Grammar & Vocabulary**
-- 3 MCQ questions testing: sentence correction, fill-in-the-blank with correct word, identify the error.
-- Each with 4 options.
-
-**Section 4: Situational Communication**
-- Present 3 workplace scenarios (e.g., "A client is upset about a delayed delivery. How do you respond?")
-- For each: provide 4 response options (MCQ), one is the most professional.
-
-**Section 5: Spoken English Prompt**
-- 3 open-ended questions where the candidate must speak/type a response.
-- E.g., "Introduce yourself for a job interview in 60 seconds", "Explain a technical concept to a non-technical person", "Describe how you handled a conflict at work".
+- Section 1: Reading Comprehension (Professional passage 80-120 words + 3 MCQs)
+- Section 2: Email / Business Writing (Workplace scenario + 1 Subject Line MCQ, 1 Body MCQ, 1 Open-ended response)
+- Section 3: Grammar & Vocabulary (3 advanced corporate MCQs)
+- Section 4: Situational Communication (3 professional workplace situational MCQs)
+- Section 5: Spoken English Prompt (3 high-level open-ended speaking prompts)
 
 Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 {{
-  "passage": "The reading comprehension passage text here...",
+  "passage": "...",
   "sections": [
-    {{
-      "name": "Reading Comprehension",
-      "type": "mcq",
-      "questions": [
-        {{
-          "id": "rc-1",
-          "question": "Question text",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "B",
-          "explanation": "Why B is correct"
-        }}
-      ]
-    }},
-    {{
-      "name": "Email Writing",
-      "type": "mixed",
-      "scenario": "The email scenario...",
-      "questions": [
-        {{
-          "id": "ew-1",
-          "question": "Choose the best subject line",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "C",
-          "explanation": "...",
-          "type": "mcq"
-        }},
-        {{
-          "id": "ew-3",
-          "question": "Write a professional email response for this scenario",
-          "correct_answer": "A sample ideal email response",
-          "explanation": "Key elements to include",
-          "type": "open"
-        }}
-      ]
-    }},
-    {{
-      "name": "Grammar & Vocabulary",
-      "type": "mcq",
-      "questions": [
-        {{
-          "id": "gv-1",
-          "question": "...",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "A",
-          "explanation": "..."
-        }}
-      ]
-    }},
-    {{
-      "name": "Situational Communication",
-      "type": "mcq",
-      "questions": [
-        {{
-          "id": "sc-1",
-          "question": "Scenario: ... How do you respond?",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "D",
-          "explanation": "..."
-        }}
-      ]
-    }},
-    {{
-      "name": "Spoken English",
-      "type": "open",
-      "questions": [
-        {{
-          "id": "se-1",
-          "question": "Introduce yourself for a job interview in 60 seconds.",
-          "correct_answer": "A model answer covering name, background, skills, and goals",
-          "explanation": "Should be structured, confident, and professional",
-          "type": "open"
-        }}
-      ]
-    }}
+    {{ "name": "Reading Comprehension", "type": "mcq", "questions": [...] }},
+    {{ "name": "Email Writing", "type": "mixed", "scenario": "...", "questions": [...] }},
+    {{ "name": "Grammar & Vocabulary", "type": "mcq", "questions": [...] }},
+    {{ "name": "Situational Communication", "type": "mcq", "questions": [...] }},
+    {{ "name": "Spoken English", "type": "open", "questions": [...] }}
   ]
 }}"""
 
         parallel = await call_ai_parallel(
             messages=[
-                {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                {"role": "system", "content": "You are a professional assessment designer. Return only valid JSON."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
@@ -4414,7 +4484,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
                 successful_providers.append(provider_name)
 
         if not parsed_candidates:
-            logger.warning("All AI providers failed/invalid for comm test; using local fallback template")
+            logger.warning("All AI providers failed for comm test; using local fallback template")
             provider = "fallback-local"
             parsed = _local_comm_test_template()
         else:
@@ -4425,7 +4495,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
             logger.error("Communication test generation produced invalid payload after merge/fallback")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
-        # Store in DB for later scoring
+        # Store in DB
         comm_session = {
             "user_id": current_user["id"],
             "type": "communication_test",
@@ -4441,7 +4511,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         return {
             "success": True,
             "session_id": session_id,
-            "difficulty": difficulty.lower(),
+            "difficulty": difficulty,
             "passage": parsed.get("passage", ""),
             "sections": parsed["sections"],
             "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
