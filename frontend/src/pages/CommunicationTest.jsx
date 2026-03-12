@@ -368,7 +368,7 @@ const CommunicationTest = () => {
 
   // ====== RENDER ======
 
-  // Difficulty selection
+  // Landing page
   if (!difficulty && !loading) {
     return (
       <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
@@ -380,28 +380,35 @@ const CommunicationTest = () => {
             Corporate-style assessment covering Reading, Email Writing, Grammar, Situational Communication & Spoken English.
           </p>
           <p style={{ color: "#94a3b8", fontSize: "13px", marginBottom: "32px" }}>
-            {"\u2705"} No resume required {"\u2022"} 15 questions {"\u2022"} ~20 min
+            ✅ Single Comprehensive Assessment • 15 questions • ~20 min
           </p>
+
           {error && (
             <p style={{ color: "#991b1b", backgroundColor: "#fee2e2", padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "14px" }}>{error}</p>
           )}
+
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {["Easy", "Medium", "Hard"].map((level) => (
-              <button
-                key={level}
-                onClick={() => startTest(level.toLowerCase())}
-                style={{
-                  padding: "16px", backgroundColor: "#6366f1", color: "white",
-                  border: "none", borderRadius: "8px", cursor: "pointer",
-                  fontSize: "16px", fontWeight: "600", transition: "all 0.3s ease",
-                }}
-                onMouseEnter={(e) => (e.target.style.backgroundColor = "#4f46e5")}
-                onMouseLeave={(e) => (e.target.style.backgroundColor = "#6366f1")}
-              >
-                {level === "Easy" ? "\ud83d\ude42" : level === "Medium" ? "\ud83d\ude10" : "\ud83d\ude24"} {level}
-              </button>
-            ))}
+            <button
+              onClick={() => startTest("comprehensive")}
+              style={{
+                padding: "18px", backgroundColor: "#6366f1", color: "white",
+                border: "none", borderRadius: "10px", cursor: "pointer",
+                fontSize: "18px", fontWeight: "700", transition: "all 0.3s ease",
+                boxShadow: "0 4px 12px rgba(99,102,241,0.25)",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = "#4f46e5";
+                e.target.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = "#6366f1";
+                e.target.style.transform = "translateY(0)";
+              }}
+            >
+              🚀 Start Comprehensive Assessment
+            </button>
           </div>
+
           <button
             onClick={() => navigate("/dashboard")}
             style={{
@@ -410,7 +417,7 @@ const CommunicationTest = () => {
               cursor: "pointer", fontSize: "14px", fontWeight: "600",
             }}
           >
-            {"\u2190"} Back to Dashboard
+            ← Back to Dashboard
           </button>
         </div>
       </div>

@@ -25,9 +25,24 @@ public class MockmateVRDeepLinkBootstrap : MonoBehaviour
 
     private void Start()
     {
-        // Handles cold-start deep links.
+        // 1. Check for cold-start deep links via Application.absoluteURL
         if (!string.IsNullOrWhiteSpace(Application.absoluteURL))
+        {
             OnDeepLinkActivated(Application.absoluteURL);
+            return;
+        }
+
+        // 2. Fallback for Windows: Check Environment command line args 
+        // (Sometimes absoluteURL is empty if the app was launched by the protocol)
+        string[] args = System.Environment.GetCommandLineArgs();
+        foreach (string arg in args)
+        {
+            if (arg.StartsWith("mockmate://", StringComparison.OrdinalIgnoreCase))
+            {
+                OnDeepLinkActivated(arg);
+                break;
+            }
+        }
     }
 
     private void OnDeepLinkActivated(string url)

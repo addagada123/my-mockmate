@@ -21,7 +21,8 @@ Copy these **4 C# files** from the `unity/` folder into your Unity project's `As
 | `MockmateVRApiClient.cs` | Makes HTTP calls to the Mockmate backend |
 | `MockmateVRFlowController.cs` | Manages the interview lifecycle (question → speak → listen → submit) |
 | `MockmateVRDeepLinkBootstrap.cs` | Handles deep link launches (backup method) |
-| `MockmateVRTokenPoller.cs` | **NEW** — Polls for bridge tokens automatically |
+| `MockmateVRTokenPoller.cs` | Polls for bridge tokens automatically |
+| `MockmateVRAnimationBridge.cs` | **NEW** — Handles mouth, jaw, and typing animations |
 
 ---
 
@@ -34,6 +35,7 @@ Create a single GameObject in your scene with all the scripts attached:
 3. **Add Component** → `MockmateVRFlowController`
 4. **Add Component** → `MockmateVRTokenPoller`
 5. **Add Component** → `MockmateVRDeepLinkBootstrap`
+6. **Add Component** → `MockmateVRAnimationBridge`
 
 Your Inspector for `MockmateVRManager` should show all 4 scripts.
 
@@ -84,8 +86,10 @@ Connect the `MockmateVRFlowController` events to your VR UI elements:
 | Event | What to do |
 |-------|-----------|
 | `OnQuestionReceived(string)` | Display the question text on a VR panel / TTS |
-| `OnQuestionSpeakingStart` | Show "Interviewer is speaking..." indicator |
-| `OnQuestionSpeakingEnd` | Hide speaking indicator |
+| `OnQuestionSpeakingStart` | Drag `MockmateVRAnimationBridge.StartTalking` here |
+| `OnQuestionSpeakingEnd` | Drag `MockmateVRAnimationBridge.StopTalking` here |
+| `OnListeningStart` | Drag `MockmateVRAnimationBridge.StartTyping` here |
+| `OnListeningEnd` | Drag `MockmateVRAnimationBridge.StopTyping` here |
 | `OnPrepTick(float)` | Show countdown timer |
 | `OnAnswerNow` | Show "Speak now!" prompt |
 | `OnListeningStart` | Start STT / microphone recording |
@@ -152,6 +156,20 @@ Set a custom string like `"my-quest-3"` and configure the web app to use the sam
 
 ---
 
+## Step 8 — Enable Automatic Launch (Optional)
+
+To make the **"Take Test in VR"** button automatically open your Unity build:
+
+1. Locate the `scripts/register_vr_protocol.ps1` script in the root of the project.
+2. Open PowerShell as Administrator.
+3. Run the script, passing the path to your compiled Unity `.exe`:
+   ```powershell
+   .\scripts\register_vr_protocol.ps1 -ExePath "C:\Path\To\Your\MockmateVR.exe"
+   ```
+4. Now, when you click **"Take Test in VR"** in the web app, your browser will ask for permission to open **Mockmate Protocol**. Click "Allow".
+
+---
+
 ## How the Automatic Token Sync Works
 
 ```
@@ -161,25 +179,26 @@ Web App clicks "Take Test in VR"
          │
          ├─── POST /vr-bridge/register-token → stores token for polling
          │
-         └─── Deep link attempt (backup)
+         ├─── Deep link attempt (URL: mockmate://start-vr?...)
+         │     └─── Launches your .exe (if Step 8 is done)
+         │
+         └─── Downloads bridge_token.json (backup for manual copy)
 
 Unity (running in Play mode / on headset)
          │
          ├─── Polls GET /vr-bridge/token-poll every 2.5 seconds
          │     └─── When token found → auto-starts interview
          │
-         └─── Also checks %APPDATA%/MockmateVR/bridge_token.json
-               └─── If file exists with new token → auto-starts interview
+         └─── Also checks %APPDATA%/MockmateVR/bridge_token.json (if polling fails)
 ```
-
----
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|---------|
-| Unity doesn't pick up the token | Make sure `Device Id` in Unity matches what the web app sends. Check the console for `[MockmateVR-Poller]` logs. |
+| Unity doesn't pick up the token | Make sure `Device Id` in Unity matches what the web app sends (default: `mockmate-vr-default`). Check the console for `[MockmateVR-Poller]` logs. |
 | "Bridge token expired" error | Tokens expire after 6 hours. Click "Take Test in VR" again to get a fresh token. |
 | Network errors in Unity | Check that `Api Base` URL is correct and accessible from your headset/PC. |
 | Questions don't load | Ensure you've generated questions on the web app first (select a topic and difficulty). |
 | STT not working | Make sure your STT system calls `AppendTranscriptChunk()` during listening. |
+| Protocol not opening | Re-run Step 8 and ensure the path to your `.exe` is correct. |
