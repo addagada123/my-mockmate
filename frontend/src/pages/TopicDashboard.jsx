@@ -123,21 +123,6 @@ const TopicDashboard = () => {
         </p>
         <div style={{ marginTop: "14px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <button
-            onClick={() => navigate("/communication-test")}
-            style={{
-              padding: "10px 14px",
-              backgroundColor: "#06b6d4",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: "600",
-              fontSize: "13px",
-            }}
-          >
-            Communication Test
-          </button>
-          <button
             onClick={() => navigate("/dashboard")}
             style={{
               padding: "10px 14px",
@@ -175,32 +160,6 @@ const TopicDashboard = () => {
               </h2>
 
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                <button
-                  onClick={() => handleSectionClick(topic, "coding")}
-                  disabled={selectedTopic === topic && selectedDifficulty === "coding"}
-                  title={languages?.length ? `Detected languages: ${languages.join(", ")}` : "Coding practice"}
-                  style={{
-                    padding: "12px 20px",
-                    backgroundColor:
-                      selectedTopic === topic && selectedDifficulty === "coding"
-                        ? "#7c3aed"
-                        : "#8b5cf6",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    fontSize: "14px",
-                    transition: "all 0.3s ease",
-                    opacity:
-                      selectedTopic === topic && selectedDifficulty === "coding"
-                        ? 0.9
-                        : 1,
-                  }}
-                >
-                  Coding
-                </button>
-
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", width: "100%" }}>
                   <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minWidth: "250px" }}>
                     <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", color: "#334155" }}>🟢 Easy Mode</h3>
@@ -256,15 +215,23 @@ const TopicDashboard = () => {
                     </div>
                   </div>
 
-                  <div style={{ backgroundColor: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 0.5, minWidth: "150px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                   <div style={{ backgroundColor: "#f1f5f9", padding: "16px", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minWidth: "200px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", color: "#334155" }}>⚡ Special Tests</h3>
                     <button
                       onClick={() => handleSectionClick(topic, "coding")}
-                      style={{ padding: "12px 20px", backgroundColor: "#8b5cf6", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "14px" }}
+                      style={{ padding: "12px 14px", backgroundColor: "#8b5cf6", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", flex: 1 }}
                     >
                       💻 Coding Test
                     </button>
+                    <button
+                      onClick={() => navigate("/communication-test")}
+                      style={{ padding: "12px 14px", backgroundColor: "#06b6d4", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "13px", flex: 1 }}
+                    >
+                      🗣️ Communication
+                    </button>
                   </div>
                 </div>
+              </div>
             </div>
           ))
         ) : (
