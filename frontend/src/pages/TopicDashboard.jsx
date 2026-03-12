@@ -8,11 +8,8 @@ const TopicDashboard = () => {
   const navigate = useNavigate();
   const { sessionId } = useParams();
   const [topics, setTopics] = useState([]);
-  const [languages, setLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedTopic, setSelectedTopic] = useState(null);
-  const [selectedDifficulty, setSelectedDifficulty] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +28,6 @@ const TopicDashboard = () => {
         if (cancelled) return;
         if (response.data.success) {
           setTopics(response.data.topics || []);
-          setLanguages(response.data.detected_languages || []);
         }
       } catch (err) {
         if (cancelled) return;
@@ -49,8 +45,6 @@ const TopicDashboard = () => {
   }, [sessionId]);
 
   const handleSectionClick = (topic, difficulty) => {
-    setSelectedTopic(topic);
-    setSelectedDifficulty(difficulty);
     const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}`;
     // Coding should open normal test directly (no VR option screen).
     if ((difficulty || "").toLowerCase() === "coding") {
@@ -61,8 +55,6 @@ const TopicDashboard = () => {
   };
 
   const handleVRClick = (topic, difficulty) => {
-    setSelectedTopic(topic);
-    setSelectedDifficulty(difficulty);
     const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}&mode=vr`;
     navigate(base);
   };
