@@ -157,6 +157,129 @@ def call_llm_with_fallback(prompt: str) -> str:
 
     raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
+
+def _extract_llm_text(response) -> str:
+    """Safely extract text from an LLM response object."""
+    if hasattr(response, 'content'):
+        text = response.content
+    elif hasattr(response, 'text'):
+        text = response.text
+    else:
+        text = str(response)
+    return str(text) if not isinstance(text, str) else text
+
+
+def _jaccard_similarity(text_a: str, text_b: str) -> float:
+    """Compute Jaccard similarity between two texts for deduplication."""
+    tokens_a = set(re.findall(r'[a-z0-9#+.\-]+', text_a.lower()))
+    tokens_b = set(re.findall(r'[a-z0-9#+.\-]+', text_b.lower()))
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _deduplicate_questions_consensus(
+    all_questions: List[Dict],
+    similarity_threshold: float = 0.65,
+) -> List[Dict]:
+    """
+    Consensus-based deduplication: compare questions across providers,
+    keep only high-quality unique questions. If multiple providers generated
+    similar questions, keep the longest/most detailed version.
+    """
+    if not all_questions:
+        return []
+
+    def _quality_score(q: Dict) -> float:
+        score = 0.0
+        q_text = (q.get("q") or q.get("question") or "")
+        a_text = (q.get("a") or q.get("answer") or "")
+        score += min(30, len(q_text.split()) * 2)
+        score += min(40, len(a_text.split()) * 1.5)
+        if q.get("code") or q.get("starter_code"):
+            score += 10
+        if q.get("examples"):
+            score += 5
+        if q.get("constraints"):
+            score += 5
+        if q.get("test_cases"):
+            score += 10
+        return score
+
+    scored = [(q, _quality_score(q)) for q in all_questions]
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    kept: List[Dict] = []
+    kept_texts: List[str] = []
+
+    for q, _sc in scored:
+        q_text = (q.get("q") or q.get("question") or "").strip()
+        if not q_text:
+            continue
+        is_duplicate = False
+        for existing_text in kept_texts:
+            if _jaccard_similarity(q_text, existing_text) > similarity_threshold:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            kept.append(q)
+            kept_texts.append(q_text)
+
+    return kept
+
+
+def call_llm_parallel(prompt: str) -> List[Dict]:
+    """
+    Call ALL available LLM providers in parallel using ThreadPoolExecutor.
+    Returns a list of {provider, text, error} dicts for all successful calls.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0.8"))
+
+    available = []
+    if os.getenv("OPENAI_API_KEY"):
+        available.append("openai")
+    if os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
+        available.append("google")
+    if os.getenv("ANTHROPIC_API_KEY"):
+        available.append("anthropic")
+
+    if not available:
+        raise RuntimeError("No AI provider API keys configured")
+
+    def _call_one(provider: str) -> Dict:
+        try:
+            llm = _create_llm_for_provider(provider, temperature)
+            response = llm.invoke(prompt)
+            text = _extract_llm_text(response)
+            print(f"[call_llm_parallel] Success with {provider} ({len(text)} chars)")
+            return {"provider": provider, "text": text, "error": None}
+        except Exception as e:
+            print(f"[call_llm_parallel] Provider {provider} failed: {e}")
+            return {"provider": provider, "text": None, "error": str(e)}
+
+    results = []
+    with ThreadPoolExecutor(max_workers=len(available)) as executor:
+        futures = {executor.submit(_call_one, p): p for p in available}
+        for future in as_completed(futures, timeout=90):
+            try:
+                result = future.result(timeout=60)
+                if result["text"]:
+                    results.append(result)
+            except Exception as e:
+                provider = futures[future]
+                print(f"[call_llm_parallel] Future for {provider} failed: {e}")
+
+    if not results:
+        raise RuntimeError("All LLM providers failed in parallel call")
+
+    print(f"[call_llm_parallel] {len(results)}/{len(available)} providers succeeded")
+    return results
+
+
 # --- Connect to MongoDB ---
 # Prefer a full connection string in MONGO_URI. If not provided, build from parts.
 MONGO_URI = os.getenv("MONGO_URI")
@@ -823,18 +946,9 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
     # print("📝 Generating varied interview questions...")
     prompt = generate_dynamic_prompt(resume_text, skills, contexts, focus_analysis, session)
     
-    # Step 5: Call LLM with dynamic prompt (multi-provider fallback)
+    # Step 5: Call ALL LLM providers in PARALLEL and merge with consensus checking
     llm_text = None  # Initialize to avoid unbound variable error
     try:
-        llm_text = call_llm_with_fallback(prompt)
-
-        # print(f"\n🎯 Session {session.session_id} - Interview Questions Generated")
-        # print("="*60)
-        # print("🎤 RAW LLM OUTPUT")
-        # print("="*60)
-        # print(llm_text)
-        # print("="*60)
-
         # --- Pydantic models for validation ---
         class QAItem(BaseModel):
             q: str
@@ -844,14 +958,14 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
             code: Optional[str] = None
 
         class DSAItem(QAItem):
-            difficulty: Optional[str] = 'Medium'  # Override with same type as parent
+            difficulty: Optional[str] = 'Medium'
             complexity: str = ""
             examples: str = ""
             constraints: str = ""
-            type: Optional[str] = None  # "coding" or "analytical"
-            language: Optional[str] = None  # "python", "java", "cpp", etc.
-            starter_code: Optional[str] = None  # function signature
-            test_cases: Optional[List[dict]] = None  # [{input, expected_output}]
+            type: Optional[str] = None
+            language: Optional[str] = None
+            starter_code: Optional[str] = None
+            test_cases: Optional[List[dict]] = None
 
         class Metadata(BaseModel):
             experience_level: str
@@ -866,27 +980,20 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
             dsa: List[DSAItem] = Field(min_length=1, max_length=5)
             behavioral: List[QAItem] = Field(min_length=2, max_length=5)
 
-        # Try robust extraction of JSON-like content
         def extract_json_from_text(s: str):
             try:
                 return json.loads(s)
             except Exception:
                 pass
-
-            import re
-            # try fenced json
             m = re.search(r"```json\s*(\{.*?\})\s*```", s, flags=re.S)
             if m:
                 try:
                     return json.loads(m.group(1))
                 except Exception:
                     pass
-
-            # try to find first balanced JSON object
             start = s.find('{')
             if start == -1:
                 return None
-            # crude but often effective: find last '}'
             end = s.rfind('}')
             if end == -1 or end <= start:
                 return None
@@ -896,16 +1003,30 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
             except Exception:
                 return None
 
-        parsed_json = extract_json_from_text(llm_text if isinstance(llm_text, str) else str(llm_text))
-        # print(f"🔍 Extracted JSON keys: {list(parsed_json.keys()) if parsed_json else 'None'}")
-        if parsed_json and 'dsa' in parsed_json:
-            dsa_sample = parsed_json['dsa'][0] if parsed_json['dsa'] else {}
-            # print(f"🔍 First DSA item keys: {list(dsa_sample.keys())}")
-        parsed_valid = None
-        if parsed_json is None:
-            pass
-            print("⚠️ Failed to extract JSON from LLM output. Will fallback to building sections from retrieved contexts.")
-        else:
+        # --- PARALLEL: Call all providers simultaneously ---
+        parallel_results = call_llm_parallel(prompt)
+        llm_text = parallel_results[0]["text"] if parallel_results else None
+
+        # Parse each provider's response and collect all questions
+        all_parsed_sections = {
+            "easy_medium": [],
+            "hard": [],
+            "dsa": [],
+            "behavioral": [],
+        }
+        any_valid = False
+
+        for result in parallel_results:
+            provider = result["provider"]
+            raw_text = result["text"]
+            if not raw_text:
+                continue
+
+            parsed_json = extract_json_from_text(raw_text if isinstance(raw_text, str) else str(raw_text))
+            if not parsed_json:
+                print(f"[parallel-merge] Failed to parse JSON from {provider}")
+                continue
+
             # Add missing DSA fields before validation
             if 'dsa' in parsed_json:
                 for item in parsed_json['dsa']:
@@ -915,66 +1036,97 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
                         item['constraints'] = "1 <= n <= 10^5\nTime limit: 1 second"
                     if 'complexity' not in item:
                         item['complexity'] = "Time: O(n), Space: O(1)"
-            
+
             # Validate with pydantic
             try:
                 parsed_valid = LLMOutput.parse_obj(parsed_json)
-                # print("✅ LLM output validated by Pydantic")
-            except ValidationError as ve:
-                print("❌ Pydantic validation failed:")
-                print(ve.json())
-                parsed_valid = None
+                any_valid = True
+                print(f"[parallel-merge] Valid output from {provider}: {len(parsed_valid.easy_medium)} easy/med, {len(parsed_valid.hard)} hard, {len(parsed_valid.dsa)} dsa, {len(parsed_valid.behavioral)} behavioral")
 
-        # Build final response from validated model or fallback to contexts
+                # Collect questions from this provider, tag with provider name
+                for q in parsed_valid.easy_medium:
+                    d = q.dict()
+                    d["_provider"] = provider
+                    all_parsed_sections["easy_medium"].append(d)
+                for q in parsed_valid.hard:
+                    d = q.dict()
+                    d["_provider"] = provider
+                    all_parsed_sections["hard"].append(d)
+                for q in parsed_valid.dsa:
+                    d = q.dict()
+                    d["_provider"] = provider
+                    all_parsed_sections["dsa"].append(d)
+                for q in parsed_valid.behavioral:
+                    d = q.dict()
+                    d["_provider"] = provider
+                    all_parsed_sections["behavioral"].append(d)
+
+            except ValidationError as ve:
+                print(f"[parallel-merge] Pydantic validation failed for {provider}: {ve}")
+                # Still try to extract raw questions even if validation fails
+                for section_key in ["easy_medium", "hard", "dsa", "behavioral"]:
+                    raw_items = parsed_json.get(section_key, [])
+                    if isinstance(raw_items, list):
+                        for item in raw_items:
+                            if isinstance(item, dict) and (item.get("q") or item.get("question")):
+                                item["_provider"] = provider
+                                all_parsed_sections[section_key].append(item)
+                                any_valid = True
+
+        # --- CONSENSUS DEDUPLICATION: Merge and keep only highest-quality unique questions ---
         final_sections = []
 
-        if parsed_valid is not None:
-            # convert pydantic model into sections
-            def mk_section(title: str, items):
+        if any_valid:
+            section_configs = [
+                ("Easy/Medium", "easy_medium", 5),
+                ("Hard", "hard", 4),
+                ("DSA", "dsa", 3),
+                ("Behavioral", "behavioral", 3),
+            ]
+
+            total_providers = len(parallel_results)
+            print(f"[parallel-merge] Merging from {total_providers} providers with consensus deduplication")
+
+            for title, key, target_count in section_configs:
+                raw_questions = all_parsed_sections.get(key, [])
+                # Consensus deduplication: keeps highest-quality, unique questions
+                deduped = _deduplicate_questions_consensus(raw_questions, similarity_threshold=0.65)
+
                 questions = []
-                for i, it in enumerate(items, 1):
-                    qid = it.id or f"{session.session_id}_{title.replace('/','_').replace(' ','_').lower()}_q{i}"
+                for i, q in enumerate(deduped[:target_count * 2], 1):  # Keep extra for variety
+                    qid = q.get("id") or f"{session.session_id}_{title.replace('/','_').replace(' ','_').lower()}_q{i}"
                     item_obj = {
                         "id": qid,
-                        "q": it.q,
-                        "a": it.a,
+                        "q": q.get("q") or q.get("question") or "",
+                        "a": q.get("a") or q.get("answer") or "",
                     }
-
-                    # Common optional fields
-                    if getattr(it, 'difficulty', None):
-                        item_obj['difficulty'] = getattr(it, 'difficulty')
-                    if getattr(it, 'code', None):
-                        item_obj['code'] = getattr(it, 'code')
-
-                    # DSA-specific extras
-                    if hasattr(it, 'complexity') and getattr(it, 'complexity', None):
-                        item_obj['complexity'] = getattr(it, 'complexity')
-                    if hasattr(it, 'examples') and getattr(it, 'examples', None):
-                        item_obj['examples'] = getattr(it, 'examples')
-                    if hasattr(it, 'constraints') and getattr(it, 'constraints', None):
-                        item_obj['constraints'] = getattr(it, 'constraints')
-
-                    # Coding question extras
-                    if hasattr(it, 'type') and getattr(it, 'type', None):
-                        item_obj['type'] = getattr(it, 'type')
-                    if hasattr(it, 'language') and getattr(it, 'language', None):
-                        item_obj['language'] = getattr(it, 'language')
-                    if hasattr(it, 'starter_code') and getattr(it, 'starter_code', None):
-                        item_obj['starter_code'] = getattr(it, 'starter_code')
-                    if hasattr(it, 'test_cases') and getattr(it, 'test_cases', None):
-                        item_obj['test_cases'] = getattr(it, 'test_cases')
-
+                    if q.get("difficulty"):
+                        item_obj["difficulty"] = q["difficulty"]
+                    if q.get("code"):
+                        item_obj["code"] = q["code"]
+                    if q.get("complexity"):
+                        item_obj["complexity"] = q["complexity"]
+                    if q.get("examples"):
+                        item_obj["examples"] = q["examples"]
+                    if q.get("constraints"):
+                        item_obj["constraints"] = q["constraints"]
+                    if q.get("type"):
+                        item_obj["type"] = q["type"]
+                    if q.get("language"):
+                        item_obj["language"] = q["language"]
+                    if q.get("starter_code"):
+                        item_obj["starter_code"] = q["starter_code"]
+                    if q.get("test_cases"):
+                        item_obj["test_cases"] = q["test_cases"]
                     questions.append(item_obj)
+                    if len(questions) >= target_count:
+                        break
 
-                return {"title": title, "questions": questions}
-
-            final_sections.append(mk_section('Easy/Medium', parsed_valid.easy_medium))
-            final_sections.append(mk_section('Hard', parsed_valid.hard))
-            final_sections.append(mk_section('DSA', parsed_valid.dsa))
-            final_sections.append(mk_section('Behavioral', parsed_valid.behavioral))
+                print(f"[parallel-merge] {title}: {len(raw_questions)} raw -> {len(deduped)} deduped -> {len(questions)} final")
+                final_sections.append({"title": title, "questions": questions})
 
         else:
-            # fallback: build sections from contexts dict
+            # Fallback: build sections from contexts dict
             qid = 1
             ctx_map = [
                 ("Easy/Medium", contexts.get('easy_medium', [])),
@@ -1008,8 +1160,6 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
                         qobj['examples'] = examples
                     if constraints:
                         qobj['constraints'] = constraints
-                    
-                    # For DSA sections, ensure examples and constraints are present
                     if title == "DSA":
                         if not examples:
                             qobj['examples'] = "Example: Input: [sample input]\nOutput: [expected output]\nExplanation: [brief explanation]"
@@ -1021,11 +1171,12 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
                 final_sections.append({"title": title, "questions": questions})
 
         final_response = {
-            "status": "success", 
+            "status": "success",
             "sections": final_sections,
-            "session_id": session.session_id
+            "session_id": session.session_id,
+            "providers_used": [r["provider"] for r in parallel_results],
         }
-        
+
     except Exception as e:
         print(f"❌ Error calling LLM: {e}")
         fallback_sections = build_resume_only_questions(resume_text, skills, focus_analysis, session)
@@ -1038,14 +1189,13 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
         }
 
     # Return the structured final response and include diagnostics
-    # Custom set assembly removed — keep the original `final_response['sections']` as built above.
-
     final_response.update({
         "skills": skills,
         "focus_analysis": focus_analysis,
         "contexts_retrieved": total_contexts,
         "llm_output": llm_text
     })
+
 
     return final_response
 

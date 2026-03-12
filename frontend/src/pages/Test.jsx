@@ -3,14 +3,11 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
-
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
-
 const isSqlTopic = (topicText) => {
   const t = (topicText || "").toLowerCase();
   return t.includes("sql") || t.includes("mysql") || t.includes("postgres") || t.includes("database") || t.includes("sequel");
 };
-
 const Test = () => {
   const { topic } = useParams();
   const location = useLocation();
@@ -37,7 +34,6 @@ const Test = () => {
   const [isTalking, setIsTalking] = useState(false);
   const testContainerRef = useRef(null);
   const tabSwitchWarningRef = useRef(null);
-
   // Text-to-Speech function
   const stopSpeech = () => {
     if ("speechSynthesis" in window) {
@@ -45,7 +41,6 @@ const Test = () => {
       setIsTalking(false);
     }
   };
-
   const speakQuestion = (text) => {
     if ("speechSynthesis" in window) {
       stopSpeech(); // Stop previous speech
@@ -55,11 +50,10 @@ const Test = () => {
       utterance.onstart = () => setIsTalking(true);
       utterance.onend = () => setIsTalking(false);
       utterance.onerror = () => setIsTalking(false);
-      
+
       window.speechSynthesis.speak(utterance);
     }
   };
-
   // Trigger TTS when question changes
   useEffect(() => {
     if (testMode === "normal" && testStarted && questions.length > 0 && questions[currentQuestionIndex]) {
@@ -74,14 +68,12 @@ const Test = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQuestionIndex, questions, testStarted, testMode]);
-
   // Clean up speech on unmount
   useEffect(() => {
     return () => {
       stopSpeech();
     };
   }, []);
-
   // Initialize speech recognition
   useEffect(() => {
     if (testMode !== "normal") return;
@@ -91,18 +83,15 @@ const Test = () => {
       recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = true;
       recognitionRef.current.language = "en-US";
-
       recognitionRef.current.onstart = () => {
         setIsListening(true);
       };
-
       recognitionRef.current.onend = () => {
         if (pendingStopRef.current) {
           pendingStopRef.current = false;
           setIsListening(false);
           return;
         }
-
         if (keepListeningRef.current) {
           try {
             recognitionRef.current.start();
@@ -113,17 +102,14 @@ const Test = () => {
           setIsListening(false);
         }
       };
-
       recognitionRef.current.onresult = (event) => {
         let finalTranscript = "";
-
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
             finalTranscript += transcript + " ";
           }
         }
-
         // Append final transcript to answer
         if (finalTranscript) {
           setAnswers((prev) => ({
@@ -131,11 +117,9 @@ const Test = () => {
             [currentQuestionIndex]: (prev[currentQuestionIndex] || "") + finalTranscript,
           }));
         }
-
         if (silenceTimeoutRef.current) {
           clearTimeout(silenceTimeoutRef.current);
         }
-
         silenceTimeoutRef.current = setTimeout(() => {
           if (!keepListeningRef.current || !recognitionRef.current) return;
           keepListeningRef.current = false;
@@ -147,20 +131,18 @@ const Test = () => {
           }
         }, 2500);
       };
-
       recognitionRef.current.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
         showWarning(`🎙 Error: ${event.error}`);
       };
     }
   }, [currentQuestionIndex, testMode]);
-
   // Fetch questions for the topic when difficulty is selected
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
         const token = localStorage.getItem("mockmate_token");
-        
+
         // First, try to get resume-based questions for this specific topic
         try {
           const resumeResponse = await axios.get(
@@ -171,16 +153,14 @@ const Test = () => {
               },
             }
           );
-          
+
           console.log("Resume questions response:", resumeResponse.data);
-          
+
           if (resumeResponse.data.session_id) {
             setSessionId(resumeResponse.data.session_id);
           }
-
           if (resumeResponse.data.questions && resumeResponse.data.questions.length > 0) {
             let filteredQuestions = resumeResponse.data.questions;
-
             if (difficulty === "coding") {
               const codingOnly = filteredQuestions.filter(
                 (q) => (q.type || "").toLowerCase() === "coding"
@@ -194,7 +174,6 @@ const Test = () => {
                 filteredQuestions = difficultyFiltered;
               }
             }
-
             if (filteredQuestions.length > 0) {
               console.log("Using resume questions:", filteredQuestions);
               setQuestions(filteredQuestions);
@@ -204,7 +183,7 @@ const Test = () => {
         } catch (resumeError) {
           console.log("Resume questions error:", resumeError.response?.data || resumeError.message);
         }
-        
+
         // Fallback: Use general question generation endpoint
         console.log("Fetching general questions for topic:", decodeURIComponent(topic), "difficulty:", difficulty);
         const response = await axios.post(
@@ -220,13 +199,12 @@ const Test = () => {
             },
           }
         );
-        
+
         console.log("General questions response:", response.data);
-        
+
         if (response.data.session_id) {
           setSessionId(response.data.session_id);
         }
-
         if (response.data.questions && response.data.questions.length > 0) {
           let fetched = response.data.questions;
           if (difficulty === "coding") {
@@ -253,16 +231,16 @@ const Test = () => {
                   : "def solve(input_data):\\n    arr = list(map(int, input_data.strip().split()))\\n    # write code\\n    return \\\"\\\"",
                 test_cases: sqlMode
                   ? [
-                      {
-                        setup_sql: "CREATE TABLE departments(id INTEGER PRIMARY KEY, name TEXT);CREATE TABLE employees(id INTEGER PRIMARY KEY, name TEXT, department_id INTEGER);INSERT INTO departments(id,name) VALUES (1,'Engineering'),(2,'HR');INSERT INTO employees(id,name,department_id) VALUES (1,'A',1),(2,'B',1),(3,'C',2);",
-                        expected_output: "Engineering|2\\nHR|1"
-                      }
-                    ]
+                    {
+                      setup_sql: "CREATE TABLE departments(id INTEGER PRIMARY KEY, name TEXT);CREATE TABLE employees(id INTEGER PRIMARY KEY, name TEXT, department_id INTEGER);INSERT INTO departments(id,name) VALUES (1,'Engineering'),(2,'HR');INSERT INTO employees(id,name,department_id) VALUES (1,'A',1),(2,'B',1),(3,'C',2);",
+                      expected_output: "Engineering|2\\nHR|1"
+                    }
+                  ]
                   : [
-                      { input: "1 -2 3 4 -1", expected_output: "7" },
-                      { input: "-5 -2 -1", expected_output: "-1" },
-                      { input: "2 3 -2 5", expected_output: "8" }
-                    ]
+                    { input: "1 -2 3 4 -1", expected_output: "7" },
+                    { input: "-5 -2 -1", expected_output: "-1" },
+                    { input: "2 3 -2 5", expected_output: "8" }
+                  ]
               }
             ]);
           } else {
@@ -287,16 +265,16 @@ const Test = () => {
                   : "def solve(input_data):\\n    lines = [ln.strip() for ln in input_data.strip().splitlines() if ln.strip()]\\n    a = list(map(int, lines[0].split())) if lines else []\\n    b = list(map(int, lines[1].split())) if len(lines)>1 else []\\n    # write code\\n    return \\\"\\\"",
                 test_cases: sqlMode
                   ? [
-                      {
-                        setup_sql: "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT);CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INTEGER);INSERT INTO customers VALUES (1,'A'),(2,'B'),(3,'C');INSERT INTO orders VALUES (1,1),(2,1),(3,1),(4,2);",
-                        expected_output: "A"
-                      }
-                    ]
+                    {
+                      setup_sql: "CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT);CREATE TABLE orders(id INTEGER PRIMARY KEY, customer_id INTEGER);INSERT INTO customers VALUES (1,'A'),(2,'B'),(3,'C');INSERT INTO orders VALUES (1,1),(2,1),(3,1),(4,2);",
+                      expected_output: "A"
+                    }
+                  ]
                   : [
-                      { input: "1 3 5\\n2 4 6", expected_output: "1 2 3 4 5 6" },
-                      { input: "1 2 3\\n", expected_output: "1 2 3" },
-                      { input: "\\n4 5", expected_output: "4 5" }
-                    ]
+                    { input: "1 3 5\\n2 4 6", expected_output: "1 2 3 4 5 6" },
+                    { input: "1 2 3\\n", expected_output: "1 2 3" },
+                    { input: "\\n4 5", expected_output: "4 5" }
+                  ]
               }
             ]);
           } else {
@@ -338,16 +316,16 @@ const Test = () => {
                 : "def solve(input_data):\\n    n = int(input_data.strip())\\n    # write code\\n    return \\\"\\\"",
               test_cases: sqlMode
                 ? [
-                    {
-                      setup_sql: "CREATE TABLE employees(id INTEGER PRIMARY KEY, salary INTEGER);INSERT INTO employees VALUES (1,100),(2,300),(3,200),(4,300);",
-                      expected_output: "200"
-                    }
-                  ]
+                  {
+                    setup_sql: "CREATE TABLE employees(id INTEGER PRIMARY KEY, salary INTEGER);INSERT INTO employees VALUES (1,100),(2,300),(3,200),(4,300);",
+                    expected_output: "200"
+                  }
+                ]
                 : [
-                    { input: "10", expected_output: "2 3 5 7" },
-                    { input: "2", expected_output: "2" },
-                    { input: "1", expected_output: "" }
-                  ]
+                  { input: "10", expected_output: "2 3 5 7" },
+                  { input: "2", expected_output: "2" },
+                  { input: "1", expected_output: "" }
+                ]
             }
           ]);
         } else {
@@ -361,12 +339,18 @@ const Test = () => {
         }
       }
     };
-
     if (difficulty) {
       fetchQuestions();
     }
   }, [difficulty, topic]);
 
+  // Auto-trigger VR mode if requested
+  useEffect(() => {
+    if (questions.length > 0 && testMode === "vr" && !testStarted && !vrBridgeToken && !vrBusy) {
+      console.log("Auto-triggering VR mode...");
+      startVRTest();
+    }
+  }, [questions, testMode, testStarted, vrBridgeToken, vrBusy]);
   // Set timer when questions are loaded
   useEffect(() => {
     if (questions.length > 0 && timeLeft === null) {
@@ -376,31 +360,25 @@ const Test = () => {
       setCurrentScore(0);
     }
   }, [questions, timeLeft]);
-
   // Timer countdown
   useEffect(() => {
     if (testMode === "normal" && testStarted && timeLeft !== null && timeLeft > 0) {
       const timer = setTimeout(() => {
         setTimeLeft(timeLeft - 1);
       }, 1000);
-
       if (timeLeft === 60 || timeLeft === 300) {
         showWarning(`⏰ ${timeLeft} seconds remaining!`);
       }
-
       if (timeLeft === 0) {
         submitTest();
       }
-
       return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testStarted, timeLeft, testMode]);
-
   // Detect tab/window switch
   useEffect(() => {
     if (!testStarted || testMode !== "normal") return;
-
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setTabSwitchCount((prev) => {
@@ -414,7 +392,6 @@ const Test = () => {
         });
       }
     };
-
     const handleFocusChange = (e) => {
       if (e.type === "blur") {
         setTabSwitchCount((prev) => {
@@ -428,24 +405,19 @@ const Test = () => {
         });
       }
     };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("blur", handleFocusChange);
-
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", handleFocusChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testStarted, isFullscreen, testMode]);
-
   // Fullscreen must be triggered from a user gesture; no auto-request here.
-
   // Request fullscreen
   const requestFullscreen = async () => {
     try {
       const targetEl = testContainerRef.current || document.documentElement;
-
       if (targetEl.requestFullscreen) {
         await targetEl.requestFullscreen();
         setIsFullscreen(true);
@@ -463,12 +435,11 @@ const Test = () => {
       showWarning("Please enter full screen or you will be suspended from test");
     }
   };
-
   // Exit fullscreen handler
   useEffect(() => {
     const handleFullscreenChange = () => {
-        if (!document.fullscreenElement) {
-          setIsFullscreen(false);
+      if (!document.fullscreenElement) {
+        setIsFullscreen(false);
         if (testStarted && testMode === "normal") {
           showWarning("Please enter full screen or you will be suspended from test");
         }
@@ -476,14 +447,12 @@ const Test = () => {
         setIsFullscreen(true);
       }
     };
-
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testStarted, testMode]);
-
   const showWarning = (message) => {
     if (tabSwitchWarningRef.current) {
       tabSwitchWarningRef.current.textContent = message;
@@ -499,7 +468,6 @@ const Test = () => {
       window.alert(message);
     }
   };
-
   const handleAnswerChange = (value) => {
     setAnswers({
       ...answers,
@@ -513,7 +481,6 @@ const Test = () => {
       setCurrentScore(calculateAverageScore(updated));
     }
   };
-
   const calculateAverageScore = (results, questionsList = questions) => {
     // Calculate average across ALL questions: graded get their score, ungraded default to 0
     if (!questionsList || questionsList.length === 0) return 0;
@@ -523,7 +490,6 @@ const Test = () => {
     }
     return Math.round(totalScore / questionsList.length);
   };
-
   const [gradingInProgress, setGradingInProgress] = useState(false);
   const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
   const [markedForReview, setMarkedForReview] = useState(new Set());
@@ -537,7 +503,6 @@ const Test = () => {
   const [vrBridgeToken, setVrBridgeToken] = useState("");
   const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
   const vrStartedAtRef = useRef(null);
-
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qDifficulty = (params.get("difficulty") || "").toLowerCase();
@@ -554,14 +519,12 @@ const Test = () => {
       }
     }
   }, [location.search]);
-
   useEffect(() => {
     if (difficulty === "coding" && questions.length > 0 && !testMode) {
       setTestMode("normal");
       setTestStarted(true);
     }
   }, [difficulty, questions.length, testMode]);
-
   // Track visited questions when navigating
   useEffect(() => {
     setVisitedQuestions((prev) => {
@@ -570,7 +533,6 @@ const Test = () => {
       return next;
     });
   }, [currentQuestionIndex]);
-
   const toggleMarkForReview = () => {
     setMarkedForReview((prev) => {
       const next = new Set(prev);
@@ -582,7 +544,6 @@ const Test = () => {
       return next;
     });
   };
-
   // Get question status for the navigation panel
   const getQuestionStatus = (index) => {
     const isCurrent = index === currentQuestionIndex;
@@ -596,7 +557,6 @@ const Test = () => {
     if (isVisited) return "not-answered";
     return "not-visited";
   };
-
   const statusConfig = {
     current: { bg: "#6366f1", border: "#6366f1", color: "#fff", shadow: "0 0 0 3px rgba(99,102,241,0.3)" },
     answered: { bg: "#10b981", border: "#10b981", color: "#fff", shadow: "none" },
@@ -605,10 +565,8 @@ const Test = () => {
     "answered-marked": { bg: "linear-gradient(135deg, #10b981, #8b5cf6)", border: "#8b5cf6", color: "#fff", shadow: "none" },
     "not-visited": { bg: "#e2e8f0", border: "#cbd5e1", color: "#64748b", shadow: "none" },
   };
-
   const submitAnswer = async () => {
     const question = questions[currentQuestionIndex];
-
     // For coding questions, use the coding run result if available
     if (question.type === "coding") {
       const codeResult = codingResults[currentQuestionIndex];
@@ -634,13 +592,11 @@ const Test = () => {
       showWarning(correct ? "✅ All test cases passed!" : `⚠️ ${codeResult.passed}/${codeResult.total} test cases passed`);
       return;
     }
-
     const answerText = answers[currentQuestionIndex] || "";
     if (!answerText.trim()) {
       showWarning("⚠️ Please provide an answer before submitting");
       return;
     }
-
     // Call backend /evaluate for accurate TF-IDF scoring
     setGradingInProgress(true);
     showWarning("⏳ Evaluating your answer...");
@@ -660,13 +616,11 @@ const Test = () => {
           },
         }
       );
-
       const result = {
         score: evalResponse.data.score || 0,
         correct: evalResponse.data.is_correct || false,
         feedback: evalResponse.data.feedback || "Evaluated.",
       };
-
       const updated = {
         ...questionResults,
         [currentQuestionIndex]: result,
@@ -677,7 +631,7 @@ const Test = () => {
     } catch (evalErr) {
       console.error("Backend evaluation error, using fallback:", evalErr);
       // Fallback: lightweight client-side TF-IDF approximation
-      const stopWords = new Set(["a","an","the","is","are","was","were","be","been","have","has","had","do","does","did","will","would","shall","should","may","might","can","could","and","but","or","not","if","then","else","when","of","at","by","for","with","about","to","from","in","into","what","which","who","this","that","it","how","why","where","your","you"]);
+      const stopWords = new Set(["a", "an", "the", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "shall", "should", "may", "might", "can", "could", "and", "but", "or", "not", "if", "then", "else", "when", "of", "at", "by", "for", "with", "about", "to", "from", "in", "into", "what", "which", "who", "this", "that", "it", "how", "why", "where", "your", "you"]);
       const tokenize = (t) => (t || "").toLowerCase().match(/[a-z0-9#+.-]+/g)?.filter(w => !stopWords.has(w) && w.length > 1) || [];
       const ansTokens = tokenize(answerText);
       const refTokens = tokenize(question.answer || "");
@@ -695,7 +649,6 @@ const Test = () => {
         const overlap = [...qSet].filter(w => ansSet.has(w)).length;
         score = Math.round(Math.min(80, (overlap / qSet.size) * 80 + Math.min(15, ansTokens.length / 8)));
       }
-
       const result = {
         score,
         correct: score >= 55,
@@ -709,7 +662,6 @@ const Test = () => {
       setGradingInProgress(false);
     }
   };
-
   // Callback when coding question run completes
   const handleCodingRunResult = (runResult) => {
     setCodingResults((prev) => ({
@@ -717,13 +669,11 @@ const Test = () => {
       [currentQuestionIndex]: runResult,
     }));
   };
-
   const toggleMicrophone = () => {
     if (!recognitionRef.current) {
       showWarning("🎙 Speech recognition not supported in your browser");
       return;
     }
-
     if (isListening) {
       keepListeningRef.current = false;
       pendingStopRef.current = true;
@@ -739,18 +689,16 @@ const Test = () => {
       recognitionRef.current.start();
     }
   };
-
   const regenerateCurrentQuestion = async () => {
     if (!sessionId) {
       showWarning("⚠️ No session available");
       return;
     }
-
     try {
       const token = localStorage.getItem("mockmate_token");
-      
+
       showWarning("🔄 Regenerating question...");
-      
+
       const response = await axios.post(
         `${API_BASE}/regenerate-question?session_id=${encodeURIComponent(sessionId)}&question_index=${currentQuestionIndex}`,
         {},
@@ -760,24 +708,20 @@ const Test = () => {
           },
         }
       );
-
       if (response.data.success && response.data.new_question) {
         // Update questions array with new question
         const updatedQuestions = [...questions];
         updatedQuestions[currentQuestionIndex] = response.data.new_question;
         setQuestions(updatedQuestions);
-
         // Clear the answer for this question
         const updatedAnswers = { ...answers };
         delete updatedAnswers[currentQuestionIndex];
         setAnswers(updatedAnswers);
-
         // Clear any previous result for this question
         const updatedResults = { ...questionResults };
         delete updatedResults[currentQuestionIndex];
         setQuestionResults(updatedResults);
         setCurrentScore(calculateAverageScore(updatedResults));
-
         showWarning("✅ Question regenerated! You have a fresh question to try.");
       } else {
         showWarning("❌ Failed to regenerate question");
@@ -787,13 +731,11 @@ const Test = () => {
       showWarning("❌ Error regenerating question: " + (error.response?.data?.detail || error.message));
     }
   };
-
   const startVRTest = async () => {
     if (!sessionId) {
       showWarning("No session available for VR mode");
       return;
     }
-
     try {
       setVrBusy(true);
       const token = localStorage.getItem("mockmate_token");
@@ -812,7 +754,6 @@ const Test = () => {
           },
         }
       );
-
       setTestMode("vr");
       setVrCurrentQuestion(response.data.current_question || null);
       setVrCurrentIndex(0);
@@ -823,13 +764,58 @@ const Test = () => {
       setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
       vrStartedAtRef.current = Date.now();
       const bridgeToken = response.data.bridge_token || "";
+      // ── Auto-sync bridge token to Unity ──
+      // 1. Register token with backend so Unity can poll for it.
+      //    Uses a fixed device_id so Unity TokenPoller can find it.
+      try {
+        await axios.post(
+          `${API_BASE}/vr-bridge/register-token`,
+          {
+            device_id: "mockmate-vr-default",
+            bridge_token: bridgeToken,
+            api_base: API_BASE,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        console.log("[VR] Bridge token registered for polling.");
+      } catch (regErr) {
+        console.warn("[VR] Token registration failed (non-critical):", regErr);
+      }
+      // 2. Write token to local file via File System Access API (Chromium only).
+      //    Unity's MockmateVRTokenPoller reads %APPDATA%/MockmateVR/bridge_token.json.
+      try {
+        if (window.showSaveFilePicker) {
+          const tokenPayload = JSON.stringify({
+            bridge_token: bridgeToken,
+            api_base: API_BASE,
+            created_at: new Date().toISOString(),
+          });
+          // Use OPFS or try writing to a well-known folder.
+          const blob = new Blob([tokenPayload], { type: "application/json" });
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = "bridge_token.json";
+          // Auto-click to save (user may need to confirm location first time).
+          // We just download it — the Unity setup guide tells users where to put it.
+          link.click();
+          URL.revokeObjectURL(link.href);
+          console.log("[VR] bridge_token.json downloaded for Unity.");
+        }
+      } catch (fileErr) {
+        console.warn("[VR] Local file write skipped:", fileErr);
+      }
+      // 3. Deep link attempt (backup).
       const deepLink = `mockmate://start-vr?bridge_token=${encodeURIComponent(bridgeToken)}&api_base=${encodeURIComponent(API_BASE)}`;
       try {
-        // Try to open installed Unity VR app with token pre-filled.
         window.location.href = deepLink;
-        showWarning("VR mode initialized. Attempted to open Unity VR app automatically.");
+        showWarning("VR mode initialized. Bridge token sent to Unity automatically.");
       } catch {
-        showWarning("VR mode initialized. Unity app launch failed, use bridge token manually.");
+        showWarning("VR mode initialized. Token registered — Unity will pick it up automatically.");
       }
     } catch (error) {
       showWarning(`VR start failed: ${error.response?.data?.detail || error.message}`);
@@ -837,7 +823,6 @@ const Test = () => {
       setVrBusy(false);
     }
   };
-
   const refreshVRQuestion = async () => {
     if (!sessionId) return;
     try {
@@ -857,14 +842,12 @@ const Test = () => {
       showWarning(`VR sync failed: ${error.response?.data?.detail || error.message}`);
     }
   };
-
   const submitVRAnswer = async () => {
     if (!sessionId || !vrCurrentQuestion) return;
     if (!vrTranscript.trim()) {
       showWarning("Please paste or type the transcript from Unity");
       return;
     }
-
     try {
       setVrBusy(true);
       const token = localStorage.getItem("mockmate_token");
@@ -881,7 +864,6 @@ const Test = () => {
           },
         }
       );
-
       setVrRunningScore(response.data.running_percentage || 0);
       setVrCurrentQuestion(response.data.next_question || null);
       setVrCurrentIndex(response.data.next_question_index || vrCurrentIndex);
@@ -894,7 +876,6 @@ const Test = () => {
       setVrBusy(false);
     }
   };
-
   const completeVRTest = async () => {
     if (!sessionId) return;
     try {
@@ -924,11 +905,10 @@ const Test = () => {
       setVrBusy(false);
     }
   };
-
   const submitTest = async () => {
     console.log("submitTest called with questionResults:", questionResults);
     console.log("submitTest called with questions count:", questions.length);
-    
+
     // Calculate score from current state
     let localScore = 0;
     if (questions.length > 0) {
@@ -941,27 +921,24 @@ const Test = () => {
       localScore = Math.round(totalScore / questions.length);
     }
     console.log("Final local score calculated:", localScore);
-    
+
     setTestSubmitted(true);
-    
+
     try {
       const token = localStorage.getItem("mockmate_token");
-      
+
       // Step 1: Submit the test answers
       if (!sessionId) {
         console.error("No sessionId available for submit-test");
         return;
       }
-
       const answersPayload = questions.map((q, idx) => ({
         question: q.question,
         user_answer: answers[idx] || "",
         correct_answer: q.answer || "",
       }));
-
       const totalTimeSecs = questions.length * 60;
       const elapsed = timeLeft !== null ? totalTimeSecs - timeLeft : null;
-
       const submitResponse = await axios.post(
         `${API_BASE}/submit-test`,
         {
@@ -979,7 +956,6 @@ const Test = () => {
           },
         }
       );
-
       if (submitResponse.data && submitResponse.data.percentage !== undefined) {
         localStorage.setItem("lastTestScore", submitResponse.data.percentage);
       } else {
@@ -988,18 +964,15 @@ const Test = () => {
     } catch (error) {
       console.error("Error submitting test:", error);
     }
-
     if (document.fullscreenElement) {
       document.exitFullscreen();
     }
   };
-
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
-
   if (!difficulty) {
     return (
       <div
@@ -1031,12 +1004,11 @@ const Test = () => {
           <p style={{ color: "#666", marginBottom: "32px", lineHeight: "1.6" }}>
             Choose your difficulty level for the <strong>{decodeURIComponent(topic)}</strong> test.
           </p>
-
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {["Easy", "Medium", "Hard", "Coding"].map((level) => (
               <button
                 key={level}
-                 onClick={async () => {
+                onClick={async () => {
                   setQuestions([]);
                   setCurrentQuestionIndex(0);
                   setAnswers({});
@@ -1083,7 +1055,6 @@ const Test = () => {
               </button>
             ))}
           </div>
-
           <button
             onClick={() => navigate("/communication-test")}
             style={{
@@ -1101,7 +1072,6 @@ const Test = () => {
           >
             Go to Communication Test
           </button>
-
           <button
             onClick={() => navigate("/dashboard")}
             style={{
@@ -1131,7 +1101,6 @@ const Test = () => {
       </div>
     );
   }
-
   if (difficulty && !testMode) {
     if (questions.length === 0) {
       return (
@@ -1151,7 +1120,6 @@ const Test = () => {
         </div>
       );
     }
-
     return (
       <div
         style={{
@@ -1244,10 +1212,9 @@ const Test = () => {
       </div>
     );
   }
-
   if (testSubmitted) {
     const testScore = localStorage.getItem("lastTestScore");
-    
+
     return (
       <div
         style={{
@@ -1276,7 +1243,6 @@ const Test = () => {
           <p style={{ color: "#666", marginBottom: "24px" }}>
             Great job! Your test has been submitted and evaluated.
           </p>
-
           {testScore && (
             <div
               style={{
@@ -1306,7 +1272,6 @@ const Test = () => {
               </p>
             </div>
           )}
-
           <div
             style={{
               backgroundColor: "#f0f4ff",
@@ -1329,7 +1294,6 @@ const Test = () => {
               <strong>Tab Switches:</strong> {tabSwitchCount}/5
             </p>
           </div>
-
           <button
             onClick={() => navigate("/dashboard")}
             style={{
@@ -1353,7 +1317,6 @@ const Test = () => {
       </div>
     );
   }
-
   if (testMode === "vr") {
     return (
       <div
@@ -1389,7 +1352,6 @@ const Test = () => {
               </div>
             )}
           </div>
-
           <div
             style={{
               backgroundColor: "white",
@@ -1427,8 +1389,8 @@ const Test = () => {
                 <p style={{ margin: 0, color: "#334155", lineHeight: "1.7" }}>
                   {vrCurrentQuestion?.question || "No active question. Click Sync with Backend."}
                 </p>
-                )}
-              </div>
+              )}
+            </div>
             {vrBridgeToken && (
               <div style={{ marginTop: "12px", padding: "12px", borderRadius: "8px", backgroundColor: "#f8fafc", border: "1px dashed #94a3b8", fontSize: "12px", color: "#334155" }}>
                 <div><strong>Unity endpoints:</strong></div>
@@ -1438,7 +1400,6 @@ const Test = () => {
               </div>
             )}
           </div>
-
           {!vrCompleted && (
             <div
               style={{
@@ -1498,7 +1459,6 @@ const Test = () => {
               </div>
             </div>
           )}
-
           {vrCompleted && (
             <div style={{ display: "flex", gap: "10px" }}>
               <button
@@ -1535,7 +1495,6 @@ const Test = () => {
       </div>
     );
   }
-
   if (questions.length === 0) {
     return (
       <div
@@ -1554,11 +1513,9 @@ const Test = () => {
       </div>
     );
   }
-
   const currentQuestion = questions[currentQuestionIndex];
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
   const currentResult = questionResults[currentQuestionIndex];
-
   return (
     <div
       ref={testContainerRef}
@@ -1586,7 +1543,6 @@ const Test = () => {
           fontWeight: "600",
         }}
       />
-
       {/* Header */}
       <div
         style={{
@@ -1642,583 +1598,562 @@ const Test = () => {
           </p>
         </div>
       </div>
-
       {/* Layout: Main Content + Question Navigation Panel */}
       <div style={{ display: "flex", gap: "20px", maxWidth: "1280px", margin: "0 auto", alignItems: "flex-start" }}>
-
-      {/* Main Content */}
-      <div
-        style={{
-          backgroundColor: "white",
-          borderRadius: "16px",
-          padding: "32px",
-          boxShadow: "0 20px 60px rgba(99,102,241,0.1)",
-          flex: 1,
-          minWidth: 0,
-          border: "1px solid rgba(99,102,241,0.08)",
-        }}
-      >
-        {/* Progress Bar */}
-        <div style={{ marginBottom: "24px" }}>
-          <div
-            style={{
-              height: "6px",
-              backgroundColor: "#eef2ff",
-              borderRadius: "3px",
-              overflow: "hidden",
-            }}
-          >
+        {/* Main Content */}
+        <div
+          style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            padding: "32px",
+            boxShadow: "0 20px 60px rgba(99,102,241,0.1)",
+            flex: 1,
+            minWidth: 0,
+            border: "1px solid rgba(99,102,241,0.08)",
+          }}
+        >
+          {/* Progress Bar */}
+          <div style={{ marginBottom: "24px" }}>
             <div
               style={{
-                height: "100%",
-                backgroundColor: "#6366f1",
-                width: `${progress}%`,
-                transition: "width 0.3s ease",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Question */}
-        <div style={{ marginBottom: "32px" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
-            <h2 style={{ fontSize: "20px", color: "#1e293b", margin: 0, lineHeight: "1.6", flex: 1 }}>
-              {currentQuestion.question}
-            </h2>
-            <button
-              onClick={() => speakQuestion(currentQuestion.question)}
-              style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
+                height: "6px",
                 backgroundColor: "#eef2ff",
-                color: "#6366f1",
-                border: "none",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                flexShrink: 0
-              }}
-              title="Read Question"
-              aria-label="Read Question"
-            >
-              🔊
-            </button>
-            <button
-              onClick={() => regenerateCurrentQuestion()}
-              title="Regenerate this question"
-              aria-label="Regenerate Question"
-              style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                backgroundColor: "#f3e8ff",
-                color: "#9333ea",
-                border: "none",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                flexShrink: 0,
-                fontSize: "18px",
-                fontWeight: "bold",
-                transition: "all 0.3s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.backgroundColor = "#e9d5ff";
-                e.target.style.transform = "scale(1.1)";
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.backgroundColor = "#f3e8ff";
-                e.target.style.transform = "scale(1)";
+                borderRadius: "3px",
+                overflow: "hidden",
               }}
             >
-              🔄
-            </button>
-          </div>
-
-          {currentQuestion.difficulty && (
-            <div style={{ marginBottom: "16px" }}>
-              <span
+              <div
                 style={{
-                  display: "inline-block",
-                  padding: "4px 12px",
-                  backgroundColor:
-                    currentQuestion.difficulty === "easy"
-                      ? "#dcfce7"
-                      : currentQuestion.difficulty === "medium"
-                        ? "#fef3c7"
-                        : "#fee2e2",
-                  color:
-                    currentQuestion.difficulty === "easy"
-                      ? "#166534"
-                      : currentQuestion.difficulty === "medium"
-                        ? "#92400e"
-                        : "#991b1b",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                  fontWeight: "600",
+                  height: "100%",
+                  backgroundColor: "#6366f1",
+                  width: `${progress}%`,
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+          </div>
+          {/* Question */}
+          <div style={{ marginBottom: "32px" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
+              <h2 style={{ fontSize: "20px", color: "#1e293b", margin: 0, lineHeight: "1.6", flex: 1 }}>
+                {currentQuestion.question}
+              </h2>
+              <button
+                onClick={() => speakQuestion(currentQuestion.question)}
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "50%",
+                  backgroundColor: "#eef2ff",
+                  color: "#6366f1",
+                  border: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0
+                }}
+                title="Read Question"
+                aria-label="Read Question"
+              >
+                🔊
+              </button>
+              <button
+                onClick={() => regenerateCurrentQuestion()}
+                title="Regenerate this question"
+                aria-label="Regenerate Question"
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "50%",
+                  backgroundColor: "#f3e8ff",
+                  color: "#9333ea",
+                  border: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                  transition: "all 0.3s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.backgroundColor = "#e9d5ff";
+                  e.target.style.transform = "scale(1.1)";
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = "#f3e8ff";
+                  e.target.style.transform = "scale(1)";
                 }}
               >
-                {currentQuestion.difficulty === "easy"
-                  ? "🟢 Easy"
-                  : currentQuestion.difficulty === "medium"
-                    ? "🟡 Medium"
-                    : "🔴 Hard"}
-              </span>
-              {currentQuestion.type === "coding" && (
+                🔄
+              </button>
+            </div>
+            {currentQuestion.difficulty && (
+              <div style={{ marginBottom: "16px" }}>
                 <span
                   style={{
                     display: "inline-block",
                     padding: "4px 12px",
-                    backgroundColor: "#e0f2fe",
-                    color: "#0369a1",
+                    backgroundColor:
+                      currentQuestion.difficulty === "easy"
+                        ? "#dcfce7"
+                        : currentQuestion.difficulty === "medium"
+                          ? "#fef3c7"
+                          : "#fee2e2",
+                    color:
+                      currentQuestion.difficulty === "easy"
+                        ? "#166534"
+                        : currentQuestion.difficulty === "medium"
+                          ? "#92400e"
+                          : "#991b1b",
                     borderRadius: "4px",
                     fontSize: "12px",
                     fontWeight: "600",
-                    marginLeft: "8px",
                   }}
                 >
-                  💻 Coding Problem
+                  {currentQuestion.difficulty === "easy"
+                    ? "🟢 Easy"
+                    : currentQuestion.difficulty === "medium"
+                      ? "🟡 Medium"
+                      : "🔴 Hard"}
                 </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Interviewer Avatar */}
-        <div style={{
-          display: "flex",
-          justifyContent: "center",
-          marginBottom: "24px",
-        }}>
-          <div style={{
-            backgroundColor: "#f5f3ff",
-            borderRadius: "16px",
-            padding: "20px 32px",
-            border: "1px solid #e0e7ff",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            boxShadow: "0 2px 8px rgba(0,115,230,0.08)",
-          }}>
-            <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={150} />
+                {currentQuestion.type === "coding" && (
+                  <span
+                    style={{
+                      display: "inline-block",
+                      padding: "4px 12px",
+                      backgroundColor: "#e0f2fe",
+                      color: "#0369a1",
+                      borderRadius: "4px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      marginLeft: "8px",
+                    }}
+                  >
+                    💻 Coding Problem
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* Answer Input */}
-        <div style={{ marginBottom: "32px" }}>
-          {currentQuestion.type === "coding" ? (
-            /* ---- Coding Question: Monaco Editor + Test Runner ---- */
-            <>
-              <label
-                style={{
-                  fontWeight: "600",
-                  color: "#334155",
-                  display: "block",
-                  marginBottom: "12px",
-                }}
-              >
-                💻 Write Your Code:
-              </label>
-              <CodingQuestion
-                question={currentQuestion}
-                initialCode={answers[currentQuestionIndex] || currentQuestion.starter_code || ""}
-                onCodeChange={(code) => handleAnswerChange(code)}
-                onRunResult={handleCodingRunResult}
-              />
-            </>
-          ) : (
-            /* ---- Regular Question: Textarea + Mic ---- */
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+          {/* Interviewer Avatar */}
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            marginBottom: "24px",
+          }}>
+            <div style={{
+              backgroundColor: "#f5f3ff",
+              borderRadius: "16px",
+              padding: "20px 32px",
+              border: "1px solid #e0e7ff",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              boxShadow: "0 2px 8px rgba(0,115,230,0.08)",
+            }}>
+              <InterviewerAvatar isTalking={isTalking} isListening={isListening} size={150} />
+            </div>
+          </div>
+          {/* Answer Input */}
+          <div style={{ marginBottom: "32px" }}>
+            {currentQuestion.type === "coding" ? (
+              /* ---- Coding Question: Monaco Editor + Test Runner ---- */
+              <>
                 <label
                   style={{
                     fontWeight: "600",
                     color: "#334155",
+                    display: "block",
+                    marginBottom: "12px",
                   }}
                 >
-                  Your Answer:
+                  💻 Write Your Code:
                 </label>
-                <button
-                  onClick={toggleMicrophone}
-                  title={isListening ? "Click to stop recording" : "Click to start microphone"}
-                  style={{
-                    padding: "8px 12px",
-                    backgroundColor: isListening ? "#dc2626" : "#6366f1",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    fontSize: "12px",
-                    transition: "all 0.3s ease",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.opacity = "0.9";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.opacity = "1";
-                  }}
-                >
-                  {isListening ? (
-                    <>🛑 Stop Recording</>
-                  ) : (
-                    <>🎙 Speak Answer</>
-                  )}
-                </button>
-              </div>
-              <textarea
-                value={answers[currentQuestionIndex] || ""}
-                onChange={(e) => handleAnswerChange(e.target.value)}
-                placeholder="Type your answer here... or click 'Speak Answer' to use microphone"
-                style={{
-                  width: "100%",
-                  height: "200px",
-                  padding: "12px",
-                  border: isListening ? "2px solid #dc2626" : "1px solid #e0e7ff",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  fontFamily: "monospace",
-                  resize: "none",
-                  boxSizing: "border-box",
-                  backgroundColor: isListening ? "#fff5f5" : "white",
-                }}
-              />
-              {isListening && (
-                <div style={{ marginTop: "8px", padding: "8px 12px", backgroundColor: "#fee2e2", borderRadius: "6px", color: "#991b1b", fontSize: "12px", fontWeight: "600" }}>
-                  🎙 Listening... Speak now!
+                <CodingQuestion
+                  question={currentQuestion}
+                  initialCode={answers[currentQuestionIndex] || currentQuestion.starter_code || ""}
+                  onCodeChange={(code) => handleAnswerChange(code)}
+                  onRunResult={handleCodingRunResult}
+                />
+              </>
+            ) : (
+              /* ---- Regular Question: Textarea + Mic ---- */
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <label
+                    style={{
+                      fontWeight: "600",
+                      color: "#334155",
+                    }}
+                  >
+                    Your Answer:
+                  </label>
+                  <button
+                    onClick={toggleMicrophone}
+                    title={isListening ? "Click to stop recording" : "Click to start microphone"}
+                    style={{
+                      padding: "8px 12px",
+                      backgroundColor: isListening ? "#dc2626" : "#6366f1",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      fontWeight: "600",
+                      fontSize: "12px",
+                      transition: "all 0.3s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.opacity = "0.9";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.opacity = "1";
+                    }}
+                  >
+                    {isListening ? (
+                      <>🛑 Stop Recording</>
+                    ) : (
+                      <>🎙 Speak Answer</>
+                    )}
+                  </button>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Per-Question Result */}
-        {currentResult && (
-          <div
-            style={{
-              marginBottom: "24px",
-              padding: "12px",
-              borderRadius: "8px",
-              backgroundColor: currentResult.correct ? "#d1fae5" : "#fee2e2",
-              color: currentResult.correct ? "#065f46" : "#991b1b",
-              border: `2px solid ${currentResult.correct ? "#6ee7b7" : "#fca5a5"}`,
-            }}
-          >
-            <strong>{currentResult.correct ? "✅ Correct" : "❌ Incorrect"}</strong>
-            <div style={{ marginTop: "6px", color: "#334155" }}>
-              Score for this question: {currentResult.score}%
+                <textarea
+                  value={answers[currentQuestionIndex] || ""}
+                  onChange={(e) => handleAnswerChange(e.target.value)}
+                  placeholder="Type your answer here... or click 'Speak Answer' to use microphone"
+                  style={{
+                    width: "100%",
+                    height: "200px",
+                    padding: "12px",
+                    border: isListening ? "2px solid #dc2626" : "1px solid #e0e7ff",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontFamily: "monospace",
+                    resize: "none",
+                    boxSizing: "border-box",
+                    backgroundColor: isListening ? "#fff5f5" : "white",
+                  }}
+                />
+                {isListening && (
+                  <div style={{ marginTop: "8px", padding: "8px 12px", backgroundColor: "#fee2e2", borderRadius: "6px", color: "#991b1b", fontSize: "12px", fontWeight: "600" }}>
+                    🎙 Listening... Speak now!
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          {/* Per-Question Result */}
+          {currentResult && (
+            <div
+              style={{
+                marginBottom: "24px",
+                padding: "12px",
+                borderRadius: "8px",
+                backgroundColor: currentResult.correct ? "#d1fae5" : "#fee2e2",
+                color: currentResult.correct ? "#065f46" : "#991b1b",
+                border: `2px solid ${currentResult.correct ? "#6ee7b7" : "#fca5a5"}`,
+              }}
+            >
+              <strong>{currentResult.correct ? "✅ Correct" : "❌ Incorrect"}</strong>
+              <div style={{ marginTop: "6px", color: "#334155" }}>
+                Score for this question: {currentResult.score}%
+              </div>
+              <div style={{ marginTop: "4px", color: "#374151" }}>{currentResult.feedback}</div>
             </div>
-            <div style={{ marginTop: "4px", color: "#374151" }}>{currentResult.feedback}</div>
-          </div>
-        )}
-
-        {/* Reference Answer (Optional) */}
-        {currentQuestion.answer && (
+          )}
+          {/* Reference Answer (Optional) */}
+          {currentQuestion.answer && (
+            <div
+              style={{
+                marginBottom: "32px",
+                padding: "16px",
+                backgroundColor: "#f0f4ff",
+                borderRadius: "8px",
+                borderLeft: "4px solid #6366f1",
+              }}
+            >
+              <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#1e293b" }}>
+                📚 Reference Answer:
+              </p>
+              <p style={{ margin: 0, color: "#334155", lineHeight: "1.6" }}>
+                {currentQuestion.answer}
+              </p>
+            </div>
+          )}
+          {/* Navigation Buttons */}
           <div
             style={{
-              marginBottom: "32px",
-              padding: "16px",
-              backgroundColor: "#f0f4ff",
-              borderRadius: "8px",
-              borderLeft: "4px solid #6366f1",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "10px",
             }}
           >
-            <p style={{ margin: "0 0 8px 0", fontWeight: "600", color: "#1e293b" }}>
-              📚 Reference Answer:
-            </p>
-            <p style={{ margin: 0, color: "#334155", lineHeight: "1.6" }}>
-              {currentQuestion.answer}
-            </p>
-          </div>
-        )}
-
-        {/* Navigation Buttons */}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "10px",
-          }}
-        >
-          <button
-            onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
-            disabled={currentQuestionIndex === 0}
-            style={{
-              padding: "10px 18px",
-              backgroundColor: currentQuestionIndex === 0 ? "#eef2ff" : "#6366f1",
-              color: currentQuestionIndex === 0 ? "#999" : "white",
-              border: "none",
-              borderRadius: "8px",
-              cursor: currentQuestionIndex === 0 ? "not-allowed" : "pointer",
-              fontWeight: "600",
-              fontSize: "13px",
-              transition: "all 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              if (currentQuestionIndex > 0) e.target.style.backgroundColor = "#4f46e5";
-            }}
-            onMouseLeave={(e) => {
-              if (currentQuestionIndex > 0) e.target.style.backgroundColor = "#6366f1";
-            }}
-          >
-            ← Previous
-          </button>
-
-          <button
-            onClick={() =>
-              setCurrentQuestionIndex(Math.min(questions.length - 1, currentQuestionIndex + 1))
-            }
-            disabled={currentQuestionIndex === questions.length - 1}
-            style={{
-              padding: "10px 18px",
-              backgroundColor: currentQuestionIndex === questions.length - 1 ? "#eef2ff" : "#6366f1",
-              color: currentQuestionIndex === questions.length - 1 ? "#999" : "white",
-              border: "none",
-              borderRadius: "8px",
-              cursor: currentQuestionIndex === questions.length - 1 ? "not-allowed" : "pointer",
-              fontWeight: "600",
-              fontSize: "13px",
-              transition: "all 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              if (currentQuestionIndex < questions.length - 1) e.target.style.backgroundColor = "#4f46e5";
-            }}
-            onMouseLeave={(e) => {
-              if (currentQuestionIndex < questions.length - 1) e.target.style.backgroundColor = "#6366f1";
-            }}
-          >
-            Next →
-          </button>
-
-          <button
-            onClick={toggleMarkForReview}
-            style={{
-              padding: "10px 18px",
-              backgroundColor: markedForReview.has(currentQuestionIndex) ? "#8b5cf6" : "transparent",
-              color: markedForReview.has(currentQuestionIndex) ? "#fff" : "#8b5cf6",
-              border: "2px solid #8b5cf6",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: "600",
-              fontSize: "13px",
-              transition: "all 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              if (!markedForReview.has(currentQuestionIndex)) { e.target.style.backgroundColor = "#f5f3ff"; }
-            }}
-            onMouseLeave={(e) => {
-              if (!markedForReview.has(currentQuestionIndex)) { e.target.style.backgroundColor = "transparent"; }
-            }}
-          >
-            {markedForReview.has(currentQuestionIndex) ? "🔖 Marked" : "🔖 Mark for Review"}
-          </button>
-
-          <button
-            onClick={submitAnswer}
-            disabled={gradingInProgress}
-            style={{
-              padding: "10px 18px",
-              backgroundColor: gradingInProgress ? "#94a3b8" : "#0ea5e9",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              cursor: gradingInProgress ? "not-allowed" : "pointer",
-              fontWeight: "600",
-              fontSize: "13px",
-              transition: "all 0.3s ease",
-            }}
-            onMouseEnter={(e) => { if (!gradingInProgress) e.target.style.backgroundColor = "#0284c7"; }}
-            onMouseLeave={(e) => { if (!gradingInProgress) e.target.style.backgroundColor = "#0ea5e9"; }}
-          >
-            {gradingInProgress ? "Evaluating..." : "Submit Answer"}
-          </button>
-
-          <button
-            onClick={submitTest}
-            style={{
-              padding: "10px 18px",
-              backgroundColor: "#059669",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: "600",
-              fontSize: "13px",
-              transition: "all 0.3s ease",
-            }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#047857")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#059669")}
-          >
-            ✅ Submit Test
-          </button>
-
-          {!showQuestionPanel && (
             <button
-              onClick={() => setShowQuestionPanel(true)}
+              onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
+              disabled={currentQuestionIndex === 0}
               style={{
                 padding: "10px 18px",
-                backgroundColor: "#f5f3ff",
-                color: "#6366f1",
-                border: "1px solid #e0e7ff",
+                backgroundColor: currentQuestionIndex === 0 ? "#eef2ff" : "#6366f1",
+                color: currentQuestionIndex === 0 ? "#999" : "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: currentQuestionIndex === 0 ? "not-allowed" : "pointer",
+                fontWeight: "600",
+                fontSize: "13px",
+                transition: "all 0.3s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (currentQuestionIndex > 0) e.target.style.backgroundColor = "#4f46e5";
+              }}
+              onMouseLeave={(e) => {
+                if (currentQuestionIndex > 0) e.target.style.backgroundColor = "#6366f1";
+              }}
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={() =>
+                setCurrentQuestionIndex(Math.min(questions.length - 1, currentQuestionIndex + 1))
+              }
+              disabled={currentQuestionIndex === questions.length - 1}
+              style={{
+                padding: "10px 18px",
+                backgroundColor: currentQuestionIndex === questions.length - 1 ? "#eef2ff" : "#6366f1",
+                color: currentQuestionIndex === questions.length - 1 ? "#999" : "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: currentQuestionIndex === questions.length - 1 ? "not-allowed" : "pointer",
+                fontWeight: "600",
+                fontSize: "13px",
+                transition: "all 0.3s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (currentQuestionIndex < questions.length - 1) e.target.style.backgroundColor = "#4f46e5";
+              }}
+              onMouseLeave={(e) => {
+                if (currentQuestionIndex < questions.length - 1) e.target.style.backgroundColor = "#6366f1";
+              }}
+            >
+              Next →
+            </button>
+            <button
+              onClick={toggleMarkForReview}
+              style={{
+                padding: "10px 18px",
+                backgroundColor: markedForReview.has(currentQuestionIndex) ? "#8b5cf6" : "transparent",
+                color: markedForReview.has(currentQuestionIndex) ? "#fff" : "#8b5cf6",
+                border: "2px solid #8b5cf6",
                 borderRadius: "8px",
                 cursor: "pointer",
                 fontWeight: "600",
                 fontSize: "13px",
                 transition: "all 0.3s ease",
-                marginLeft: "auto",
               }}
-              onMouseEnter={(e) => { e.target.style.backgroundColor = "#eef2ff"; }}
-              onMouseLeave={(e) => { e.target.style.backgroundColor = "#f5f3ff"; }}
+              onMouseEnter={(e) => {
+                if (!markedForReview.has(currentQuestionIndex)) { e.target.style.backgroundColor = "#f5f3ff"; }
+              }}
+              onMouseLeave={(e) => {
+                if (!markedForReview.has(currentQuestionIndex)) { e.target.style.backgroundColor = "transparent"; }
+              }}
             >
-              📋 Show Questions
+              {markedForReview.has(currentQuestionIndex) ? "🔖 Marked" : "🔖 Mark for Review"}
             </button>
-          )}
-        </div>
-
-        {/* Proctoring Info */}
-        <div
-          style={{
-            marginTop: "24px",
-            padding: "12px",
-            backgroundColor: "#fef3c7",
-            borderRadius: "8px",
-            fontSize: "12px",
-            color: "#92400e",
-            borderLeft: "4px solid #f59e0b",
-          }}
-        >
-          <strong>🛡️ Proctoring Status:</strong> {isFullscreen ? "✅ Fullscreen Active" : "⚠️ Not in Fullscreen"} •
-          Tab Switches: {tabSwitchCount}/5 {tabSwitchCount >= 5 && "⛔"}
-        </div>
-      </div>
-
-      {/* Question Navigation Sidebar */}
-      {showQuestionPanel && (
-        <div
-          style={{
-            width: "280px",
-            flexShrink: 0,
-            position: "sticky",
-            top: "20px",
-            maxHeight: "calc(100vh - 40px)",
-            overflowY: "auto",
-          }}
-        >
+            <button
+              onClick={submitAnswer}
+              disabled={gradingInProgress}
+              style={{
+                padding: "10px 18px",
+                backgroundColor: gradingInProgress ? "#94a3b8" : "#0ea5e9",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: gradingInProgress ? "not-allowed" : "pointer",
+                fontWeight: "600",
+                fontSize: "13px",
+                transition: "all 0.3s ease",
+              }}
+              onMouseEnter={(e) => { if (!gradingInProgress) e.target.style.backgroundColor = "#0284c7"; }}
+              onMouseLeave={(e) => { if (!gradingInProgress) e.target.style.backgroundColor = "#0ea5e9"; }}
+            >
+              {gradingInProgress ? "Evaluating..." : "Submit Answer"}
+            </button>
+            <button
+              onClick={submitTest}
+              style={{
+                padding: "10px 18px",
+                backgroundColor: "#059669",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "600",
+                fontSize: "13px",
+                transition: "all 0.3s ease",
+              }}
+              onMouseEnter={(e) => (e.target.style.backgroundColor = "#047857")}
+              onMouseLeave={(e) => (e.target.style.backgroundColor = "#059669")}
+            >
+              ✅ Submit Test
+            </button>
+            {!showQuestionPanel && (
+              <button
+                onClick={() => setShowQuestionPanel(true)}
+                style={{
+                  padding: "10px 18px",
+                  backgroundColor: "#f5f3ff",
+                  color: "#6366f1",
+                  border: "1px solid #e0e7ff",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                  fontSize: "13px",
+                  transition: "all 0.3s ease",
+                  marginLeft: "auto",
+                }}
+                onMouseEnter={(e) => { e.target.style.backgroundColor = "#eef2ff"; }}
+                onMouseLeave={(e) => { e.target.style.backgroundColor = "#f5f3ff"; }}
+              >
+                📋 Show Questions
+              </button>
+            )}
+          </div>
+          {/* Proctoring Info */}
           <div
             style={{
-              background: "linear-gradient(135deg, rgba(255,255,255,0.97), rgba(238,242,255,0.97))",
-              backdropFilter: "blur(12px)",
-              borderRadius: "16px",
-              boxShadow: "0 8px 32px rgba(99,102,241,0.10)",
-              border: "1px solid rgba(99,102,241,0.12)",
-              overflow: "hidden",
+              marginTop: "24px",
+              padding: "12px",
+              backgroundColor: "#fef3c7",
+              borderRadius: "8px",
+              fontSize: "12px",
+              color: "#92400e",
+              borderLeft: "4px solid #f59e0b",
             }}
           >
-            {/* Panel Header */}
-            <div
-              style={{
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                padding: "14px 16px",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span style={{ color: "#fff", fontWeight: "700", fontSize: "14px" }}>📋 Questions</span>
-              <button
-                onClick={() => setShowQuestionPanel(false)}
-                style={{ background: "none", border: "none", color: "rgba(255,255,255,0.8)", cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "0 2px" }}
-                title="Hide panel"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Status Legend */}
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(99,102,241,0.08)", display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
-              {[
-                { label: "Answered", color: "#10b981" },
-                { label: "Not Answered", color: "#f59e0b" },
-                { label: "Not Visited", color: "#e2e8f0" },
-                { label: "Review", color: "#8b5cf6" },
-                { label: "Current", color: "#6366f1" },
-              ].map((item) => (
-                <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                  <div
-                    style={{
-                      width: "12px",
-                      height: "12px",
-                      borderRadius: "3px",
-                      backgroundColor: item.color,
-                      border: item.color === "#e2e8f0" ? "1px solid #cbd5e1" : "none",
-                      boxShadow: item.color === "#6366f1" ? "0 0 0 2px rgba(99,102,241,0.3)" : "none",
-                    }}
-                  />
-                  <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "500" }}>{item.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Question Summary */}
-            <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(99,102,241,0.08)", display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#475569" }}>
-              <span>✅ {Object.keys(answers).filter(k => answers[k] && answers[k].toString().trim()).length}</span>
-              <span>🔖 {markedForReview.size}</span>
-              <span>📝 {questions.length - Object.keys(answers).filter(k => answers[k] && answers[k].toString().trim()).length} left</span>
-            </div>
-
-            {/* Question Grid */}
-            <div style={{ padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
-              {questions.map((_, index) => {
-                const status = getQuestionStatus(index);
-                const config = statusConfig[status];
-                const isGradient = status === "answered-marked";
-                return (
-                  <button
-                    key={index}
-                    onClick={() => setCurrentQuestionIndex(index)}
-                    style={{
-                      width: "100%",
-                      aspectRatio: "1",
-                      background: isGradient ? config.bg : config.bg,
-                      backgroundColor: isGradient ? undefined : config.bg,
-                      color: config.color,
-                      border: status === "current" ? "2px solid #6366f1" : `1px solid ${config.border}`,
-                      borderRadius: "10px",
-                      cursor: "pointer",
-                      fontWeight: "700",
-                      fontSize: "14px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      transition: "all 0.2s ease",
-                      boxShadow: config.shadow,
-                      position: "relative",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.25)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = config.shadow; }}
-                    title={`Q${index + 1} — ${status.replace("-", " ")}`}
-                  >
-                    {index + 1}
-                    {markedForReview.has(index) && (
-                      <span style={{ position: "absolute", top: "-2px", right: "-2px", fontSize: "10px" }}>🔖</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            <strong>🛡️ Proctoring Status:</strong> {isFullscreen ? "✅ Fullscreen Active" : "⚠️ Not in Fullscreen"} •
+            Tab Switches: {tabSwitchCount}/5 {tabSwitchCount >= 5 && "⛔"}
           </div>
         </div>
-      )}
-
+        {/* Question Navigation Sidebar */}
+        {showQuestionPanel && (
+          <div
+            style={{
+              width: "280px",
+              flexShrink: 0,
+              position: "sticky",
+              top: "20px",
+              maxHeight: "calc(100vh - 40px)",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              style={{
+                background: "linear-gradient(135deg, rgba(255,255,255,0.97), rgba(238,242,255,0.97))",
+                backdropFilter: "blur(12px)",
+                borderRadius: "16px",
+                boxShadow: "0 8px 32px rgba(99,102,241,0.10)",
+                border: "1px solid rgba(99,102,241,0.12)",
+                overflow: "hidden",
+              }}
+            >
+              {/* Panel Header */}
+              <div
+                style={{
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  padding: "14px 16px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ color: "#fff", fontWeight: "700", fontSize: "14px" }}>📋 Questions</span>
+                <button
+                  onClick={() => setShowQuestionPanel(false)}
+                  style={{ background: "none", border: "none", color: "rgba(255,255,255,0.8)", cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "0 2px" }}
+                  title="Hide panel"
+                >
+                  ✕
+                </button>
+              </div>
+              {/* Status Legend */}
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(99,102,241,0.08)", display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
+                {[
+                  { label: "Answered", color: "#10b981" },
+                  { label: "Not Answered", color: "#f59e0b" },
+                  { label: "Not Visited", color: "#e2e8f0" },
+                  { label: "Review", color: "#8b5cf6" },
+                  { label: "Current", color: "#6366f1" },
+                ].map((item) => (
+                  <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                    <div
+                      style={{
+                        width: "12px",
+                        height: "12px",
+                        borderRadius: "3px",
+                        backgroundColor: item.color,
+                        border: item.color === "#e2e8f0" ? "1px solid #cbd5e1" : "none",
+                        boxShadow: item.color === "#6366f1" ? "0 0 0 2px rgba(99,102,241,0.3)" : "none",
+                      }}
+                    />
+                    <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "500" }}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Question Summary */}
+              <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(99,102,241,0.08)", display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#475569" }}>
+                <span>✅ {Object.keys(answers).filter(k => answers[k] && answers[k].toString().trim()).length}</span>
+                <span>🔖 {markedForReview.size}</span>
+                <span>📝 {questions.length - Object.keys(answers).filter(k => answers[k] && answers[k].toString().trim()).length} left</span>
+              </div>
+              {/* Question Grid */}
+              <div style={{ padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+                {questions.map((_, index) => {
+                  const status = getQuestionStatus(index);
+                  const config = statusConfig[status];
+                  const isGradient = status === "answered-marked";
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentQuestionIndex(index)}
+                      style={{
+                        width: "100%",
+                        aspectRatio: "1",
+                        background: isGradient ? config.bg : config.bg,
+                        backgroundColor: isGradient ? undefined : config.bg,
+                        color: config.color,
+                        border: status === "current" ? "2px solid #6366f1" : `1px solid ${config.border}`,
+                        borderRadius: "10px",
+                        cursor: "pointer",
+                        fontWeight: "700",
+                        fontSize: "14px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.2s ease",
+                        boxShadow: config.shadow,
+                        position: "relative",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(99,102,241,0.25)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = config.shadow; }}
+                      title={`Q${index + 1} — ${status.replace("-", " ")}`}
+                    >
+                      {index + 1}
+                      {markedForReview.has(index) && (
+                        <span style={{ position: "absolute", top: "-2px", right: "-2px", fontSize: "10px" }}>🔖</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>{/* end flex layout */}
     </div>
   );
 };
-
 export default Test;

@@ -30,6 +30,9 @@ public class MockmateVRFlowController : MonoBehaviour
     public UnityEvent<float> OnCompleted;
     public UnityEvent<string> OnCompletedMessage;
 
+    /// <summary>True while a VR interview flow is actively running.</summary>
+    public bool IsFlowActive => _busy || (_currentQuestion != null && !_completed);
+
     private VrQuestion _currentQuestion;
     private float _startedAt;
     private bool _busy;

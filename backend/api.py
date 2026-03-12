@@ -1,4 +1,19 @@
-﻿from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
+# pyre-ignore-all-errors
+# pyright: basic
+import os
+import sys
+
+# Inject .venv path and project root to help IDE find dependencies
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+venv_path = os.path.join(project_root, ".venv", "Lib", "site-packages")
+
+if os.path.exists(venv_path) and venv_path not in sys.path:
+    sys.path.insert(0, venv_path)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -68,7 +83,7 @@ logger = logging.getLogger(__name__)
 class ProviderStats:
     """Tracks provider costs, failures, successes and simple circuit-breaker state."""
     def __init__(self):
-        self.stats = {
+        self.stats: Dict[str, Dict[str, Any]] = {
             "gemini": {"cost_per_1m": 0.075, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "claude": {"cost_per_1m": 0.80, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "openai": {"cost_per_1m": 0.30, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
@@ -1080,13 +1095,121 @@ def _generate_topic_questions(
     session_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Generate interview questions using templates with semantic duplicate detection (Approach 2D)
-    Uses simpler template-based approach (not async), suitable for quick generation
+    Generate interview questions using AI (parallel multi-provider) with
+    consensus deduplication. Falls back to templates if all AI providers fail.
     """
     base_topic = (topic or "General").strip() or "General"
     diff_key = (difficulty or "medium").strip().lower()
     diff_label = _difficulty_label(difficulty)
 
+    # --- Try AI-powered generation first ---
+    try:
+        import asyncio
+
+        ai_prompt = f"""You are an expert technical interviewer. Generate exactly {count} unique, high-quality interview questions about "{base_topic}" at {diff_label} difficulty level.
+
+Each question must be specific, probing, and suitable for a real technical interview. Do NOT generate generic questions.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "questions": [
+    {{
+      "question": "Detailed, specific interview question about {base_topic}",
+      "answer": "Comprehensive model answer (3-5 sentences)",
+      "difficulty": "{diff_label}",
+      "topic": "{base_topic}"
+    }}
+  ]
+}}
+
+Requirements:
+- Questions must test understanding, not just definitions
+- Include scenario-based and problem-solving questions
+- Answers should be detailed enough to evaluate responses against
+- Each question must be genuinely different in what it tests"""
+
+        async def _run_ai_generation():
+            parallel = await call_ai_parallel(
+                messages=[
+                    {"role": "system", "content": "You are a technical interviewer. Return only valid JSON."},
+                    {"role": "user", "content": ai_prompt},
+                ],
+                temperature=0.8,
+                max_tokens=2000,
+                providers=["gemini", "claude", "openai", "deepseek"],
+            )
+
+            all_questions = []
+            for success in parallel.get("successes", []):
+                parsed = parse_json_response(success.get("raw_text", ""))
+                if parsed and isinstance(parsed.get("questions"), list):
+                    for q in parsed["questions"]:
+                        if isinstance(q, dict) and q.get("question"):
+                            q["_provider"] = success.get("provider", "unknown")
+                            all_questions.append(q)
+
+            return all_questions
+
+        # Run the async function
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're inside an async context, create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    all_questions = pool.submit(
+                        lambda: asyncio.run(_run_ai_generation())
+                    ).result(timeout=60)
+            else:
+                all_questions = loop.run_until_complete(_run_ai_generation())
+        except RuntimeError:
+            all_questions = asyncio.run(_run_ai_generation())
+
+        if all_questions:
+            # Import deduplication from endeavor_rag_service
+            from backend.endeavor_rag_service import _deduplicate_questions_consensus, _jaccard_similarity
+
+            # Map question keys to match expected format
+            for q in all_questions:
+                if "q" not in q and "question" in q:
+                    q["q"] = q["question"]
+                if "a" not in q and "answer" in q:
+                    q["a"] = q["answer"]
+
+            deduped = _deduplicate_questions_consensus(all_questions, similarity_threshold=0.65)
+
+            results = []
+            index = 1
+            for q in deduped:
+                q_text = q.get("question") or q.get("q") or ""
+                # Skip if semantically similar to existing questions
+                is_dup = any(
+                    _semantic_similarity(q_text.lower(), eq.lower()) > 0.7
+                    for eq in existing_questions
+                )
+                if is_dup:
+                    continue
+
+                existing_questions.add(q_text.strip().lower())
+                results.append({
+                    "id": f"{session_id or 'ai_gen'}_{diff_key}_{index}",
+                    "question": q_text,
+                    "answer": q.get("answer") or q.get("a") or f"Comprehensive answer about {base_topic}.",
+                    "difficulty": diff_label,
+                    "topic": base_topic,
+                })
+                index += 1
+                if len(results) >= count:
+                    break
+
+            if results:
+                logger.info(f"[AI topic questions] Generated {len(results)} questions for {base_topic} ({diff_label}) via AI")
+                return results
+
+    except Exception as ai_err:
+        logger.warning(f"[AI topic questions] AI generation failed for {base_topic}: {ai_err}, falling back to templates")
+
+    # --- Fallback: template-based generation ---
     templates = {
         "easy": [
             "Explain the fundamentals of {topic} with an example from your resume.",
@@ -1118,19 +1241,17 @@ def _generate_topic_questions(
     pool = templates[diff_key]
     attempts = 0
     index = 1
-    max_attempts = max(len(pool) * 3, count + 10)  # allow multiple cycles through pool
-    
-    # Generate questions using templates with semantic duplicate detection
+    max_attempts = max(len(pool) * 3, count + 10)
+
     while len(results) < count and attempts < max_attempts:
         template = pool[attempts % len(pool)]
         question = template.format(topic=base_topic)
-        
-        # Semantic duplicate detection (Approach 2D)
+
         is_duplicate = any(
             _semantic_similarity(question.lower(), existing_q.lower()) > 0.7
             for existing_q in existing_questions
         )
-        
+
         if not is_duplicate:
             q_key = question.strip().lower()
             if q_key not in existing_questions:
@@ -1143,10 +1264,11 @@ def _generate_topic_questions(
                     "topic": base_topic,
                 })
                 index += 1
-        
+
         attempts += 1
 
     return results
+
 
 
 
@@ -1301,6 +1423,12 @@ class VRBridgeAnswerRequest(BaseModel):
 class VRBridgeCompleteRequest(BaseModel):
     time_spent: Optional[int] = None
 
+
+class VRRegisterTokenRequest(BaseModel):
+    device_id: str
+    bridge_token: str
+    api_base: Optional[str] = None
+
 # Upload directory
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -1322,11 +1450,23 @@ _STOP_WORDS = frozenset({
 
 
 def _tokenize(text: str) -> List[str]:
-    """Tokenize and lowercase, removing stop-words and short tokens."""
-    return [
-        w for w in re.findall(r"[a-z0-9#+.\-]+", text.lower())
-        if w not in _STOP_WORDS and len(w) > 1
-    ]
+    """Tokenize and lowercase, removing stop-words and short tokens. Strips trailing punctuation and applies simple stemming."""
+    tokens = []
+    for w in re.findall(r"[a-z0-9#+.\-]+", text.lower()):
+        clean_w = w.rstrip('.')
+        if clean_w not in _STOP_WORDS and len(clean_w) > 1:
+            # Simple heuristic stemming
+            stem = clean_w
+            if len(stem) > 4:
+                if stem.endswith('ies'): stem = stem[:-3] + 'i'
+                elif stem.endswith('es') and not stem.endswith('ees'): stem = stem[:-2]
+                elif stem.endswith('s') and not stem.endswith('ss'): stem = stem[:-1]
+                elif stem.endswith('ing'): stem = stem[:-3]
+                elif stem.endswith('ed'): stem = stem[:-2]
+                elif stem.endswith('ly'): stem = stem[:-2]
+                elif stem.endswith('ment'): stem = stem[:-4]
+            tokens.append(stem)
+    return tokens
 
 
 def _tf_idf_cosine(tokens_a: List[str], tokens_b: List[str]) -> float:
@@ -1381,124 +1521,205 @@ _TECHNICAL_MARKERS = {
 
 def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
     """
-    Advanced multi-signal answer evaluation algorithm:
-      1. TF-IDF cosine similarity between answer â†” correct_answer (40% weight)
-      2. Question-relevance score via keyword coverage (20% weight)
-      3. Answer depth â€” word count, sentence count, technical markers (20% weight)
-      4. Structural quality â€” transitions, examples, coherence signals (10% weight)
-      5. Correct-answer n-gram overlap for factual recall (10% weight)
-    Falls back gracefully when correct_answer is empty.
+    Advanced algorithmic answer evaluation (no AI):
+      1. Character 3-gram Cosine Similarity (40%) - Robust to word variations
+      2. Technical Concept Coverage (20%) - Matches against domain markers
+      3. Key Term Recall (15%) - Word-level overlap with reference
+      4. Answer Completeness (15%) - Length and sentence structure
+      5. Coherence & Structure (5%) - Transition words
+      6. Question-Answer Alignment (5%) - Proximity to question terms
     """
     if not user_answer or not user_answer.strip():
         return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
 
-    ans_tokens = _tokenize(user_answer)
-    q_tokens = _tokenize(question)
-    ref_tokens = _tokenize(correct_answer) if correct_answer else []
+    ans_clean = re.sub(r'[^a-zA-Z0-9 ]', '', user_answer.lower())
+    ref_clean = re.sub(r'[^a-zA-Z0-9 ]', '', correct_answer.lower()) if correct_answer else ""
+    q_clean = re.sub(r'[^a-zA-Z0-9 ]', '', question.lower())
+
+    def _get_char_ngrams(text, n=3):
+        return [text[i:i+n] for i in range(len(text)-n+1)]
+
+    def _char_cosine(text1, text2):
+        if not text1 or not text2: return 0.0
+        g1, g2 = _get_char_ngrams(text1), _get_char_ngrams(text2)
+        c1, c2 = Counter(g1), Counter(g2)
+        all_ngrams = set(c1) | set(c2)
+        dot = sum(c1.get(g, 0) * c2.get(g, 0) for g in all_ngrams)
+        mag1 = math.sqrt(sum(v**2 for v in c1.values()))
+        mag2 = math.sqrt(sum(v**2 for v in c2.values()))
+        return dot / (mag1 * mag2) if mag1 and mag2 else 0.0
+
+    # Signal 1: Char 3-gram Cosine (40%) - Apply a non-linear boost for higher similarity
+    char_sim_raw = _char_cosine(ans_clean, ref_clean) if ref_clean else _char_cosine(ans_clean, q_clean) * 0.6
+    char_sim = min(1.0, char_sim_raw * 1.3) # Scaled boost
+    signal_char_sim = char_sim * 40
+
+    # Signal 2: Technical Concept Coverage (20%)
     ans_lower = user_answer.lower()
+    tech_hits = sum(1 for m in _TECHNICAL_MARKERS["concepts"] if m in ans_lower)
+    signal_tech = min(20, tech_hits * 4.0)
+
+    # Signal 3: Key Term Recall (15%)
+    ans_tokens_list = _tokenize(user_answer)
+    ans_tokens = set(ans_tokens_list)
+    if correct_answer:
+        ref_tokens = set(_tokenize(correct_answer))
+        if ref_tokens:
+            overlap = len(ans_tokens & ref_tokens)
+            term_recall = overlap / len(ref_tokens)
+            # Boost recall slightly if it's non-zero
+            term_recall = min(1.0, term_recall * 1.2)
+        else:
+            term_recall = 0.5
+    else:
+        q_tokens = set(_tokenize(question))
+        overlap = len(ans_tokens & q_tokens)
+        term_recall = overlap / max(1, len(q_tokens)) * 0.5
+    signal_recall = term_recall * 15
+
+    # Signal 4: Answer Completeness (15%)
     word_count = len(user_answer.split())
-    sentence_count = max(1, len(re.split(r"[.!?]+", user_answer.strip())))
+    sentence_count = len(re.split(r'[.!?]+', user_answer.strip()))
+    length_score = min(10, (word_count / 80) * 10)
+    sent_score = min(5, sentence_count * 2.0)
+    signal_completeness = length_score + sent_score
 
-    # --- Signal 1: TF-IDF cosine similarity with correct answer (0-40) ---
-    if ref_tokens:
-        cosine_sim = _tf_idf_cosine(ans_tokens, ref_tokens)
-        signal_similarity = cosine_sim * 40
-    else:
-        # If no reference, use question-answer relevance as proxy (capped at 25)
-        cosine_sim = _tf_idf_cosine(ans_tokens, q_tokens)
-        signal_similarity = min(cosine_sim * 40, 25)
-
-    # --- Signal 2: Question keyword coverage (0-20) ---
-    if q_tokens:
-        q_set = set(q_tokens)
-        covered = sum(1 for t in q_set if t in set(ans_tokens))
-        coverage_ratio = covered / len(q_set)
-    else:
-        coverage_ratio = 0.5  # neutral
-    signal_relevance = coverage_ratio * 20
-
-    # --- Signal 3: Answer depth â€” length + technical richness (0-20) ---
-    # Length component (0-10): reward detailed answers, diminishing returns after ~120 words
-    length_score = min(10, (word_count / 120) * 10) if word_count > 0 else 0
-
-    # Technical marker bonus (0-10)
-    tech_hits = 0
-    for markers in _TECHNICAL_MARKERS["concepts"]:
-        if markers in ans_lower:
-            tech_hits += 1
-    tech_score = min(10, tech_hits * 2.5)
-
-    signal_depth = length_score + tech_score
-
-    # --- Signal 4: Structural quality â€” coherence markers (0-10) ---
+    # Signal 5: Coherence & Structure (5%)
     structure_hits = sum(1 for m in _TECHNICAL_MARKERS["structure"] if m in ans_lower)
-    signal_structure = min(10, structure_hits * 2)
+    signal_structure = min(5, structure_hits * 1.5)
 
-    # --- Signal 5: N-gram factual recall against correct answer (0-10) ---
-    signal_ngram = 0.0
-    if ref_tokens and len(ref_tokens) >= 2:
-        ref_bigrams = set(zip(ref_tokens, ref_tokens[1:]))
-        ans_bigrams = set(zip(ans_tokens, ans_tokens[1:])) if len(ans_tokens) >= 2 else set()
-        if ref_bigrams:
-            overlap = len(ref_bigrams & ans_bigrams)
-            signal_ngram = min(10, (overlap / len(ref_bigrams)) * 10)
+    # Signal 6: Question-Answer Alignment (5%)
+    qa_sim = _char_cosine(ans_clean, q_clean)
+    signal_alignment = min(5.0, qa_sim * 1.5 * 5)
 
-    # --- Combine ---
-    raw_score = (
-        signal_similarity
-        + signal_relevance
-        + signal_depth
-        + signal_structure
-        + signal_ngram
-    )
+    # Combine
+    raw_score = signal_char_sim + signal_tech + signal_recall + signal_completeness + signal_structure + signal_alignment
+
+    # Bonuses
+    if tech_hits >= 3: raw_score = min(100, raw_score + 7)
+    if word_count >= 60 and sentence_count >= 3: raw_score = min(100, raw_score + 5)
 
     # Penalties
-    if word_count < 5:
-        raw_score *= 0.3  # very short answer penalty
-    elif word_count < 15:
-        raw_score *= 0.6  # short answer penalty
-
-    # Bonus for multi-sentence well-structured answers
-    if sentence_count >= 3 and word_count >= 40:
-        raw_score = min(100, raw_score + 5)
+    if word_count < 10: raw_score *= 0.3
+    elif word_count < 20: raw_score *= 0.7
+    
+    if q_clean in ans_clean and word_count < len(question.split()) + 5:
+        raw_score *= 0.3
 
     score = max(0, min(100, int(round(raw_score))))
     is_correct = score >= 55
 
-    # --- Generate detailed feedback ---
-    feedback_parts: List[str] = []
-    if score >= 85:
-        feedback_parts.append("Excellent answer with strong coverage and depth.")
-    elif score >= 70:
-        feedback_parts.append("Good answer that covers the key points.")
-    elif score >= 55:
-        feedback_parts.append("Acceptable answer, but could use more depth.")
-    else:
-        feedback_parts.append("Needs improvement â€” try to address the core concepts.")
+    # Feedback
+    feedback_parts = []
+    if score >= 85: feedback_parts.append("Excellent technical response with strong conceptual coverage.")
+    elif score >= 70: feedback_parts.append("Good answer that addresses the core requirements.")
+    elif score >= 55: feedback_parts.append("Acceptable response, but could benefit from more technical depth.")
+    else: feedback_parts.append("Improvement needed in technical accuracy and conceptual depth.")
 
-    if word_count < 20:
-        feedback_parts.append("Consider providing a more detailed response.")
-    if coverage_ratio < 0.3 and q_tokens:
-        feedback_parts.append("Try to address the specific terms mentioned in the question.")
-    if tech_hits == 0 and word_count > 20:
-        feedback_parts.append("Including technical terminology and concepts would strengthen your answer.")
-    if structure_hits < 2 and word_count > 30:
-        feedback_parts.append("Use transition words (e.g., 'because', 'for example') to improve clarity.")
-    if ref_tokens and cosine_sim < 0.2:
-        feedback_parts.append("Review the expected answer â€” your response diverges from the key points.")
-
+    if word_count < 25: feedback_parts.append("Consider providing a more detailed explanation.")
+    if tech_hits < 2: feedback_parts.append("Including more industry-standard terminology would strengthen your answer.")
+    
     return {
         "score": score,
         "feedback": " ".join(feedback_parts),
         "is_correct": is_correct,
         "breakdown": {
-            "similarity": round(signal_similarity, 1),
-            "relevance": round(signal_relevance, 1),
-            "depth": round(signal_depth, 1),
+            "semantic_sim": round(signal_char_sim, 1),
+            "tech_markers": round(signal_tech, 1),
+            "term_recall": round(signal_recall, 1),
+            "completeness": round(signal_completeness, 1),
             "structure": round(signal_structure, 1),
-            "factual_recall": round(signal_ngram, 1),
-        },
+            "alignment": round(signal_alignment, 1)
+        }
     }
+
+
+
+
+
+
+
+
+
+
+
+async def ai_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
+    """
+    AI-powered answer evaluation using LLM (GPT/Gemini/DeepSeek).
+    Evaluates based on:
+      - Context relevancy: does the answer address the question?
+      - Correctness: is the answer factually/conceptually right?
+      - Depth: does it show understanding beyond surface level?
+      - Clarity: is it well-structured and coherent?
+    Falls back to simple_evaluate_answer() if AI call fails.
+    """
+    if not user_answer or not user_answer.strip():
+        return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
+
+    system_prompt = (
+        "You are an expert interview evaluator. Evaluate the candidate's answer to an interview question.\n"
+        "Score from 0-100 based on:\n"
+        "  - Context Relevancy (30%): Does the answer directly address what was asked?\n"
+        "  - Correctness (30%): Is the answer factually and conceptually accurate?\n"
+        "  - Depth (25%): Does it show deep understanding, examples, or nuance?\n"
+        "  - Clarity (15%): Is it well-structured, coherent, and professional?\n\n"
+        "Respond in EXACTLY this JSON format (no markdown, no extra text):\n"
+        '{"score": <0-100>, "feedback": "<2-3 sentence feedback>", '
+        '"is_correct": <true/false>, "breakdown": {"relevancy": <0-30>, '
+        '"correctness": <0-30>, "depth": <0-25>, "clarity": <0-15>}}'
+    )
+
+    user_prompt = f"""**Interview Question:** {question}
+
+**Candidate's Answer:** {user_answer}"""
+
+    if correct_answer and correct_answer.strip():
+        user_prompt += f"\n\n**Reference/Expected Answer:** {correct_answer}"
+
+    user_prompt += "\n\nEvaluate this answer. Return ONLY valid JSON."
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        raw_text, provider = await call_ai_with_fallback(
+            messages, temperature=0.3, max_tokens=500
+        )
+        logger.info(f"AI evaluation from {provider}")
+
+        # Parse the AI response as JSON
+        import json as _json
+        # Strip markdown code fences if present
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+        result = _json.loads(cleaned)
+
+        # Validate required fields
+        score = max(0, min(100, int(result.get("score", 0))))
+        feedback = result.get("feedback", "")
+        is_correct = result.get("is_correct", score >= 55)
+        breakdown = result.get("breakdown", {})
+
+        return {
+            "score": score,
+            "feedback": feedback,
+            "is_correct": is_correct,
+            "breakdown": breakdown,
+            "evaluated_by": "ai",
+            "ai_provider": provider,
+        }
+    except Exception as e:
+        logger.warning(f"AI evaluation failed, falling back to algorithmic: {e}")
+        fallback = simple_evaluate_answer(question, user_answer, correct_answer)
+        fallback["evaluated_by"] = "algorithmic_fallback"
+        return fallback
 
 @app.get("/")
 async def root():
@@ -2881,8 +3102,10 @@ def _get_owned_session(db, session_id: str, current_user: Dict):
     session_id_obj = _build_session_object_id(session_id)
     session = db.user_sessions.find_one({"_id": session_id_obj})
     if not session:
+        logger.warning(f"Session not found: {session_id}")
         raise HTTPException(status_code=404, detail="Session not found")
     if session.get("user_id") != current_user.get("id"):
+        logger.warning(f"Unauthorized session access: user={current_user.get('id')} session_user={session.get('user_id')}")
         raise HTTPException(status_code=403, detail="Not authorized")
     return session_id_obj, session
 
@@ -2890,13 +3113,21 @@ def _get_owned_session(db, session_id: str, current_user: Dict):
 def _get_session_by_bridge_token(db, bridge_token: str):
     if not bridge_token:
         raise HTTPException(status_code=400, detail="bridge_token is required")
+    
+    logger.info(f"Looking up session for bridge_token: {bridge_token[:8]}...")
     session = db.user_sessions.find_one({"vr_test.bridge_token": bridge_token})
+    
     if not session:
+        logger.error(f"Invalid bridge_token: {bridge_token[:8]}...")
         raise HTTPException(status_code=404, detail="Invalid bridge_token")
+        
     vr_state = session.get("vr_test") or {}
     expires_at = vr_state.get("bridge_expires_at")
     if expires_at and datetime.now() > expires_at:
+        logger.warning(f"Expired bridge_token: {bridge_token[:8]}...")
         raise HTTPException(status_code=401, detail="bridge_token expired")
+        
+    logger.info(f"Found session {session.get('_id')} for bridge_token")
     return session
 
 
@@ -2962,6 +3193,7 @@ async def start_vr_test(
             }
         }
     )
+    logger.info(f"VR Test started for session {payload.session_id}, token={bridge_token[:8]}...")
 
     return {
         "success": True,
@@ -3197,7 +3429,7 @@ async def submit_vr_bridge_answer(
         )
 
     q = questions[idx]
-    evaluation = simple_evaluate_answer(
+    evaluation = await ai_evaluate_answer(
         q.get("question", ""),
         payload.user_answer,
         q.get("answer", ""),
@@ -3304,6 +3536,60 @@ async def complete_vr_bridge_test(
         "percentage": round(percentage, 2),
         "evaluated_answers": answers,
     }
+
+
+@app.post("/vr-bridge/register-token")
+async def register_bridge_token(
+    payload: VRRegisterTokenRequest,
+    current_user: Dict = Depends(get_current_user),
+):
+    """
+    Called by the web frontend after /vr-test/start.
+    Stores the device_id → bridge_token mapping so Unity can poll for it.
+    """
+    db = get_db()
+    db.vr_device_tokens.update_one(
+        {"device_id": payload.device_id},
+        {
+            "$set": {
+                "bridge_token": payload.bridge_token,
+                "api_base": payload.api_base or "",
+                "user_id": current_user.get("id"),
+                "created_at": datetime.now(),
+            }
+        },
+        upsert=True,
+    )
+    logger.info(
+        f"Registered bridge token for device_id={payload.device_id}, "
+        f"token={payload.bridge_token[:8]}..."
+    )
+    return {"success": True}
+
+
+@app.get("/vr-bridge/token-poll")
+async def poll_bridge_token(device_id: str):
+    """
+    Unity polls this endpoint every 2-3 seconds to check for a new bridge token.
+    No auth required — Unity only gets the token, which is itself the auth key.
+    """
+    if not device_id:
+        return {"success": False, "bridge_token": None, "message": "device_id required"}
+    db = get_db()
+    mapping = db.vr_device_tokens.find_one({"device_id": device_id})
+    if not mapping or not mapping.get("bridge_token"):
+        return {"success": False, "bridge_token": None}
+    return {
+        "success": True,
+        "bridge_token": mapping["bridge_token"],
+        "api_base": mapping.get("api_base", ""),
+        "created_at": (
+            mapping["created_at"].isoformat()
+            if hasattr(mapping.get("created_at"), "isoformat")
+            else str(mapping.get("created_at", ""))
+        ),
+    }
+
 
 @app.post("/submit-test")
 async def submit_test(
@@ -4694,47 +4980,63 @@ Return ONLY valid JSON (no markdown, no explanation):
         def _is_valid_jobs_payload(payload: Optional[Dict[str, Any]]) -> bool:
             return bool(payload and isinstance(payload.get("jobs"), list) and len(payload.get("jobs", [])) > 0)
 
+        # --- PRIMARY: Parallel multi-provider (best result wins) ---
         try:
-            raw_text, provider = await call_ai_with_fallback(
+            parallel = await call_ai_parallel(
                 messages=[
                     {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
                 max_tokens=4000,
+                providers=["gemini", "claude", "openai", "deepseek"],
             )
-            parsed = parse_json_response(raw_text)
-            if not _is_valid_jobs_payload(parsed):
-                raise ValueError("AI response missing jobs")
-        except Exception as ai_err:
-            # Secondary recovery: ask multiple providers in parallel before local fallback.
-            logger.warning(f"Primary job AI call failed, retrying via parallel providers: {ai_err}")
-            fallback_reason = str(ai_err)
+            successes = parallel.get("successes", [])
+            # Pick the best valid result (most jobs)
+            best_parsed = None
+            best_count = 0
+            best_provider = "unknown"
+            for success in successes:
+                maybe_parsed = parse_json_response(success.get("raw_text", ""))
+                if _is_valid_jobs_payload(maybe_parsed):
+                    job_count = len(maybe_parsed.get("jobs", []))
+                    if job_count > best_count:
+                        best_parsed = maybe_parsed
+                        best_count = job_count
+                        best_provider = success.get("provider", "unknown")
+                        raw_text = success.get("raw_text", "")
+
+            if best_parsed and best_count > 0:
+                parsed = best_parsed
+                provider = f"parallel:{best_provider}"
+                logger.info(f"[recommend-jobs] Parallel success: best from {best_provider} with {best_count} jobs")
+            else:
+                raise ValueError(f"No valid jobs from {len(successes)} parallel successes")
+
+        except Exception as parallel_err:
+            # --- SECONDARY: Sequential fallback ---
+            logger.warning(f"[recommend-jobs] Parallel failed, trying sequential fallback: {parallel_err}")
+            fallback_reason = str(parallel_err)
             try:
-                parallel = await call_ai_parallel(
+                raw_text, provider = await call_ai_with_fallback(
                     messages=[
                         {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
                     max_tokens=4000,
-                    providers=["gemini", "deepseek", "openai", "claude"],
                 )
-                successes = parallel.get("successes", [])
-                for success in successes:
-                    maybe_parsed = parse_json_response(success.get("raw_text", ""))
-                    if _is_valid_jobs_payload(maybe_parsed):
-                        parsed = maybe_parsed
-                        provider = f"parallel:{success.get('provider', 'unknown')}"
-                        fallback_reason = None
-                        break
-            except Exception as parallel_err:
-                fallback_reason = f"{fallback_reason}; parallel: {parallel_err}" if fallback_reason else str(parallel_err)
+                parsed = parse_json_response(raw_text)
+                if not _is_valid_jobs_payload(parsed):
+                    raise ValueError("Sequential AI response missing jobs")
+            except Exception as seq_err:
+                logger.warning(f"[recommend-jobs] Sequential also failed: {seq_err}")
+                fallback_reason = f"parallel: {parallel_err}, sequential: {seq_err}"
 
-            if not _is_valid_jobs_payload(parsed):
-                logger.warning(f"Job AI unavailable, serving fallback recommendations: {fallback_reason}")
-                parsed = _fallback_job_payload()
-                provider = "fallback-local"
+        if not _is_valid_jobs_payload(parsed):
+            logger.warning(f"Job AI unavailable, serving fallback recommendations: {fallback_reason}")
+            parsed = _fallback_job_payload()
+            provider = "fallback-local"
 
         raw_jobs = parsed.get("jobs", []) if isinstance(parsed, dict) else []
         jobs = [j for j in (raw_jobs or []) if isinstance(j, dict)]
