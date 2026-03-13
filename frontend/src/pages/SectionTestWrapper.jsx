@@ -350,7 +350,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
               lineHeight: "1.6",
             }}
           >
-            {currentQuestion.question}
+            {currentQuestion?.question || "Loading question..."}
           </h2>
         </div>
 
