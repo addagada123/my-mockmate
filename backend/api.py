@@ -2098,14 +2098,18 @@ async def get_resume_questions(
         existing_questions |= _collect_user_seen_questions(db, current_user["id"])
 
         if min_required and len(questions) < min_required:
-            questions.extend(
-                _generate_topic_questions(
-                    topic,
-                    difficulty,
-                    min_required - len(questions),
-                    existing_questions,
-                    session_id=str(latest_session.get("_id"))
-                )
+            new_qs = _generate_topic_questions(
+                topic,
+                difficulty,
+                min_required - len(questions),
+                existing_questions,
+                session_id=str(latest_session.get("_id"))
+            )
+            questions.extend(new_qs)
+            # Persist back to session so /regenerate-question works
+            db.user_sessions.update_one(
+                {"_id": latest_session["_id"]},
+                {"$set": {"questions": questions}}
             )
 
         if limit is not None and limit > 0:
@@ -2201,14 +2205,18 @@ async def generate_test_questions(
         existing_questions = {(q.get("question") or "").strip().lower() for q in questions}
         existing_questions |= _collect_user_seen_questions(db, current_user["id"])
         if target_count and len(questions) < target_count:
-            questions.extend(
-                await _generate_questions_parallel_with_backfill(
-                    topic=payload.topic,
-                    difficulty=payload.difficulty,
-                    needed_count=target_count - len(questions),
-                    existing_questions=existing_questions,
-                    session_id=str(session.get("_id")),
-                )
+            new_qs = await _generate_questions_parallel_with_backfill(
+                topic=payload.topic,
+                difficulty=payload.difficulty,
+                needed_count=target_count - len(questions),
+                existing_questions=existing_questions,
+                session_id=str(session.get("_id")),
+            )
+            questions.extend(new_qs)
+            # Persist back to session so /regenerate-question works
+            db.user_sessions.update_one(
+                {"_id": session["_id"]},
+                {"$set": {"questions": questions}}
             )
 
         return {
@@ -2365,6 +2373,12 @@ async def generate_section_questions(
                 session_id=str(session.get("_id"))
             )
             filtered_questions.extend(new_questions)
+            # Important: Here we should probably update the main session's questions or at least all_questions
+            # For now, let's update 'questions' so the Test page's immediate regeneration works
+            db.user_sessions.update_one(
+                {"_id": session_id_obj},
+                {"$set": {"questions": filtered_questions}}
+            )
         
         # Return the generated questions
         return {
