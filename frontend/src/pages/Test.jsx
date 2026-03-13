@@ -9,7 +9,8 @@ const isSqlTopic = (topicText) => {
   return t.includes("sql") || t.includes("mysql") || t.includes("postgres") || t.includes("database") || t.includes("sequel");
 };
 const Test = () => {
-  const { topic } = useParams();
+  const { topic: topicParam } = useParams();
+  const topic = topicParam || "General";
   const location = useLocation();
   const navigate = useNavigate();
   const [difficulty, setDifficulty] = useState(null);
@@ -146,7 +147,9 @@ const Test = () => {
       };
       recognitionRef.current.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
-        showWarning(`🎙 Error: ${event.error}`);
+        if (typeof showWarning === 'function') {
+           showWarning(`🎙 Error: ${event.error}`);
+        }
       };
     }
   }, [currentQuestionIndex, testMode]);
@@ -361,9 +364,13 @@ const Test = () => {
   useEffect(() => {
     if (questions.length > 0 && testMode === "vr" && !testStarted && !vrBridgeToken && !vrBusy) {
       console.log("Auto-triggering VR mode...");
-      startVRTest();
+      handleStartVR(); // Internal function or wrapper
     }
-  }, [questions, testMode, testStarted, vrBridgeToken, vrBusy]);
+  }, [questions.length, testMode, testStarted, vrBridgeToken, vrBusy]);
+
+  const handleStartVR = () => {
+    startVRTest();
+  };
   // Set timer when questions are loaded
   useEffect(() => {
     if (questions.length > 0 && timeLeft === null) {
@@ -508,6 +515,12 @@ const Test = () => {
     const params = new URLSearchParams(location.search);
     const qDifficulty = (params.get("difficulty") || "").toLowerCase();
     const qMode = (params.get("mode") || "").toLowerCase();
+    const qSessionId = params.get("session_id");
+    
+    if (qSessionId) {
+      setSessionId(qSessionId);
+    }
+
     const allowed = new Set(["easy", "medium", "hard", "coding"]);
     if (allowed.has(qDifficulty)) {
       setDifficulty(qDifficulty);
@@ -1496,7 +1509,7 @@ const Test = () => {
       </div>
     );
   }
-  if (questions.length === 0) {
+  if ((testStarted || testMode) && questions.length === 0) {
     return (
       <div
         style={{
@@ -1509,7 +1522,9 @@ const Test = () => {
         }}
       >
         <div style={{ color: "#334155", textAlign: "center" }}>
-          <p style={{ fontSize: "18px" }}>⏳ Loading test questions...</p>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>⏳</div>
+          <p style={{ fontSize: "18px", fontWeight: "600" }}>Loading test questions...</p>
+          <p style={{ color: "#64748b", fontSize: "14px", marginTop: "8px" }}>Topic: {decodeURIComponent(topic)}</p>
         </div>
       </div>
     );

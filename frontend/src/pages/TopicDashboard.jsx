@@ -45,12 +45,7 @@ const TopicDashboard = () => {
   }, [sessionId]);
 
   const handleSectionClick = (topic, difficulty) => {
-    const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}`;
-    // Coding should open normal test directly (no VR option screen).
-    if ((difficulty || "").toLowerCase() === "coding") {
-      navigate(`${base}&mode=normal`);
-      return;
-    }
+    const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}&mode=normal`;
     navigate(base);
   };
 
