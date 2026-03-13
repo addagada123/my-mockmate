@@ -1331,10 +1331,13 @@ app = FastAPI(title="Endeavor RAG API")
 
 # CORS middleware
 cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
-# Always allow known frontend deployments
+# Always allow known frontend deployments and local development
 _known_frontends = [
     "https://my-mockmate.vercel.app",
     "https://mockmate.onrender.com",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://localhost:3000",
 ]
 for origin in _known_frontends:
     if origin not in cors_origins:
