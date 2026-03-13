@@ -1,0 +1,70 @@
+
+> frontend@0.0.0 lint
+> eslint .
+
+
+C:\Users\addag\Downloads\My Mockmate\frontend\src\pages\InterviewerSpeakingLogic.jsx
+  17:7   error  Error: Cannot access variable before it is declared
+
+`speak` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+  15 |   useEffect(() => {
+  16 |     if (active && questionText) {
+> 17 |       speak(questionText);
+     |       ^^^^^ `speak` accessed before it is declared
+  18 |     }
+  19 |     return () => stop();
+  20 |   }, [questionText, active]);
+
+  20 |   }, [questionText, active]);
+  21 |
+> 22 |   const speak = (text) => {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^
+> 23 |     if (!("speechSynthesis" in window)) return;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 24 |     
+     …
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 40 |     // window.location.href = `mockmate://talk?text=${encodeURIComponent(text)}`;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 41 |   };
+     | ^^^^^ `speak` is declared here
+  42 |
+  43 |   const stop = () => {
+  44 |     if ("speechSynthesis" in window) {  react-hooks/immutability
+  19:18  error  Error: Cannot access variable before it is declared
+
+`stop` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+  17 |       speak(questionText);
+  18 |     }
+> 19 |     return () => stop();
+     |                  ^^^^ `stop` accessed before it is declared
+  20 |   }, [questionText, active]);
+  21 |
+  22 |   const speak = (text) => {
+
+  41 |   };
+  42 |
+> 43 |   const stop = () => {
+     |   ^^^^^^^^^^^^^^^^^^^^
+> 44 |     if ("speechSynthesis" in window) {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 45 |       window.speechSynthesis.cancel();
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 46 |       setIsTalking(false);
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 47 |     }
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 48 |   };
+     | ^^^^^ `stop` is declared here
+  49 |
+  50 |   return (
+  51 |     <div style={{ padding: "20px", textAlign: "center" }}>                                                     react-hooks/immutability
+
+C:\Users\addag\Downloads\My Mockmate\frontend\src\pages\Test.jsx
+  155:6  warning  React Hook useEffect has a missing dependency: 'showWarning'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  369:6  warning  React Hook useEffect has a missing dependency: 'handleStartVR'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+✖ 4 problems (2 errors, 2 warnings)
+

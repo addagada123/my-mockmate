@@ -12,13 +12,6 @@ import InterviewerAvatar from "./InterviewerAvatar";
 const InterviewerSpeakingLogic = ({ questionText, active }) => {
   const [isTalking, setIsTalking] = useState(false);
 
-  useEffect(() => {
-    if (active && questionText) {
-      speak(questionText);
-    }
-    return () => stop();
-  }, [questionText, active]);
-
   const speak = (text) => {
     if (!("speechSynthesis" in window)) return;
     
@@ -46,6 +39,13 @@ const InterviewerSpeakingLogic = ({ questionText, active }) => {
       setIsTalking(false);
     }
   };
+
+  useEffect(() => {
+    if (active && questionText) {
+      speak(questionText);
+    }
+    return () => stop();
+  }, [questionText, active]);
 
   return (
     <div style={{ padding: "20px", textAlign: "center" }}>
