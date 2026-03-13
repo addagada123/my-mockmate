@@ -34,6 +34,19 @@ const Test = () => {
   const [isTalking, setIsTalking] = useState(false);
   const testContainerRef = useRef(null);
   const tabSwitchWarningRef = useRef(null);
+  const [gradingInProgress, setGradingInProgress] = useState(false);
+  const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
+  const [markedForReview, setMarkedForReview] = useState(new Set());
+  const [showQuestionPanel, setShowQuestionPanel] = useState(true);
+  const [vrCurrentQuestion, setVrCurrentQuestion] = useState(null);
+  const [vrCurrentIndex, setVrCurrentIndex] = useState(0);
+  const [vrRunningScore, setVrRunningScore] = useState(0);
+  const [vrTranscript, setVrTranscript] = useState("");
+  const [vrBusy, setVrBusy] = useState(false);
+  const [vrCompleted, setVrCompleted] = useState(false);
+  const [vrBridgeToken, setVrBridgeToken] = useState("");
+  const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
+  const vrStartedAtRef = useRef(null);
   // Text-to-Speech function
   const stopSpeech = () => {
     if ("speechSynthesis" in window) {
@@ -490,19 +503,7 @@ const Test = () => {
     }
     return Math.round(totalScore / questionsList.length);
   };
-  const [gradingInProgress, setGradingInProgress] = useState(false);
-  const [visitedQuestions, setVisitedQuestions] = useState(new Set([0]));
-  const [markedForReview, setMarkedForReview] = useState(new Set());
-  const [showQuestionPanel, setShowQuestionPanel] = useState(true);
-  const [vrCurrentQuestion, setVrCurrentQuestion] = useState(null);
-  const [vrCurrentIndex, setVrCurrentIndex] = useState(0);
-  const [vrRunningScore, setVrRunningScore] = useState(0);
-  const [vrTranscript, setVrTranscript] = useState("");
-  const [vrBusy, setVrBusy] = useState(false);
-  const [vrCompleted, setVrCompleted] = useState(false);
-  const [vrBridgeToken, setVrBridgeToken] = useState("");
-  const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
-  const vrStartedAtRef = useRef(null);
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qDifficulty = (params.get("difficulty") || "").toLowerCase();
