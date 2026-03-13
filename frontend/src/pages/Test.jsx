@@ -131,6 +131,10 @@ function Test() {
 
   async function submitAnswer() {
     const question = questions[currentQuestionIndex];
+    if (!question) {
+      showWarning("⚠️ Question data not found. Please try refreshing.");
+      return;
+    }
     if (question.type === "coding") {
       const codeResult = codingResults[currentQuestionIndex];
       if (!codeResult) {
@@ -904,8 +908,28 @@ function Test() {
     );
   }
 
+  if (difficulty && testMode && questions.length === 0) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "20px" }}>
+        <div style={{ width: "50px", height: "50px", border: "5px solid #eef2ff", borderTop: "5px solid #6366f1", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+        <p style={{ color: "#6366f1", fontWeight: "600" }}>Loading your questions...</p>
+        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
   const currentQuestion = questions[currentQuestionIndex];
-  const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
+  
+  // Final safety check to prevent components from crashing if an index is out of bounds
+  if (!currentQuestion && questions.length > 0) {
+    return (
+       <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+         <p>Preparing the next question...</p>
+       </div>
+    );
+  }
+
+  const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
 
   return (
     <div ref={testContainerRef} style={{ minHeight: "100vh", background: "#f5f3ff", padding: "20px" }}>
@@ -929,8 +953,8 @@ function Test() {
           </div>
           
           <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-            <h2 style={{ flex: 1, margin: 0 }}>{currentQuestion.question}</h2>
-            <button onClick={() => speakQuestion(currentQuestion.question)} style={{ background: "#eef2ff", border: "none", borderRadius: "50%", width: "40px", height: "40px", cursor: "pointer" }}>🔊</button>
+            <h2 style={{ flex: 1, margin: 0 }}>{currentQuestion?.question || "Loading question..."}</h2>
+            <button onClick={() => speakQuestion(currentQuestion?.question || "")} style={{ background: "#eef2ff", border: "none", borderRadius: "50%", width: "40px", height: "40px", cursor: "pointer" }}>🔊</button>
             <button onClick={regenerateCurrentQuestion} style={{ background: "#f3e8ff", border: "none", borderRadius: "50%", width: "40px", height: "40px", cursor: "pointer" }}>🔄</button>
           </div>
 
