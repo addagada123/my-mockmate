@@ -6,7 +6,7 @@ import CodingQuestion from "./CodingQuestion";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
-const SectionTestWrapper = () => {
+function SectionTestWrapper() {
   const { sessionId, topic, difficulty } = useParams();
   const navigate = useNavigate();
   const [questions, setQuestions] = useState(null);
@@ -15,7 +15,8 @@ const SectionTestWrapper = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    
+    async function load() {
       try {
         const token = localStorage.getItem("mockmate_token");
 
@@ -49,7 +50,7 @@ const SectionTestWrapper = () => {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    };
+    }
 
     load();
     return () => {
@@ -106,7 +107,6 @@ const SectionTestWrapper = () => {
   }
 
   if (questions && questions.length > 0) {
-    // Return the Test component with pre-loaded questions
     return (
       <SectionTest
         questions={questions}
@@ -118,10 +118,9 @@ const SectionTestWrapper = () => {
   }
 
   return null;
-};
+}
 
-// Custom Test component adapted for section-based testing
-const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
+function SectionTest({ questions, topic, difficulty, sessionId }) {
   const navigate = useNavigate();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -130,7 +129,7 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(questions.length * 60); // 1 min per question
+  const [timeLeft, setTimeLeft] = useState(questions.length * 60);
   const testContainerRef = useRef(null);
   const warningRef = useRef(null);
 
@@ -138,49 +137,13 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
   const isCodingSection = difficulty === "coding" || currentQuestion?.type === "coding";
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
-  const formatTime = (seconds) => {
+  function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
-  };
+  }
 
-  // Timer countdown
-  useEffect(() => {
-    if (timeLeft > 0 && !testSubmitted) {
-      const timer = setTimeout(() => {
-        setTimeLeft(timeLeft - 1);
-      }, 1000);
-
-      if (timeLeft === 0) {
-        submitTest();
-      }
-
-      return () => clearTimeout(timer);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeLeft, testSubmitted]);
-
-  // Tab switch detection
-  useEffect(() => {
-    const handler = () => {
-      if (document.hidden) {
-        setTabSwitchCount((prev) => {
-          const next = prev + 1;
-          showWarning(`⚠️ Tab switch detected! (${next}/5)`);
-          if (next >= 5) {
-            showWarning("❌ Auto-submitted due to tab switches!");
-            setTimeout(() => submitTest(), 500);
-          }
-          return next;
-        });
-      }
-    };
-    document.addEventListener("visibilitychange", handler);
-    return () => document.removeEventListener("visibilitychange", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const showWarning = (msg) => {
+  function showWarning(msg) {
     if (warningRef.current) {
       warningRef.current.textContent = msg;
       warningRef.current.style.display = "block";
@@ -188,23 +151,23 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
         if (warningRef.current) warningRef.current.style.display = "none";
       }, 3000);
     }
-  };
+  }
 
-  const handleAnswerChange = (value) => {
+  function handleAnswerChange(value) {
     setAnswers({
       ...answers,
       [currentQuestionIndex]: value,
     });
-  };
+  }
 
-  const handleCodingRunResult = (runResult) => {
+  function handleCodingRunResult(runResult) {
     setCodingResults((prev) => ({
       ...prev,
       [currentQuestionIndex]: runResult,
     }));
-  };
+  }
 
-  const submitTest = async () => {
+  async function submitTest() {
     if (submitting) return;
     setSubmitting(true);
     setTestSubmitted(true);
@@ -216,7 +179,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
       const token = localStorage.getItem("mockmate_token");
 
       const answersPayload = questions.map((q, idx) => {
-        // For coding questions, use code result info as user_answer
         const codeResult = codingResults[idx];
         const userAnswer =
           q.type === "coding" && codeResult
@@ -254,105 +216,39 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
       setSubmitting(false);
       if (document.fullscreenElement) document.exitFullscreen();
     }
-  };
-
-  if (testSubmitted) {
-    const pct = submitResult?.percentage ?? 0;
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f3ff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "20px",
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "white",
-            borderRadius: "12px",
-            padding: "40px",
-            maxWidth: "500px",
-            boxShadow: "0 4px 24px rgba(99,102,241,0.08)",
-            textAlign: "center",
-          }}
-        >
-          <h1 style={{ fontSize: "40px", margin: "0 0 16px 0" }}>✅</h1>
-          <h2 style={{ fontSize: "28px", margin: "0 0 16px 0", color: "#1e293b" }}>
-            Test Submitted!
-          </h2>
-          {submitResult && (
-            <div
-              style={{
-                backgroundColor: pct >= 70 ? "#d1fae5" : pct >= 40 ? "#fef3c7" : "#fee2e2",
-                borderRadius: "12px",
-                padding: "20px",
-                marginBottom: "20px",
-              }}
-            >
-              <p style={{ margin: "0 0 6px 0", color: "#64748b", fontSize: "13px" }}>Score</p>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "42px",
-                  fontWeight: "700",
-                  color: pct >= 70 ? "#065f46" : pct >= 40 ? "#92400e" : "#991b1b",
-                }}
-              >
-                {Math.round(pct)}%
-              </p>
-            </div>
-          )}
-          <div
-            style={{
-              backgroundColor: "#f5f3ff",
-              borderRadius: "8px",
-              padding: "12px",
-              marginBottom: "20px",
-              textAlign: "left",
-            }}
-          >
-            <p style={{ margin: "4px 0", color: "#334155", fontSize: "14px" }}>
-              <strong>Topic:</strong> {decodeURIComponent(topic)}
-            </p>
-            <p style={{ margin: "4px 0", color: "#334155", fontSize: "14px" }}>
-              <strong>Difficulty:</strong>{" "}
-              {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
-            </p>
-            <p
-              style={{
-                margin: "4px 0",
-                color: tabSwitchCount > 0 ? "#dc2626" : "#334155",
-                fontSize: "14px",
-              }}
-            >
-              <strong>Tab Switches:</strong> {tabSwitchCount}/5
-            </p>
-          </div>
-          <p style={{ color: "#666", marginBottom: "24px" }}>
-            Great job! Your answers have been recorded.
-          </p>
-          <button
-            onClick={() => navigate("/dashboard")}
-            style={{
-              padding: "12px 24px",
-              backgroundColor: "#6366f1",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: "600",
-              width: "100%",
-            }}
-          >
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
-    );
   }
+
+  useEffect(() => {
+    if (timeLeft > 0 && !testSubmitted) {
+      const timer = setTimeout(() => {
+        setTimeLeft(timeLeft - 1);
+      }, 1000);
+
+      if (timeLeft === 0) {
+        submitTest();
+      }
+
+      return () => clearTimeout(timer);
+    }
+  }, [timeLeft, testSubmitted]);
+
+  useEffect(() => {
+    function handler() {
+      if (document.hidden) {
+        setTabSwitchCount((prev) => {
+          const next = prev + 1;
+          showWarning(`⚠️ Tab switch detected! (${next}/5)`);
+          if (next >= 5) {
+            showWarning("❌ Auto-submitted due to tab switches!");
+            setTimeout(() => submitTest(), 500);
+          }
+          return next;
+        });
+      }
+    }
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, []);
 
   return (
     <div
@@ -363,7 +259,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
         padding: "20px",
       }}
     >
-      {/* Warning Banner */}
       <div
         ref={warningRef}
         style={{
@@ -383,7 +278,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
         }}
       />
 
-      {/* Header */}
       <div
         style={{
           display: "flex",
@@ -417,7 +311,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
         </div>
       </div>
 
-      {/* Main Content */}
       <div
         style={{
           backgroundColor: "white",
@@ -428,7 +321,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
           margin: "0 auto",
         }}
       >
-        {/* Progress Bar */}
         <div style={{ marginBottom: "24px" }}>
           <div
             style={{
@@ -449,7 +341,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
           </div>
         </div>
 
-        {/* Question */}
         <div style={{ marginBottom: "24px" }}>
           <h2
             style={{
@@ -463,7 +354,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
           </h2>
         </div>
 
-        {/* Answer Input — Coding or Text */}
         <div style={{ marginBottom: "32px" }}>
           {isCodingSection ? (
             <CodingQuestion
@@ -492,7 +382,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
           )}
         </div>
 
-        {/* Navigation Buttons */}
         <div
           style={{
             display: "flex",
@@ -568,6 +457,6 @@ const SectionTest = ({ questions, topic, difficulty, sessionId }) => {
       </div>
     </div>
   );
-};
+}
 
 export default SectionTestWrapper;
