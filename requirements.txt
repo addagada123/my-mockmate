@@ -1,5 +1,6 @@
 gunicorn
-pymongo[srv]
+pymongo
+dnspython
 certifi
 fastapi
 uvicorn[standard]
