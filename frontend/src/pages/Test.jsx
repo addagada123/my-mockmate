@@ -152,7 +152,7 @@ const Test = () => {
         }
       };
     }
-  }, [currentQuestionIndex, testMode]);
+  }, [currentQuestionIndex, testMode, showWarning, topic]);
   // Fetch questions for the topic when difficulty is selected
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -366,7 +366,7 @@ const Test = () => {
       console.log("Auto-triggering VR mode...");
       handleStartVR(); // Internal function or wrapper
     }
-  }, [questions.length, testMode, testStarted, vrBridgeToken, vrBusy]);
+  }, [questions.length, testMode, testStarted, vrBridgeToken, vrBusy, handleStartVR]);
 
   const handleStartVR = () => {
     startVRTest();
