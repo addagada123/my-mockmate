@@ -5152,7 +5152,16 @@ Return ONLY valid JSON (no markdown, no explanation):
             parsed = _fallback_job_payload()
             provider = "fallback-local"
 
-        raw_jobs = parsed.get("jobs", []) if isinstance(parsed, dict) else []
+        if isinstance(parsed, dict):
+            raw_jobs = parsed.get("jobs", [])
+            university = parsed.get("university", "Not detected")
+            university_city = parsed.get("university_city", "Unknown")
+            experience_level = parsed.get("experience_level", "unknown")
+        else:
+            raw_jobs = []
+            university = "Not detected"
+            university_city = "Unknown"
+            experience_level = "unknown"
         jobs = [j for j in (raw_jobs or []) if isinstance(j, dict)]
         if len(jobs) < len(raw_jobs or []):
             logger.warning("Dropped non-dict job entries from AI payload in /recommend-jobs")
@@ -5162,15 +5171,6 @@ Return ONLY valid JSON (no markdown, no explanation):
             jobs = fallback_payload.get("jobs", [])
             provider = "fallback-local"
             fallback_reason = (fallback_reason + "; invalid AI jobs payload") if fallback_reason else "invalid AI jobs payload"
-        # Defensive: parsed may be None or not a dict
-        if isinstance(parsed, dict):
-            university = parsed.get("university", "Not detected")
-            university_city = parsed.get("university_city", "Unknown")
-            experience_level = parsed.get("experience_level", "unknown")
-        else:
-            university = "Not detected"
-            university_city = "Unknown"
-            experience_level = "unknown"
 
         # â”€â”€ Enhanced match scoring algorithm â”€â”€
         user_skills_lower = {s.lower() for s in user_skills}
