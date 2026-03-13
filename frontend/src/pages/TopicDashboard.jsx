@@ -4,7 +4,7 @@ import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
-const TopicDashboard = () => {
+function TopicDashboard() {
   const navigate = useNavigate();
   const { sessionId } = useParams();
   const [topics, setTopics] = useState([]);
@@ -13,7 +13,8 @@ const TopicDashboard = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    
+    async function load() {
       try {
         const token = localStorage.getItem("mockmate_token");
         const response = await axios.get(
@@ -36,7 +37,7 @@ const TopicDashboard = () => {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    };
+    }
 
     load();
     return () => {
@@ -44,15 +45,15 @@ const TopicDashboard = () => {
     };
   }, [sessionId]);
 
-  const handleSectionClick = (topic, difficulty) => {
+  function handleSectionClick(topic, difficulty) {
     const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}&mode=normal`;
     navigate(base);
-  };
+  }
 
-  const handleVRClick = (topic, difficulty) => {
+  function handleVRClick(topic, difficulty) {
     const base = `/test/${encodeURIComponent(topic)}?difficulty=${encodeURIComponent(difficulty)}&session_id=${encodeURIComponent(sessionId)}&mode=vr`;
     navigate(base);
-  };
+  }
 
   if (loading) {
     return (
@@ -252,6 +253,6 @@ const TopicDashboard = () => {
       </div>
     </div>
   );
-};
+}
 
 export default TopicDashboard;

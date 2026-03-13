@@ -16,7 +16,7 @@ const loadingMessages = [
   { icon: "🚀", text: "Almost ready — hang tight!" },
 ];
 
-const LoadingScreen = () => {
+function LoadingScreen() {
   const [msgIdx, setMsgIdx] = useState(0);
   const [dots, setDots] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -104,9 +104,9 @@ const LoadingScreen = () => {
       </div>
     </div>
   );
-};
+}
 
-const CommunicationTest = () => {
+function CommunicationTest() {
   const navigate = useNavigate();
   const [difficulty, setDifficulty] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -201,7 +201,7 @@ const CommunicationTest = () => {
   // Tab switch detection
   useEffect(() => {
     if (!testStarted) return;
-    const handler = () => {
+    function handler() {
       if (document.hidden) {
         setTabSwitchCount((p) => {
           const n = p + 1;
@@ -210,7 +210,7 @@ const CommunicationTest = () => {
           return n;
         });
       }
-    };
+    }
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,33 +218,33 @@ const CommunicationTest = () => {
 
   // Fullscreen
   useEffect(() => {
-    const h = () => { setIsFullscreen(!!document.fullscreenElement); };
+    function h() { setIsFullscreen(!!document.fullscreenElement); }
     document.addEventListener("fullscreenchange", h);
     return () => document.removeEventListener("fullscreenchange", h);
   }, []);
 
-  const requestFullscreen = async () => {
+  async function requestFullscreen() {
     try {
       const el = testContainerRef.current || document.documentElement;
       if (el.requestFullscreen) { await el.requestFullscreen(); setIsFullscreen(true); }
     } catch { showWarning("Please enter fullscreen mode"); }
-  };
+  }
 
-  const showWarning = (msg) => {
+  function showWarning(msg) {
     if (warningRef.current) {
       warningRef.current.textContent = msg;
       warningRef.current.style.display = "block";
       setTimeout(() => { if (warningRef.current) warningRef.current.style.display = "none"; }, 3000);
     }
-  };
+  }
 
-  const getQuestionKey = (sIdx, qIdx) => `${sIdx}-${qIdx}`;
+  function getQuestionKey(sIdx, qIdx) { return `${sIdx}-${qIdx}`; }
 
-  const formatTime = (s) => {
+  function formatTime(s) {
     const m = Math.floor(s / 60);
     const sec = s % 60;
     return `${m}:${sec < 10 ? "0" : ""}${sec}`;
-  };
+  }
 
   // Flatten questions for global navigation (memoized)
   const allQuestions = useMemo(() => {
@@ -260,7 +260,7 @@ const CommunicationTest = () => {
   const currentQ = allQuestions[globalIdx] || null;
 
   // Generate test
-  const startTest = async (level) => {
+  async function startTest(level) {
     setDifficulty(level);
     setLoading(true);
     setError("");
@@ -294,19 +294,19 @@ const CommunicationTest = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleMCQAnswer = (optionLetter) => {
+  function handleMCQAnswer(optionLetter) {
     const key = getQuestionKey(currentSectionIdx, currentQIdx);
     setAnswers((prev) => ({ ...prev, [key]: optionLetter }));
-  };
+  }
 
-  const handleOpenAnswer = (text) => {
+  function handleOpenAnswer(text) {
     const key = getQuestionKey(currentSectionIdx, currentQIdx);
     setAnswers((prev) => ({ ...prev, [key]: text }));
-  };
+  }
 
-  const toggleMic = () => {
+  function toggleMic() {
     if (!recognitionRef.current) { showWarning("Speech recognition not supported"); return; }
     if (isListening) {
       keepListeningRef.current = false; pendingStopRef.current = true;
@@ -316,24 +316,25 @@ const CommunicationTest = () => {
       keepListeningRef.current = true; pendingStopRef.current = false;
       recognitionRef.current.start();
     }
-  };
+  }
 
-  const goNext = () => {
+  function goNext() {
     if (globalIdx < allQuestions.length - 1) {
       const next = allQuestions[globalIdx + 1];
       setCurrentSectionIdx(next.sectionIdx);
       setCurrentQIdx(next.questionIdx);
     }
-  };
-  const goPrev = () => {
+  }
+  
+  function goPrev() {
     if (globalIdx > 0) {
       const prev = allQuestions[globalIdx - 1];
       setCurrentSectionIdx(prev.sectionIdx);
       setCurrentQIdx(prev.questionIdx);
     }
-  };
+  }
 
-  const handleSubmitTest = async () => {
+  async function handleSubmitTest() {
     if (submitting) return;
     setSubmitting(true);
     try {
@@ -362,7 +363,7 @@ const CommunicationTest = () => {
     if (document.fullscreenElement) document.exitFullscreen();
     setTestSubmitted(true);
     setSubmitting(false);
-  };
+  }
 
   const answeredCount = Object.keys(answers).filter((k) => answers[k] && answers[k].toString().trim()).length;
 
@@ -775,6 +776,6 @@ const CommunicationTest = () => {
       </div>
     </div>
   );
-};
+}
 
 export default CommunicationTest;

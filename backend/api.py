@@ -125,6 +125,23 @@ provider_stats = ProviderStats()
 
 # --- Multi-Provider AI Fallback & JSON Helpers ---
 
+_last_provider_index = 0
+
+
+def _add_entropy_seed(messages: List[Dict[str, str]]):
+    """Inject a random seed into the system prompt to force unique results."""
+    seed = secrets.token_hex(4)
+    found_system = False
+    for m in messages:
+        if m.get("role") == "system":
+            m["content"] = (m.get("content") or "") + f"\n\n[Entropy ID: {seed}]"
+            found_system = True
+            break
+    if not found_system:
+        messages.insert(0, {"role": "system", "content": f"Generate unique and varied responses. [Entropy ID: {seed}]"})
+
+
+
 def parse_json_response(raw_text: str) -> Optional[dict]:
     """Parse JSON from LLM response, handling markdown fences and raw text."""
     if not raw_text:
@@ -260,13 +277,22 @@ async def call_ai_with_fallback(
     Returns (raw_text: str, provider: str)
     """
     errors = []
+    global _last_provider_index
+    _add_entropy_seed(messages)
+    
     available = provider_stats.get_available_providers()
     
     if not available:
         logger.error("All AI providers blocked by circuit breaker")
         raise HTTPException(status_code=503, detail="All AI providers temporarily unavailable")
     
-    primary_provider, primary_cost = available[0]
+    # Model Shuffling: Cycle through OpenAI, Gemini, DeepSeek
+    shuffle_candidates = [p for p in available if p[0] in ["openai", "gemini", "deepseek"]]
+    if not shuffle_candidates:
+        shuffle_candidates = available
+    
+    _last_provider_index = (_last_provider_index + 1) % len(shuffle_candidates)
+    primary_provider, primary_cost = shuffle_candidates[_last_provider_index]
     
     async def run_provider(prov: str):
         try:
@@ -336,6 +362,7 @@ async def call_ai_parallel(
         "failures": [{"provider": str, "error": str}, ...]
       }
     """
+    _add_entropy_seed(messages)
     available = [p for p, _ in provider_stats.get_available_providers()]
     if providers:
         allowed = {p.strip().lower() for p in providers}
