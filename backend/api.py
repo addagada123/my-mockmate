@@ -5092,7 +5092,9 @@ Return ONLY valid JSON (no markdown, no explanation):
         fallback_reason: Optional[str] = None
 
         def _is_valid_jobs_payload(payload: Optional[Dict[str, Any]]) -> bool:
-            return bool(payload and isinstance(payload.get("jobs"), list) and len(payload.get("jobs", [])) > 0)
+            if not isinstance(payload, dict):
+                return False
+            return bool(isinstance(payload.get("jobs"), list) and len(payload.get("jobs", [])) > 0)
 
         # --- PRIMARY: Parallel multi-provider (best result wins) ---
         try:
@@ -5113,7 +5115,10 @@ Return ONLY valid JSON (no markdown, no explanation):
             for success in successes:
                 maybe_parsed = parse_json_response(success.get("raw_text", ""))
                 if _is_valid_jobs_payload(maybe_parsed):
-                    job_count = len(maybe_parsed.get("jobs", []))
+                    if isinstance(maybe_parsed, dict):
+                        job_count = len(maybe_parsed.get("jobs", []))
+                    else:
+                        job_count = 0
                     if job_count > best_count:
                         best_parsed = maybe_parsed
                         best_count = job_count
