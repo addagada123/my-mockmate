@@ -1362,6 +1362,7 @@ cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 _known_frontends = [
     "https://my-mockmate.vercel.app",
     "https://mockmate.onrender.com",
+    "https://mockmate-frontend-7j29.onrender.com",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
     "http://localhost:3000",
