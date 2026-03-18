@@ -1,5 +1,5 @@
 # pyre-ignore-all-errors
-# pyright: off
+# pyright: basic
 from typing import Any, Dict, List, Optional, Union, cast
 import uuid
 from datetime import datetime
