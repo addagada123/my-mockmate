@@ -1,6 +1,20 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, cast
 import uuid
 from datetime import datetime
+from dataclasses import dataclass
+
+@dataclass
+class InsertOneResult:
+    inserted_id: Any
+
+@dataclass
+class UpdateResult:
+    matched_count: int
+    modified_count: int
+
+@dataclass
+class DeleteResult:
+    deleted_count: int
 
 class MockObjectId:
     """Mock ObjectId that works like bson.ObjectId"""
@@ -46,7 +60,7 @@ class MockCursor:
         return self
     
     def __iter__(self):
-        results = self.results
+        results = list(self.results) # Make a copy
         if self._sort_key:
             results = sorted(
                 results,
@@ -66,7 +80,7 @@ class MockCursor:
 class MockCollection:
     def __init__(self, name: str):
         self.name = name
-        self.data = {}  # _id -> doc
+        self.data: Dict[str, Dict[str, Any]] = {}  # _id -> doc
 
     def insert_one(self, doc: Dict[str, Any]):
         if "_id" not in doc:
@@ -77,7 +91,7 @@ class MockCollection:
         # Store by string representation of _id
         key = str(doc["_id"])
         self.data[key] = doc
-        return type("InsertOneResult", (), {"inserted_id": doc["_id"]})()
+        return InsertOneResult(inserted_id=doc["_id"])
 
     def find_one(self, filter: Optional[Dict[str, Any]] = None, sort: Optional[List] = None):
         # Get cursor from find
@@ -100,7 +114,16 @@ class MockCollection:
         for doc in self.data.values():
             match = True
             for k, v in filter.items():
-                # Handle _id comparisons
+                # Resolve value for potential dotted key
+                val = doc
+                for part in k.split('.'):
+                    if isinstance(val, dict):
+                        val = val.get(part)
+                    else:
+                        val = None
+                        break
+                
+                # Special handle for _id comparisons if needed (though dotted keys usually aren't _id)
                 if k == "_id":
                     doc_id = str(doc.get("_id", ""))
                     filter_id = str(v)
@@ -108,15 +131,16 @@ class MockCollection:
                         match = False
                         break
                     continue
+
                 if k == "$or":
                     # basic OR support
                     or_match = False
                     for condition in v:
-                        sub_match = True
-                        for sk, sv in condition.items():
-                            if doc.get(sk) != sv:
-                                sub_match = False
-                                break
+                        if isinstance(condition, dict):
+                            for sk, sv in condition.items():
+                                if doc.get(sk) != sv:
+                                    sub_match = False
+                                    break
                         if sub_match:
                             or_match = True
                             break
@@ -128,16 +152,16 @@ class MockCollection:
                 # Check for nested operators
                 if isinstance(v, dict):
                     if "$in" in v:
-                        if doc.get(k) not in v["$in"]:
+                        if val not in v["$in"]:
                             match = False
                             break
                     elif "$ne" in v:
-                        if doc.get(k) == v["$ne"]:
+                        if val == v["$ne"]:
                             match = False
                             break
                     continue
 
-                if doc.get(k) != v:
+                if val != v:
                     match = False
                     break
             
@@ -145,11 +169,13 @@ class MockCollection:
                 # Apply projection if provided
                 if projection:
                     projected_doc = {}
-                    for key, include in projection.items():
+                    # Cast projection to dict to avoid 'items' attribute error
+                    proj_dict: Dict[str, Any] = cast(Dict[str, Any], projection)
+                    for key, include in proj_dict.items():
                         if include == 1 and key in doc:
                             projected_doc[key] = doc[key]
                     # Always include _id unless explicitly excluded
-                    if "_id" not in projection or projection.get("_id") != 0:
+                    if "_id" not in proj_dict or proj_dict.get("_id") != 0:
                         projected_doc["_id"] = doc.get("_id")
                     results.append(projected_doc)
                 else:
@@ -171,7 +197,7 @@ class MockCollection:
                     for k, v in update["$push"].items():
                         new_doc[k] = [v]
                 return self.insert_one(new_doc)
-            return type("UpdateResult", (), {"matched_count": 0, "modified_count": 0})()
+            return UpdateResult(matched_count=0, modified_count=0)
         
         if "$set" in update:
             doc.update(update["$set"])
@@ -181,15 +207,15 @@ class MockCollection:
                     doc[k] = []
                 doc[k].append(v)
         
-        return type("UpdateResult", (), {"matched_count": 1, "modified_count": 1})()
+        return UpdateResult(matched_count=1, modified_count=1)
 
     def delete_one(self, filter: Optional[Dict[str, Any]] = None):
         filter = filter or {}
         doc = self.find_one(filter)
-        if doc:
-            del self.data[doc["_id"]]
-            return type("DeleteResult", (), {"deleted_count": 1})()
-        return type("DeleteResult", (), {"deleted_count": 0})()
+        if doc and "_id" in doc:
+            self.data.pop(str(doc["_id"]), None)
+            return DeleteResult(deleted_count=1)
+        return DeleteResult(deleted_count=0)
         
     def count_documents(self, filter: Optional[Dict[str, Any]] = None) -> int:
         return len(list(self.find(filter)))

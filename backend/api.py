@@ -1,9 +1,24 @@
-﻿from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
+# pyre-ignore-all-errors
+# pyright: basic
+import os
+import sys
+
+# Inject .venv path and project root to help IDE find dependencies
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+venv_path = os.path.join(project_root, ".venv", "Lib", "site-packages")
+
+if os.path.exists(venv_path) and venv_path not in sys.path:
+    sys.path.insert(0, venv_path)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple, cast
 import os
 import re
 from datetime import datetime, timedelta
@@ -68,7 +83,7 @@ logger = logging.getLogger(__name__)
 class ProviderStats:
     """Tracks provider costs, failures, successes and simple circuit-breaker state."""
     def __init__(self):
-        self.stats = {
+        self.stats: Dict[str, Dict[str, Any]] = {
             "gemini": {"cost_per_1m": 0.075, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "claude": {"cost_per_1m": 0.80, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
             "openai": {"cost_per_1m": 0.30, "failures": 0, "successes": 0, "last_failure": None, "blocked_until": None},
@@ -110,6 +125,23 @@ provider_stats = ProviderStats()
 
 # --- Multi-Provider AI Fallback & JSON Helpers ---
 
+_last_provider_index = 0
+
+
+def _add_entropy_seed(messages: List[Dict[str, str]]):
+    """Inject a random seed into the system prompt to force unique results."""
+    seed = secrets.token_hex(4)
+    found_system = False
+    for m in messages:
+        if m.get("role") == "system":
+            m["content"] = (m.get("content") or "") + f"\n\n[Entropy ID: {seed}]"
+            found_system = True
+            break
+    if not found_system:
+        messages.insert(0, {"role": "system", "content": f"Generate unique and varied responses. [Entropy ID: {seed}]"})
+
+
+
 def parse_json_response(raw_text: str) -> Optional[dict]:
     """Parse JSON from LLM response, handling markdown fences and raw text."""
     if not raw_text:
@@ -128,7 +160,9 @@ def parse_json_response(raw_text: str) -> Optional[dict]:
     end = raw_text.rfind("}")
     if start != -1 and end > start:
         try:
-            return json_mod.loads(raw_text[start:end + 1])
+            # Cast indices to int to help static analysis
+            content = raw_text[int(start):int(end) + 1]
+            return json_mod.loads(content)
         except Exception:
             pass
     return None
@@ -245,13 +279,22 @@ async def call_ai_with_fallback(
     Returns (raw_text: str, provider: str)
     """
     errors = []
+    global _last_provider_index
+    _add_entropy_seed(messages)
+    
     available = provider_stats.get_available_providers()
     
     if not available:
         logger.error("All AI providers blocked by circuit breaker")
         raise HTTPException(status_code=503, detail="All AI providers temporarily unavailable")
     
-    primary_provider, primary_cost = available[0]
+    # Model Shuffling: Cycle through OpenAI, Gemini, DeepSeek
+    shuffle_candidates = [p for p in available if p[0] in ["openai", "gemini", "deepseek"]]
+    if not shuffle_candidates:
+        shuffle_candidates = available
+    
+    _last_provider_index = (_last_provider_index + 1) % len(shuffle_candidates)
+    primary_provider, primary_cost = shuffle_candidates[_last_provider_index]
     
     async def run_provider(prov: str):
         try:
@@ -275,7 +318,9 @@ async def call_ai_with_fallback(
     try:
         # Primary provider with 5s timeout before parallel fallback
         try:
-            result, provider = await asyncio.wait_for(run_provider(primary_provider), timeout=5)
+            # Explicitly type the result to help static analysis
+            wait_res_raw = await asyncio.wait_for(run_provider(primary_provider), timeout=5)
+            result, provider = cast(Tuple[str, str], wait_res_raw)
             return result, provider
         except RuntimeError as e:
             # If any provider quota exceeded, try next provider instantly
@@ -283,7 +328,9 @@ async def call_ai_with_fallback(
             if ("quota exceeded" in err_str or "429" in err_str) and len(available) > 1:
                 fallback_provider = available[1][0]
                 try:
-                    result, provider = await asyncio.wait_for(run_provider(fallback_provider), timeout=15)
+                    # Explicitly type to help static analysis
+                    wait_res_err_raw = await asyncio.wait_for(run_provider(fallback_provider), timeout=15)
+                    result, provider = cast(Tuple[str, str], wait_res_err_raw)
                     return result, provider
                 except Exception:
                     pass
@@ -294,7 +341,9 @@ async def call_ai_with_fallback(
             if len(available) > 1:
                 fallback_provider = available[1][0]
                 try:
-                    result, provider = await asyncio.wait_for(run_provider(fallback_provider), timeout=15)
+                    # Explicitly type the result to help static analysis
+                    wait_res_fb: tuple[str, str] = await asyncio.wait_for(run_provider(fallback_provider), timeout=15)
+                    result, provider = wait_res_fb
                     return result, provider
                 except Exception:
                     pass
@@ -321,6 +370,7 @@ async def call_ai_parallel(
         "failures": [{"provider": str, "error": str}, ...]
       }
     """
+    _add_entropy_seed(messages)
     available = [p for p, _ in provider_stats.get_available_providers()]
     if providers:
         allowed = {p.strip().lower() for p in providers}
@@ -512,11 +562,15 @@ def _generate_coding_fallback_questions(
     while len(results) < count and attempts < max_attempts:
         sample = coding_bank[attempts % len(coding_bank)]
         q = sample["question"]
-        q_key = q.strip().lower()
+        # Ensure q is a string before stripping
+        q_text = str(q)
+        q_key = q_text.strip().lower()
         if q_key not in existing_questions:
             existing_questions.add(q_key)
+            # Use explicit int for index to help static analysis
+            res_idx: int = idx
             results.append({
-                "id": f"{session_id or 'generated'}_coding_{idx}",
+                "id": f"{session_id or 'generated'}_coding_{res_idx}",
                 "question": q,
                 "answer": f"Provide a correct and efficient implementation for {base_topic}.",
                 "difficulty": "Medium",
@@ -808,7 +862,8 @@ async def _freshen_questions_for_user(
 
     fresh: List[Dict[str, Any]] = []
     current_seen: set = set()
-    replacement_plan: Dict[tuple, int] = defaultdict(int)
+    # Explicitly type the defaultdict to avoid tuple inference issues
+    replacement_plan: Dict[Tuple[Any, ...], int] = defaultdict(int)
 
     for q in questions:
         q_text = _canonical_question_text((q or {}).get("question") or "")
@@ -1080,13 +1135,127 @@ def _generate_topic_questions(
     session_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Generate interview questions using templates with semantic duplicate detection (Approach 2D)
-    Uses simpler template-based approach (not async), suitable for quick generation
+    Generate interview questions using AI (parallel multi-provider) with
+    consensus deduplication. Falls back to templates if all AI providers fail.
     """
     base_topic = (topic or "General").strip() or "General"
     diff_key = (difficulty or "medium").strip().lower()
     diff_label = _difficulty_label(difficulty)
 
+    # --- Try AI-powered generation first ---
+    try:
+        import asyncio
+
+        ai_prompt = f"""You are an expert technical interviewer. Generate exactly {count} unique, high-quality interview questions about "{base_topic}" at {diff_label} difficulty level.
+
+Each question must be specific, probing, and suitable for a real technical interview. Do NOT generate generic questions.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "questions": [
+    {{
+      "question": "Detailed, specific interview question about {base_topic}",
+      "answer": "Comprehensive model answer (3-5 sentences)",
+      "difficulty": "{diff_label}",
+      "topic": "{base_topic}"
+    }}
+  ]
+}}
+
+Requirements:
+- Questions must test understanding, not just definitions
+- Include scenario-based and problem-solving questions
+- Answers should be detailed enough to evaluate responses against
+- Each question must be genuinely different in what it tests"""
+
+        async def _run_ai_generation():
+            parallel = await call_ai_parallel(
+                messages=[
+                    {"role": "system", "content": "You are a technical interviewer. Return only valid JSON."},
+                    {"role": "user", "content": ai_prompt},
+                ],
+                temperature=0.8,
+                max_tokens=2000,
+                providers=["gemini", "claude", "openai", "deepseek"],
+            )
+
+            all_questions = []
+            for success in parallel.get("successes", []):
+                parsed = parse_json_response(success.get("raw_text", ""))
+                if parsed and isinstance(parsed.get("questions"), list):
+                    for q in parsed["questions"]:
+                        if isinstance(q, dict) and q.get("question"):
+                            q["_provider"] = success.get("provider", "unknown")
+                            all_questions.append(q)
+
+            return all_questions
+
+        # Run the async function
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're inside an async context, create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    all_questions = pool.submit(
+                        lambda: asyncio.run(_run_ai_generation())
+                    ).result(timeout=60)
+            else:
+                all_questions = loop.run_until_complete(_run_ai_generation())
+        except RuntimeError:
+            all_questions = asyncio.run(_run_ai_generation())
+
+        # Aid type inference
+        if not isinstance(all_questions, list):
+            all_questions = []
+
+        if all_questions:
+            # Import deduplication from endeavor_rag_service
+            from backend.endeavor_rag_service import _deduplicate_questions_consensus, _jaccard_similarity
+
+            # Map question keys to match expected format
+            for q in all_questions:
+                if "q" not in q and "question" in q:
+                    q["q"] = q["question"]
+                if "a" not in q and "answer" in q:
+                    q["a"] = q["answer"]
+
+            deduped = _deduplicate_questions_consensus(all_questions, similarity_threshold=0.65)
+
+            results = []
+            index = 1
+            for q in deduped:
+                q_text = q.get("question") or q.get("q") or ""
+                # Skip if semantically similar to existing questions
+                is_dup = any(
+                    _semantic_similarity(q_text.lower(), eq.lower()) > 0.7
+                    for eq in existing_questions
+                )
+                if is_dup:
+                    continue
+
+                existing_questions.add(q_text.strip().lower())
+                # Explicitly type index to avoid inference loss
+                current_idx: int = index
+                results.append({
+                    "id": f"{session_id or 'ai_gen'}_{diff_key}_{current_idx}",
+                    "question": q_text,
+                    "answer": q.get("answer") or q.get("a") or f"Comprehensive answer about {base_topic}.",
+                    "difficulty": diff_label,
+                    "topic": base_topic,
+                })
+                index += 1
+                if len(results) >= count:
+                    break
+
+            if results:
+                logger.info(f"[AI topic questions] Generated {len(results)} questions for {base_topic} ({diff_label}) via AI")
+                return results
+
+    except Exception as ai_err:
+        logger.warning(f"[AI topic questions] AI generation failed for {base_topic}: {ai_err}, falling back to templates")
+
+    # --- Fallback: template-based generation ---
     templates = {
         "easy": [
             "Explain the fundamentals of {topic} with an example from your resume.",
@@ -1118,19 +1287,17 @@ def _generate_topic_questions(
     pool = templates[diff_key]
     attempts = 0
     index = 1
-    max_attempts = max(len(pool) * 3, count + 10)  # allow multiple cycles through pool
-    
-    # Generate questions using templates with semantic duplicate detection
+    max_attempts = max(len(pool) * 3, count + 10)
+
     while len(results) < count and attempts < max_attempts:
         template = pool[attempts % len(pool)]
         question = template.format(topic=base_topic)
-        
-        # Semantic duplicate detection (Approach 2D)
+
         is_duplicate = any(
             _semantic_similarity(question.lower(), existing_q.lower()) > 0.7
             for existing_q in existing_questions
         )
-        
+
         if not is_duplicate:
             q_key = question.strip().lower()
             if q_key not in existing_questions:
@@ -1143,10 +1310,11 @@ def _generate_topic_questions(
                     "topic": base_topic,
                 })
                 index += 1
-        
+
         attempts += 1
 
     return results
+
 
 
 
@@ -1209,10 +1377,13 @@ app = FastAPI(title="Endeavor RAG API")
 
 # CORS middleware
 cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
-# Always allow known frontend deployments
+# Always allow known frontend deployments and local development
 _known_frontends = [
     "https://my-mockmate.vercel.app",
     "https://mockmate.onrender.com",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://localhost:3000",
 ]
 for origin in _known_frontends:
     if origin not in cors_origins:
@@ -1301,6 +1472,12 @@ class VRBridgeAnswerRequest(BaseModel):
 class VRBridgeCompleteRequest(BaseModel):
     time_spent: Optional[int] = None
 
+
+class VRRegisterTokenRequest(BaseModel):
+    device_id: str
+    bridge_token: str
+    api_base: Optional[str] = None
+
 # Upload directory
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -1322,11 +1499,23 @@ _STOP_WORDS = frozenset({
 
 
 def _tokenize(text: str) -> List[str]:
-    """Tokenize and lowercase, removing stop-words and short tokens."""
-    return [
-        w for w in re.findall(r"[a-z0-9#+.\-]+", text.lower())
-        if w not in _STOP_WORDS and len(w) > 1
-    ]
+    """Tokenize and lowercase, removing stop-words and short tokens. Strips trailing punctuation and applies simple stemming."""
+    tokens = []
+    for w in re.findall(r"[a-z0-9#+.\-]+", text.lower()):
+        clean_w = w.rstrip('.')
+        if clean_w not in _STOP_WORDS and len(clean_w) > 1:
+            # Simple heuristic stemming
+            stem = clean_w
+            if len(stem) > 4:
+                if stem.endswith('ies'): stem = stem[:-3] + 'i'
+                elif stem.endswith('es') and not stem.endswith('ees'): stem = stem[:-2]
+                elif stem.endswith('s') and not stem.endswith('ss'): stem = stem[:-1]
+                elif stem.endswith('ing'): stem = stem[:-3]
+                elif stem.endswith('ed'): stem = stem[:-2]
+                elif stem.endswith('ly'): stem = stem[:-2]
+                elif stem.endswith('ment'): stem = stem[:-4]
+            tokens.append(stem)
+    return tokens
 
 
 def _tf_idf_cosine(tokens_a: List[str], tokens_b: List[str]) -> float:
@@ -1381,124 +1570,205 @@ _TECHNICAL_MARKERS = {
 
 def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
     """
-    Advanced multi-signal answer evaluation algorithm:
-      1. TF-IDF cosine similarity between answer â†” correct_answer (40% weight)
-      2. Question-relevance score via keyword coverage (20% weight)
-      3. Answer depth â€” word count, sentence count, technical markers (20% weight)
-      4. Structural quality â€” transitions, examples, coherence signals (10% weight)
-      5. Correct-answer n-gram overlap for factual recall (10% weight)
-    Falls back gracefully when correct_answer is empty.
+    Advanced algorithmic answer evaluation (no AI):
+      1. Character 3-gram Cosine Similarity (40%) - Robust to word variations
+      2. Technical Concept Coverage (20%) - Matches against domain markers
+      3. Key Term Recall (15%) - Word-level overlap with reference
+      4. Answer Completeness (15%) - Length and sentence structure
+      5. Coherence & Structure (5%) - Transition words
+      6. Question-Answer Alignment (5%) - Proximity to question terms
     """
     if not user_answer or not user_answer.strip():
         return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
 
-    ans_tokens = _tokenize(user_answer)
-    q_tokens = _tokenize(question)
-    ref_tokens = _tokenize(correct_answer) if correct_answer else []
+    ans_clean = re.sub(r'[^a-zA-Z0-9 ]', '', user_answer.lower())
+    ref_clean = re.sub(r'[^a-zA-Z0-9 ]', '', correct_answer.lower()) if correct_answer else ""
+    q_clean = re.sub(r'[^a-zA-Z0-9 ]', '', question.lower())
+
+    def _get_char_ngrams(text, n=3):
+        return [text[i:i+n] for i in range(len(text)-n+1)]
+
+    def _char_cosine(text1, text2):
+        if not text1 or not text2: return 0.0
+        g1, g2 = _get_char_ngrams(text1), _get_char_ngrams(text2)
+        c1, c2 = Counter(g1), Counter(g2)
+        all_ngrams = set(c1) | set(c2)
+        dot = sum(c1.get(g, 0) * c2.get(g, 0) for g in all_ngrams)
+        mag1 = math.sqrt(sum(v**2 for v in c1.values()))
+        mag2 = math.sqrt(sum(v**2 for v in c2.values()))
+        return dot / (mag1 * mag2) if mag1 and mag2 else 0.0
+
+    # Signal 1: Char 3-gram Cosine (40%) - Apply a non-linear boost for higher similarity
+    char_sim_raw = _char_cosine(ans_clean, ref_clean) if ref_clean else _char_cosine(ans_clean, q_clean) * 0.6
+    char_sim = min(1.0, char_sim_raw * 1.3) # Scaled boost
+    signal_char_sim = char_sim * 40
+
+    # Signal 2: Technical Concept Coverage (20%)
     ans_lower = user_answer.lower()
+    tech_hits = sum(1 for m in _TECHNICAL_MARKERS["concepts"] if m in ans_lower)
+    signal_tech = min(20, tech_hits * 4.0)
+
+    # Signal 3: Key Term Recall (15%)
+    ans_tokens_list = _tokenize(user_answer)
+    ans_tokens = set(ans_tokens_list)
+    if correct_answer:
+        ref_tokens = set(_tokenize(correct_answer))
+        if ref_tokens:
+            overlap = len(ans_tokens & ref_tokens)
+            term_recall = overlap / len(ref_tokens)
+            # Boost recall slightly if it's non-zero
+            term_recall = min(1.0, term_recall * 1.2)
+        else:
+            term_recall = 0.5
+    else:
+        q_tokens = set(_tokenize(question))
+        overlap = len(ans_tokens & q_tokens)
+        term_recall = overlap / max(1, len(q_tokens)) * 0.5
+    signal_recall = term_recall * 15
+
+    # Signal 4: Answer Completeness (15%)
     word_count = len(user_answer.split())
-    sentence_count = max(1, len(re.split(r"[.!?]+", user_answer.strip())))
+    sentence_count = len(re.split(r'[.!?]+', user_answer.strip()))
+    length_score = min(10, (word_count / 80) * 10)
+    sent_score = min(5, sentence_count * 2.0)
+    signal_completeness = length_score + sent_score
 
-    # --- Signal 1: TF-IDF cosine similarity with correct answer (0-40) ---
-    if ref_tokens:
-        cosine_sim = _tf_idf_cosine(ans_tokens, ref_tokens)
-        signal_similarity = cosine_sim * 40
-    else:
-        # If no reference, use question-answer relevance as proxy (capped at 25)
-        cosine_sim = _tf_idf_cosine(ans_tokens, q_tokens)
-        signal_similarity = min(cosine_sim * 40, 25)
-
-    # --- Signal 2: Question keyword coverage (0-20) ---
-    if q_tokens:
-        q_set = set(q_tokens)
-        covered = sum(1 for t in q_set if t in set(ans_tokens))
-        coverage_ratio = covered / len(q_set)
-    else:
-        coverage_ratio = 0.5  # neutral
-    signal_relevance = coverage_ratio * 20
-
-    # --- Signal 3: Answer depth â€” length + technical richness (0-20) ---
-    # Length component (0-10): reward detailed answers, diminishing returns after ~120 words
-    length_score = min(10, (word_count / 120) * 10) if word_count > 0 else 0
-
-    # Technical marker bonus (0-10)
-    tech_hits = 0
-    for markers in _TECHNICAL_MARKERS["concepts"]:
-        if markers in ans_lower:
-            tech_hits += 1
-    tech_score = min(10, tech_hits * 2.5)
-
-    signal_depth = length_score + tech_score
-
-    # --- Signal 4: Structural quality â€” coherence markers (0-10) ---
+    # Signal 5: Coherence & Structure (5%)
     structure_hits = sum(1 for m in _TECHNICAL_MARKERS["structure"] if m in ans_lower)
-    signal_structure = min(10, structure_hits * 2)
+    signal_structure = min(5, structure_hits * 1.5)
 
-    # --- Signal 5: N-gram factual recall against correct answer (0-10) ---
-    signal_ngram = 0.0
-    if ref_tokens and len(ref_tokens) >= 2:
-        ref_bigrams = set(zip(ref_tokens, ref_tokens[1:]))
-        ans_bigrams = set(zip(ans_tokens, ans_tokens[1:])) if len(ans_tokens) >= 2 else set()
-        if ref_bigrams:
-            overlap = len(ref_bigrams & ans_bigrams)
-            signal_ngram = min(10, (overlap / len(ref_bigrams)) * 10)
+    # Signal 6: Question-Answer Alignment (5%)
+    qa_sim = _char_cosine(ans_clean, q_clean)
+    signal_alignment = min(5.0, qa_sim * 1.5 * 5)
 
-    # --- Combine ---
-    raw_score = (
-        signal_similarity
-        + signal_relevance
-        + signal_depth
-        + signal_structure
-        + signal_ngram
-    )
+    # Combine
+    raw_score = signal_char_sim + signal_tech + signal_recall + signal_completeness + signal_structure + signal_alignment
+
+    # Bonuses
+    if tech_hits >= 3: raw_score = min(100, raw_score + 7)
+    if word_count >= 60 and sentence_count >= 3: raw_score = min(100, raw_score + 5)
 
     # Penalties
-    if word_count < 5:
-        raw_score *= 0.3  # very short answer penalty
-    elif word_count < 15:
-        raw_score *= 0.6  # short answer penalty
-
-    # Bonus for multi-sentence well-structured answers
-    if sentence_count >= 3 and word_count >= 40:
-        raw_score = min(100, raw_score + 5)
+    if word_count < 10: raw_score *= 0.3
+    elif word_count < 20: raw_score *= 0.7
+    
+    if q_clean in ans_clean and word_count < len(question.split()) + 5:
+        raw_score *= 0.3
 
     score = max(0, min(100, int(round(raw_score))))
     is_correct = score >= 55
 
-    # --- Generate detailed feedback ---
-    feedback_parts: List[str] = []
-    if score >= 85:
-        feedback_parts.append("Excellent answer with strong coverage and depth.")
-    elif score >= 70:
-        feedback_parts.append("Good answer that covers the key points.")
-    elif score >= 55:
-        feedback_parts.append("Acceptable answer, but could use more depth.")
-    else:
-        feedback_parts.append("Needs improvement â€” try to address the core concepts.")
+    # Feedback
+    feedback_parts = []
+    if score >= 85: feedback_parts.append("Excellent technical response with strong conceptual coverage.")
+    elif score >= 70: feedback_parts.append("Good answer that addresses the core requirements.")
+    elif score >= 55: feedback_parts.append("Acceptable response, but could benefit from more technical depth.")
+    else: feedback_parts.append("Improvement needed in technical accuracy and conceptual depth.")
 
-    if word_count < 20:
-        feedback_parts.append("Consider providing a more detailed response.")
-    if coverage_ratio < 0.3 and q_tokens:
-        feedback_parts.append("Try to address the specific terms mentioned in the question.")
-    if tech_hits == 0 and word_count > 20:
-        feedback_parts.append("Including technical terminology and concepts would strengthen your answer.")
-    if structure_hits < 2 and word_count > 30:
-        feedback_parts.append("Use transition words (e.g., 'because', 'for example') to improve clarity.")
-    if ref_tokens and cosine_sim < 0.2:
-        feedback_parts.append("Review the expected answer â€” your response diverges from the key points.")
-
+    if word_count < 25: feedback_parts.append("Consider providing a more detailed explanation.")
+    if tech_hits < 2: feedback_parts.append("Including more industry-standard terminology would strengthen your answer.")
+    
     return {
         "score": score,
         "feedback": " ".join(feedback_parts),
         "is_correct": is_correct,
         "breakdown": {
-            "similarity": round(signal_similarity, 1),
-            "relevance": round(signal_relevance, 1),
-            "depth": round(signal_depth, 1),
+            "semantic_sim": round(signal_char_sim, 1),
+            "tech_markers": round(signal_tech, 1),
+            "term_recall": round(signal_recall, 1),
+            "completeness": round(signal_completeness, 1),
             "structure": round(signal_structure, 1),
-            "factual_recall": round(signal_ngram, 1),
-        },
+            "alignment": round(signal_alignment, 1)
+        }
     }
+
+
+
+
+
+
+
+
+
+
+
+async def ai_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
+    """
+    AI-powered answer evaluation using LLM (GPT/Gemini/DeepSeek).
+    Evaluates based on:
+      - Context relevancy: does the answer address the question?
+      - Correctness: is the answer factually/conceptually right?
+      - Depth: does it show understanding beyond surface level?
+      - Clarity: is it well-structured and coherent?
+    Falls back to simple_evaluate_answer() if AI call fails.
+    """
+    if not user_answer or not user_answer.strip():
+        return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
+
+    system_prompt = (
+        "You are an expert interview evaluator. Evaluate the candidate's answer to an interview question.\n"
+        "Score from 0-100 based on:\n"
+        "  - Context Relevancy (30%): Does the answer directly address what was asked?\n"
+        "  - Correctness (30%): Is the answer factually and conceptually accurate?\n"
+        "  - Depth (25%): Does it show deep understanding, examples, or nuance?\n"
+        "  - Clarity (15%): Is it well-structured, coherent, and professional?\n\n"
+        "Respond in EXACTLY this JSON format (no markdown, no extra text):\n"
+        '{"score": <0-100>, "feedback": "<2-3 sentence feedback>", '
+        '"is_correct": <true/false>, "breakdown": {"relevancy": <0-30>, '
+        '"correctness": <0-30>, "depth": <0-25>, "clarity": <0-15>}}'
+    )
+
+    user_prompt = f"""**Interview Question:** {question}
+
+**Candidate's Answer:** {user_answer}"""
+
+    if correct_answer and correct_answer.strip():
+        user_prompt += f"\n\n**Reference/Expected Answer:** {correct_answer}"
+
+    user_prompt += "\n\nEvaluate this answer. Return ONLY valid JSON."
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        raw_text, provider = await call_ai_with_fallback(
+            messages, temperature=0.3, max_tokens=500
+        )
+        logger.info(f"AI evaluation from {provider}")
+
+        # Parse the AI response as JSON
+        import json as _json
+        # Strip markdown code fences if present
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+        result = _json.loads(cleaned)
+
+        # Validate required fields
+        score = max(0, min(100, int(result.get("score", 0))))
+        feedback = result.get("feedback", "")
+        is_correct = result.get("is_correct", score >= 55)
+        breakdown = result.get("breakdown", {})
+
+        return {
+            "score": score,
+            "feedback": feedback,
+            "is_correct": is_correct,
+            "breakdown": breakdown,
+            "evaluated_by": "ai",
+            "ai_provider": provider,
+        }
+    except Exception as e:
+        logger.warning(f"AI evaluation failed, falling back to algorithmic: {e}")
+        fallback = simple_evaluate_answer(question, user_answer, correct_answer)
+        fallback["evaluated_by"] = "algorithmic_fallback"
+        return fallback
 
 @app.get("/")
 async def root():
@@ -1877,14 +2147,18 @@ async def get_resume_questions(
         existing_questions |= _collect_user_seen_questions(db, current_user["id"])
 
         if min_required and len(questions) < min_required:
-            questions.extend(
-                _generate_topic_questions(
-                    topic,
-                    difficulty,
-                    min_required - len(questions),
-                    existing_questions,
-                    session_id=str(latest_session.get("_id"))
-                )
+            new_qs = _generate_topic_questions(
+                topic,
+                difficulty,
+                min_required - len(questions),
+                existing_questions,
+                session_id=str(latest_session.get("_id"))
+            )
+            questions.extend(new_qs)
+            # Persist back to session so /regenerate-question works
+            db.user_sessions.update_one(
+                {"_id": latest_session["_id"]},
+                {"$set": {"questions": questions}}
             )
 
         if limit is not None and limit > 0:
@@ -1980,14 +2254,18 @@ async def generate_test_questions(
         existing_questions = {(q.get("question") or "").strip().lower() for q in questions}
         existing_questions |= _collect_user_seen_questions(db, current_user["id"])
         if target_count and len(questions) < target_count:
-            questions.extend(
-                await _generate_questions_parallel_with_backfill(
-                    topic=payload.topic,
-                    difficulty=payload.difficulty,
-                    needed_count=target_count - len(questions),
-                    existing_questions=existing_questions,
-                    session_id=str(session.get("_id")),
-                )
+            new_qs = await _generate_questions_parallel_with_backfill(
+                topic=payload.topic,
+                difficulty=payload.difficulty,
+                needed_count=target_count - len(questions),
+                existing_questions=existing_questions,
+                session_id=str(session.get("_id")),
+            )
+            questions.extend(new_qs)
+            # Persist back to session so /regenerate-question works
+            db.user_sessions.update_one(
+                {"_id": session["_id"]},
+                {"$set": {"questions": questions}}
             )
 
         return {
@@ -2144,6 +2422,12 @@ async def generate_section_questions(
                 session_id=str(session.get("_id"))
             )
             filtered_questions.extend(new_questions)
+            # Important: Here we should probably update the main session's questions or at least all_questions
+            # For now, let's update 'questions' so the Test page's immediate regeneration works
+            db.user_sessions.update_one(
+                {"_id": session_id_obj},
+                {"$set": {"questions": filtered_questions}}
+            )
         
         # Return the generated questions
         return {
@@ -2391,6 +2675,7 @@ def _execute_python_local(code: str, stdin_input: str, expected: str, index: int
 def _execute_sql_local(query: str, tc: Dict[str, str], index: int) -> dict:
     setup_sql = tc.get("setup_sql") or ""
     expected = _normalize_output(tc.get("expected_output", ""))
+    conn: Optional[sqlite3.Connection] = None
     try:
         conn = sqlite3.connect(":memory:")
         cur = conn.cursor()
@@ -2421,10 +2706,11 @@ def _execute_sql_local(query: str, tc: Dict[str, str], index: int) -> dict:
             "_compile_error": False,
         }
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _cmd_exists(cmd: str) -> bool:
@@ -2748,7 +3034,7 @@ async def run_code(
             return local_compile
         return {"success": True, "language": lang_key, "compile_ok": True, "message": "Compile check is not configured for this language."}
 
-    results: list[dict] = []
+    results: List[Dict[str, Any]] = []
     is_compiled = lang_key in _COMPILED_LANGS
 
     if lang_key == "sql":
@@ -2818,8 +3104,12 @@ async def run_code(
                 ]
                 results = list(await asyncio.gather(*tasks))
 
+        def _has_http_401_error(result_row: Dict[str, Any]) -> bool:
+            err_val = result_row.get("error")
+            return isinstance(err_val, str) and ("HTTP 401" in err_val)
+
         external_auth_error = len(results) > 0 and all(
-            (not r.get("passed")) and isinstance(r.get("error"), str) and "HTTP 401" in r.get("error")
+            (not bool(r.get("passed"))) and _has_http_401_error(r)
             for r in results
         )
         if external_auth_error and lang_key in {"python", "java", "c", "cpp", "c++", "javascript", "js"}:
@@ -2875,8 +3165,10 @@ def _get_owned_session(db, session_id: str, current_user: Dict):
     session_id_obj = _build_session_object_id(session_id)
     session = db.user_sessions.find_one({"_id": session_id_obj})
     if not session:
+        logger.warning(f"Session not found: {session_id}")
         raise HTTPException(status_code=404, detail="Session not found")
     if session.get("user_id") != current_user.get("id"):
+        logger.warning(f"Unauthorized session access: user={current_user.get('id')} session_user={session.get('user_id')}")
         raise HTTPException(status_code=403, detail="Not authorized")
     return session_id_obj, session
 
@@ -2884,13 +3176,21 @@ def _get_owned_session(db, session_id: str, current_user: Dict):
 def _get_session_by_bridge_token(db, bridge_token: str):
     if not bridge_token:
         raise HTTPException(status_code=400, detail="bridge_token is required")
+    
+    logger.info(f"Looking up session for bridge_token: {bridge_token[:8]}...")
     session = db.user_sessions.find_one({"vr_test.bridge_token": bridge_token})
+    
     if not session:
+        logger.error(f"Invalid bridge_token: {bridge_token[:8]}...")
         raise HTTPException(status_code=404, detail="Invalid bridge_token")
+        
     vr_state = session.get("vr_test") or {}
     expires_at = vr_state.get("bridge_expires_at")
     if expires_at and datetime.now() > expires_at:
+        logger.warning(f"Expired bridge_token: {bridge_token[:8]}...")
         raise HTTPException(status_code=401, detail="bridge_token expired")
+        
+    logger.info(f"Found session {session.get('_id')} for bridge_token")
     return session
 
 
@@ -2956,6 +3256,7 @@ async def start_vr_test(
             }
         }
     )
+    logger.info(f"VR Test started for session {payload.session_id}, token={bridge_token[:8]}...")
 
     return {
         "success": True,
@@ -3055,7 +3356,18 @@ async def submit_vr_answer(
         }
     )
 
-    running_avg = round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0
+    if answers:
+        # Explicitly extract and cast to float to satisfy Pyright
+        scores = []
+        for a in answers:
+            s = a.get("score", 0)
+            try:
+                scores.append(float(s)) # type: ignore
+            except (ValueError, TypeError):
+                scores.append(0.0)
+        running_avg = round(sum(scores) / len(answers), 2)
+    else:
+        running_avg = 0.0
     done = next_idx >= len(questions)
     next_question = None if done else questions[next_idx]
 
@@ -3191,7 +3503,7 @@ async def submit_vr_bridge_answer(
         )
 
     q = questions[idx]
-    evaluation = simple_evaluate_answer(
+    evaluation = await ai_evaluate_answer(
         q.get("question", ""),
         payload.user_answer,
         q.get("answer", ""),
@@ -3298,6 +3610,60 @@ async def complete_vr_bridge_test(
         "percentage": round(percentage, 2),
         "evaluated_answers": answers,
     }
+
+
+@app.post("/vr-bridge/register-token")
+async def register_bridge_token(
+    payload: VRRegisterTokenRequest,
+    current_user: Dict = Depends(get_current_user),
+):
+    """
+    Called by the web frontend after /vr-test/start.
+    Stores the device_id → bridge_token mapping so Unity can poll for it.
+    """
+    db = get_db()
+    db.vr_device_tokens.update_one(
+        {"device_id": payload.device_id},
+        {
+            "$set": {
+                "bridge_token": payload.bridge_token,
+                "api_base": payload.api_base or "",
+                "user_id": current_user.get("id"),
+                "created_at": datetime.now(),
+            }
+        },
+        upsert=True,
+    )
+    logger.info(
+        f"Registered bridge token for device_id={payload.device_id}, "
+        f"token={payload.bridge_token[:8]}..."
+    )
+    return {"success": True}
+
+
+@app.get("/vr-bridge/token-poll")
+async def poll_bridge_token(device_id: str):
+    """
+    Unity polls this endpoint every 2-3 seconds to check for a new bridge token.
+    No auth required — Unity only gets the token, which is itself the auth key.
+    """
+    if not device_id:
+        return {"success": False, "bridge_token": None, "message": "device_id required"}
+    db = get_db()
+    mapping = db.vr_device_tokens.find_one({"device_id": device_id})
+    if not mapping or not mapping.get("bridge_token"):
+        return {"success": False, "bridge_token": None}
+    return {
+        "success": True,
+        "bridge_token": mapping["bridge_token"],
+        "api_base": mapping.get("api_base", ""),
+        "created_at": (
+            mapping["created_at"].isoformat()
+            if hasattr(mapping.get("created_at"), "isoformat")
+            else str(mapping.get("created_at", ""))
+        ),
+    }
+
 
 @app.post("/submit-test")
 async def submit_test(
@@ -3757,7 +4123,8 @@ async def seed_comm_pool(
 
     db = get_db()
     difficulties = [difficulty] if difficulty else ["easy", "medium", "hard"]
-    results = {"generated": 0, "failed": 0, "details": []}
+    # Explicitly type results to avoid inference confusion
+    results: Dict[str, Any] = {"generated": 0, "failed": 0, "details": []}
 
     comm_test_prompt = """You are an expert corporate communication assessment designer used by top companies like TCS, Infosys, Wipro, Cognizant, and Accenture for hiring.
 
@@ -3805,7 +4172,8 @@ Return ONLY valid JSON with "passage" and "sections" keys. Each question has: id
     # Pool status
     pool_status = {}
     for d in ["easy", "medium", "hard"]:
-        pool_status[d] = db.comm_test_pool.count_documents({"difficulty": d})
+        # count_documents is a method on MockCollection/Collection
+        pool_status[d] = int(db.comm_test_pool.count_documents({"difficulty": d}))
 
     return {"success": True, "results": results, "pool_status": pool_status}
 
@@ -3821,35 +4189,187 @@ async def comm_pool_status():
 
 
 def _local_comm_test_template() -> Dict[str, Any]:
+    """
+    Returns a high-quality, professional communication test template.
+    Used as a fallback when AI generation fails.
+    """
     return {
-        "passage": "This is a fallback reading passage used when AI services are unavailable.",
+        "passage": (
+            "Effective communication is the cornerstone of a productive workplace. "
+            "It involves not only the clear transmission of information but also active listening and environmental awareness. "
+            "In a globalized economy, cultural sensitivity and the ability to adapt one's communication style to different audiences "
+            "are essential skills. Failure to communicate effectively can lead to misunderstandings, missed deadlines, and decreased morale. "
+            "Conversely, strong communication fosters innovation, strengthens team cohesion, and ensures that all stakeholders are aligned "
+            "with the organization's strategic goals."
+        ),
         "sections": [
-            {"name": "Reading Comprehension", "type": "mcq", "questions": [
-                {"id": "rc-1", "question": "What is the main topic of the passage?", "options": ["A) Topic A", "B) Topic B", "C) Topic C", "D) Topic D"], "correct_answer": "A"},
-                {"id": "rc-2", "question": "Which statement is true?", "options": ["A) True", "B) False", "C) Maybe", "D) Not stated"], "correct_answer": "A"},
-                {"id": "rc-3", "question": "The tone of the passage is:", "options": ["A) Formal", "B) Casual", "C) Humorous", "D) Technical"], "correct_answer": "A"},
-            ]},
-            {"name": "Email Writing", "type": "mixed", "scenario": "Write an email to request leave.", "questions": [
-                {"id": "ew-1", "question": "Choose the best subject line", "options": ["A) Leave Request", "B) Hello", "C) FYI", "D) No Subject"], "correct_answer": "A", "type": "mcq"},
-                {"id": "ew-2", "question": "Choose the best opening sentence", "options": ["A) I need leave", "B) Dear Manager", "C) Hi", "D) Yo"], "correct_answer": "B", "type": "mcq"},
-                {"id": "ew-3", "question": "Write a brief closing line for the email", "type": "open", "correct_answer": "Kind regards,"},
-            ]},
-            {"name": "Grammar & Vocabulary", "type": "mcq", "questions": [
-                {"id": "gv-1", "question": "Choose the correct sentence.", "options": ["A) She go to work.", "B) She goes to work.", "C) She going.", "D) She gone."], "correct_answer": "B"},
-                {"id": "gv-2", "question": "Choose the best word: He ___ the report.", "options": ["A) submit", "B) submitted", "C) submitting", "D) submits"], "correct_answer": "B"},
-                {"id": "gv-3", "question": "Identify the error: 'Their going to the meeting.'", "options": ["A) Their", "B) going", "C) meeting", "D) No error"], "correct_answer": "A"},
-            ]},
-            {"name": "Situational Communication", "type": "mcq", "questions": [
-                {"id": "sc-1", "question": "How would you respond to an upset client?", "options": ["A) Ignore", "B) Apologize and investigate", "C) Blame team", "D) Escalate immediately"], "correct_answer": "B"},
-                {"id": "sc-2", "question": "Best approach to give feedback?", "options": ["A) Public criticism", "B) Private and constructive", "C) Sarcasm", "D) None"], "correct_answer": "B"},
-                {"id": "sc-3", "question": "When to follow-up?", "options": ["A) Immediately", "B) After a reasonable time", "C) Never", "D) Randomly"], "correct_answer": "B"},
-            ]},
-            {"name": "Spoken English", "type": "open", "questions": [
-                {"id": "se-1", "question": "Introduce yourself for a job interview in 60 seconds.", "type": "open", "correct_answer": "A concise introduction covering background and goals."},
-                {"id": "se-2", "question": "Explain a technical concept to a non-technical person.", "type": "open", "correct_answer": "Use analogy and simple language."},
-                {"id": "se-3", "question": "Describe how you handled a conflict at work.", "type": "open", "correct_answer": "Describe situation, action, and result."},
-            ]},
-        ],
+            {
+                "name": "Reading Comprehension",
+                "type": "mcq",
+                "questions": [
+                    {
+                        "id": "rc-1",
+                        "question": "According to the passage, what is a key component of effective communication besides transmitting information?",
+                        "options": ["A) High-speed internet", "B) Active listening", "C) Technical jargon", "D) Authoritative tone"],
+                        "correct_answer": "B",
+                        "explanation": "The passage explicitly mentions active listening as a component of effective communication."
+                    },
+                    {
+                        "id": "rc-2",
+                        "question": "What is identified as a consequence of poor communication in the workplace?",
+                        "options": ["A) Increased innovation", "B) Missed deadlines", "C) Better team cohesion", "D) Higher morale"],
+                        "correct_answer": "B",
+                        "explanation": "The passage states that failure to communicate effectively can lead to missed deadlines."
+                    },
+                    {
+                        "id": "rc-3",
+                        "question": "What skill is specifically highlighted as important in a globalized economy?",
+                        "options": ["A) Advanced coding", "B) Cultural sensitivity", "C) Financial accounting", "D) Physical stamina"],
+                        "correct_answer": "B",
+                        "explanation": "The passage mentions cultural sensitivity is essential in a globalized economy."
+                    }
+                ]
+            },
+            {
+                "name": "Email Writing",
+                "type": "mixed",
+                "scenario": "You need to inform a client that their project delivery will be delayed by two days due to an unforeseen technical issue.",
+                "questions": [
+                    {
+                        "id": "ew-1",
+                        "question": "Choose the most professional subject line for this situation:",
+                        "options": [
+                            "A) Bad news about the project",
+                            "B) Project Update: Revised Delivery Timeline",
+                            "C) Sorry for the delay",
+                            "D) URRGENT: PLEASE READ"
+                        ],
+                        "correct_answer": "B",
+                        "explanation": "Option B is professional, clear, and action-oriented."
+                    },
+                    {
+                        "id": "ew-2",
+                        "question": "Which opening sentence is most appropriate?",
+                        "options": [
+                            "A) I am writing to inform you of a slight shift in our project schedule.",
+                            "B) Hey, we have a problem and the project is late.",
+                            "C) Don't be mad, but we need more time.",
+                            "D) The project is delayed and it's not our fault."
+                        ],
+                        "correct_answer": "A",
+                        "explanation": "Option A is professional and sets a constructive tone."
+                    },
+                    {
+                        "id": "ew-3",
+                        "question": "Write a professional closing line that maintains a positive relationship with the client.",
+                        "type": "open",
+                        "correct_answer": "We appreciate your understanding and are committed to delivering the highest quality results. Please let us know if you have any questions.",
+                        "explanation": "A good closing should express appreciation and offer further support."
+                    }
+                ]
+            },
+            {
+                "name": "Grammar & Vocabulary",
+                "type": "mcq",
+                "questions": [
+                    {
+                        "id": "gv-1",
+                        "question": "Choose the grammatically correct sentence:",
+                        "options": [
+                            "A) Each of the employees have completed their training.",
+                            "B) Each of the employees has completed their training.",
+                            "C) All of the employee has completed their training.",
+                            "D) Every employees have completed their training."
+                        ],
+                        "correct_answer": "B",
+                        "explanation": "'Each' is a singular subject and requires a singular verb ('has')."
+                    },
+                    {
+                        "id": "gv-2",
+                        "question": "Select the word that best completes the sentence: The manager's ____ approach helped resolve the conflict quickly.",
+                        "options": ["A) abrasive", "B) diplomatic", "C) indifferent", "D) chaotic"],
+                        "correct_answer": "B",
+                        "explanation": "'Diplomatic' is the most positive and appropriate trait for resolving conflict."
+                    },
+                    {
+                        "id": "gv-3",
+                        "question": "Identify the error in this sentence: 'Between you and I, the new policy is quite confusing.'",
+                        "options": ["A) Between", "B) you", "C) I", "D) confusing"],
+                        "correct_answer": "C",
+                        "explanation": "'Between' is a preposition and should be followed by the objective case 'me' (not 'I')."
+                    }
+                ]
+            },
+            {
+                "name": "Situational Communication",
+                "type": "mcq",
+                "questions": [
+                    {
+                        "id": "sc-1",
+                        "question": "During a team meeting, a colleague keeps interrupting you while you're presenting. How do you handle it?",
+                        "options": [
+                            "A) Stop speaking and wait for them to finish angrily.",
+                            "B) Politely say, 'I'm almost finished, could you please hold your thoughts until the end?'",
+                            "C) Interrupt them back and speak louder.",
+                            "D) Leave the meeting immediately."
+                        ],
+                        "correct_answer": "B",
+                        "explanation": "Option B is assertive yet professional."
+                    },
+                    {
+                        "id": "sc-2",
+                        "question": "You realize you missed a minor detail in a report you just submitted to your supervisor. What is the best action?",
+                        "options": [
+                            "A) Hope they don't notice.",
+                            "B) Wait for them to point it out and then apologize.",
+                            "C) Immediately send an updated version with a brief explanation.",
+                            "D) Blame a teammate for the oversight."
+                        ],
+                        "correct_answer": "C",
+                        "explanation": "Proactive transparency is the most professional approach."
+                    },
+                    {
+                        "id": "sc-3",
+                        "question": "A client asks for a feature that is outside the current project scope. How do you respond?",
+                        "options": [
+                            "A) Say 'No' flatly.",
+                            "B) Say 'Yes' and worry about the extra work later.",
+                            "C) Say 'That's interesting. Let me check the feasibility and impact on the timeline with my team.'",
+                            "D) Ignore the request."
+                        ],
+                        "correct_answer": "C",
+                        "explanation": "Option C manages expectations while remaining open to discussion."
+                    }
+                ]
+            },
+            {
+                "name": "Spoken English",
+                "type": "open",
+                "questions": [
+                    {
+                        "id": "se-1",
+                        "question": "Introduce yourself and describe your professional background in a way that highlights your suitability for a corporate role.",
+                        "type": "open",
+                        "correct_answer": "A structured introduction covering education, key skills, and career aspirations.",
+                        "explanation": "Evaluation focuses on structure, clarity, and professional tone."
+                    },
+                    {
+                        "id": "se-2",
+                        "question": "Explain the importance of teamwork in a high-pressure environment using a personal example.",
+                        "type": "open",
+                        "correct_answer": "Response should highlight collaboration, problem-solving, and emotional intelligence.",
+                        "explanation": "Evaluation focuses on storytelling ability and coherence."
+                    },
+                    {
+                        "id": "se-3",
+                        "question": "If you were to disagree with a strategy proposed by your manager, how would you express your concerns professionally?",
+                        "type": "open",
+                        "correct_answer": "Focus on using data-backed arguments and respectful, non-confrontational language.",
+                        "explanation": "Evaluation focuses on diplomacy and critical thinking."
+                    }
+                ]
+            }
+        ]
     }
 
 
@@ -3950,7 +4470,10 @@ async def generate_comm_test(
         raw_text = ""
         provider = "unknown"
         db = get_db()
-        difficulty = (payload.difficulty or "medium").strip().lower()
+
+        # Communication tests are comprehensive and don't use 3 difficulty levels like technical topics.
+        # We use a single, high-quality professional difficulty for everyone.
+        difficulty = "comprehensive"
 
         # --- Try cached pool first ---
         cached_test = db.comm_test_pool.find_one(
@@ -3960,7 +4483,7 @@ async def generate_comm_test(
 
         if cached_test and "test_data" in cached_test:
             parsed = cached_test["test_data"]
-            logger.info(f"Serving cached comm test (id={cached_test.get('_id')}, difficulty={difficulty})")
+            logger.info(f"Serving cached comm test (id={cached_test.get('_id')})")
 
             # Increment times_served so we rotate through the pool
             db.comm_test_pool.update_one(
@@ -3990,121 +4513,36 @@ async def generate_comm_test(
                 "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
             }
 
-        # --- Fallback: generate live via AI (multi-provider fallback) ---
+        # --- Fallback: generate live via AI ---
         logger.info(f"No cached tests for difficulty={difficulty}, falling back to live AI")
-        difficulty = (payload.difficulty or "medium").capitalize()
 
-        prompt = f"""You are an expert corporate communication assessment designer used by top companies like TCS, Infosys, Wipro, Cognizant, and Accenture for hiring.
+        prompt = f"""You are an expert corporate communication assessment designer used by top companies (TCS, Infosys, IBM, etc.) to evaluate high-potential candidates.
 
-Generate a complete Communication Skills Test at {difficulty} difficulty level.
+Generate a comprehensive "Corporate Professional Communication Assessment".
 
 The test MUST contain exactly 15 questions divided into these 5 sections (3 questions each):
 
-**Section 1: Reading Comprehension**
-- Provide a short professional passage (80-120 words) about a workplace/business scenario.
-- Ask 3 MCQ questions based on the passage.
-- Each question has 4 options (A, B, C, D) with one correct answer.
-
-**Section 2: Email / Business Writing**
-- Give a workplace scenario (e.g., "Write an email to your manager requesting leave").
-- Ask 3 questions: one asking to choose the best subject line (MCQ), one choosing the correct email body (MCQ), one asking the user to write a professional email response (open-ended, 3-5 sentences).
-
-**Section 3: Grammar & Vocabulary**
-- 3 MCQ questions testing: sentence correction, fill-in-the-blank with correct word, identify the error.
-- Each with 4 options.
-
-**Section 4: Situational Communication**
-- Present 3 workplace scenarios (e.g., "A client is upset about a delayed delivery. How do you respond?")
-- For each: provide 4 response options (MCQ), one is the most professional.
-
-**Section 5: Spoken English Prompt**
-- 3 open-ended questions where the candidate must speak/type a response.
-- E.g., "Introduce yourself for a job interview in 60 seconds", "Explain a technical concept to a non-technical person", "Describe how you handled a conflict at work".
+- Section 1: Reading Comprehension (Professional passage 80-120 words + 3 MCQs)
+- Section 2: Email / Business Writing (Workplace scenario + 1 Subject Line MCQ, 1 Body MCQ, 1 Open-ended response)
+- Section 3: Grammar & Vocabulary (3 advanced corporate MCQs)
+- Section 4: Situational Communication (3 professional workplace situational MCQs)
+- Section 5: Spoken English Prompt (3 high-level open-ended speaking prompts)
 
 Return ONLY valid JSON (no markdown, no explanation) in this exact format:
 {{
-  "passage": "The reading comprehension passage text here...",
+  "passage": "...",
   "sections": [
-    {{
-      "name": "Reading Comprehension",
-      "type": "mcq",
-      "questions": [
-        {{
-          "id": "rc-1",
-          "question": "Question text",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "B",
-          "explanation": "Why B is correct"
-        }}
-      ]
-    }},
-    {{
-      "name": "Email Writing",
-      "type": "mixed",
-      "scenario": "The email scenario...",
-      "questions": [
-        {{
-          "id": "ew-1",
-          "question": "Choose the best subject line",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "C",
-          "explanation": "...",
-          "type": "mcq"
-        }},
-        {{
-          "id": "ew-3",
-          "question": "Write a professional email response for this scenario",
-          "correct_answer": "A sample ideal email response",
-          "explanation": "Key elements to include",
-          "type": "open"
-        }}
-      ]
-    }},
-    {{
-      "name": "Grammar & Vocabulary",
-      "type": "mcq",
-      "questions": [
-        {{
-          "id": "gv-1",
-          "question": "...",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "A",
-          "explanation": "..."
-        }}
-      ]
-    }},
-    {{
-      "name": "Situational Communication",
-      "type": "mcq",
-      "questions": [
-        {{
-          "id": "sc-1",
-          "question": "Scenario: ... How do you respond?",
-          "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-          "correct_answer": "D",
-          "explanation": "..."
-        }}
-      ]
-    }},
-    {{
-      "name": "Spoken English",
-      "type": "open",
-      "questions": [
-        {{
-          "id": "se-1",
-          "question": "Introduce yourself for a job interview in 60 seconds.",
-          "correct_answer": "A model answer covering name, background, skills, and goals",
-          "explanation": "Should be structured, confident, and professional",
-          "type": "open"
-        }}
-      ]
-    }}
+    {{ "name": "Reading Comprehension", "type": "mcq", "questions": [...] }},
+    {{ "name": "Email Writing", "type": "mixed", "scenario": "...", "questions": [...] }},
+    {{ "name": "Grammar & Vocabulary", "type": "mcq", "questions": [...] }},
+    {{ "name": "Situational Communication", "type": "mcq", "questions": [...] }},
+    {{ "name": "Spoken English", "type": "open", "questions": [...] }}
   ]
 }}"""
 
         parallel = await call_ai_parallel(
             messages=[
-                {"role": "system", "content": "You are an assessment designer. Return only valid JSON."},
+                {"role": "system", "content": "You are a professional assessment designer. Return only valid JSON."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
@@ -4122,7 +4560,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
                 successful_providers.append(provider_name)
 
         if not parsed_candidates:
-            logger.warning("All AI providers failed/invalid for comm test; using local fallback template")
+            logger.warning("All AI providers failed for comm test; using local fallback template")
             provider = "fallback-local"
             parsed = _local_comm_test_template()
         else:
@@ -4133,7 +4571,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
             logger.error("Communication test generation produced invalid payload after merge/fallback")
             raise HTTPException(status_code=500, detail="Failed to generate communication test")
 
-        # Store in DB for later scoring
+        # Store in DB
         comm_session = {
             "user_id": current_user["id"],
             "type": "communication_test",
@@ -4149,7 +4587,7 @@ Return ONLY valid JSON (no markdown, no explanation) in this exact format:
         return {
             "success": True,
             "session_id": session_id,
-            "difficulty": difficulty.lower(),
+            "difficulty": difficulty,
             "passage": parsed.get("passage", ""),
             "sections": parsed["sections"],
             "total_questions": sum(len(s.get("questions", [])) for s in parsed["sections"]),
@@ -4683,26 +5121,93 @@ Return ONLY valid JSON (no markdown, no explanation):
         parsed: Optional[Dict[str, Any]] = None
         provider = "fallback-local"
         raw_text = ""
+        fallback_reason: Optional[str] = None
+
+        def _is_valid_jobs_payload(payload: Optional[Dict[str, Any]]) -> bool:
+            if not isinstance(payload, dict):
+                return False
+            return bool(isinstance(payload.get("jobs"), list) and len(payload.get("jobs", [])) > 0)
+
+        # --- PRIMARY: Parallel multi-provider (best result wins) ---
         try:
-            raw_text, provider = await call_ai_with_fallback(
+            parallel = await call_ai_parallel(
                 messages=[
                     {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
                 max_tokens=4000,
+                providers=["gemini", "claude", "openai", "deepseek"],
             )
-            parsed = parse_json_response(raw_text)
-            if not parsed or "jobs" not in parsed:
-                raise ValueError("AI response missing jobs")
-        except Exception as ai_err:
-            logger.warning(f"Job AI unavailable, serving fallback recommendations: {ai_err}")
-            parsed = _fallback_job_payload()
+            successes = parallel.get("successes", [])
+            # Pick the best valid result (most jobs)
+            best_parsed = None
+            best_count = 0
+            best_provider = "unknown"
+            for success in successes:
+                maybe_parsed = parse_json_response(success.get("raw_text", ""))
+                if _is_valid_jobs_payload(maybe_parsed):
+                    if isinstance(maybe_parsed, dict):
+                        job_count = len(maybe_parsed.get("jobs", []))
+                    else:
+                        job_count = 0
+                    if job_count > best_count:
+                        best_parsed = maybe_parsed
+                        best_count = job_count
+                        best_provider = success.get("provider", "unknown")
+                        raw_text = success.get("raw_text", "")
 
-        jobs = parsed.get("jobs", [])
-        university = parsed.get("university", "Not detected")
-        university_city = parsed.get("university_city", "Unknown")
-        experience_level = parsed.get("experience_level", "unknown")
+            if best_parsed and best_count > 0:
+                parsed = best_parsed
+                provider = f"parallel:{best_provider}"
+                logger.info(f"[recommend-jobs] Parallel success: best from {best_provider} with {best_count} jobs")
+            else:
+                raise ValueError(f"No valid jobs from {len(successes)} parallel successes")
+
+        except Exception as parallel_err:
+            # --- SECONDARY: Sequential fallback ---
+            logger.warning(f"[recommend-jobs] Parallel failed, trying sequential fallback: {parallel_err}")
+            fallback_reason = str(parallel_err)
+            try:
+                raw_text, provider = await call_ai_with_fallback(
+                    messages=[
+                        {"role": "system", "content": "You are a job market expert. Return only valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=4000,
+                )
+                parsed = parse_json_response(raw_text)
+                if not _is_valid_jobs_payload(parsed):
+                    raise ValueError("Sequential AI response missing jobs")
+            except Exception as seq_err:
+                logger.warning(f"[recommend-jobs] Sequential also failed: {seq_err}")
+                fallback_reason = f"parallel: {parallel_err}, sequential: {seq_err}"
+
+        if not _is_valid_jobs_payload(parsed):
+            logger.warning(f"Job AI unavailable, serving fallback recommendations: {fallback_reason}")
+            parsed = _fallback_job_payload()
+            provider = "fallback-local"
+
+        if isinstance(parsed, dict):
+            raw_jobs = parsed.get("jobs", [])
+            university = parsed.get("university", "Not detected")
+            university_city = parsed.get("university_city", "Unknown")
+            experience_level = parsed.get("experience_level", "unknown")
+        else:
+            raw_jobs = []
+            university = "Not detected"
+            university_city = "Unknown"
+            experience_level = "unknown"
+        jobs = [j for j in (raw_jobs or []) if isinstance(j, dict)]
+        if len(jobs) < len(raw_jobs or []):
+            logger.warning("Dropped non-dict job entries from AI payload in /recommend-jobs")
+        if not jobs:
+            logger.warning("AI payload had no valid jobs after sanitization; using local fallback jobs")
+            fallback_payload = _fallback_job_payload()
+            jobs = fallback_payload.get("jobs", [])
+            provider = "fallback-local"
+            fallback_reason = (fallback_reason + "; invalid AI jobs payload") if fallback_reason else "invalid AI jobs payload"
 
         # â”€â”€ Enhanced match scoring algorithm â”€â”€
         user_skills_lower = {s.lower() for s in user_skills}
@@ -4710,7 +5215,8 @@ Return ONLY valid JSON (no markdown, no explanation):
         
         for i, job in enumerate(jobs):
             job["id"] = job.get("id", f"job-{i+1}")
-            required = [s for s in job.get("required_skills", [])]
+            required_raw = job.get("required_skills", [])
+            required = [s for s in (required_raw if isinstance(required_raw, list) else []) if isinstance(s, str)]
             matching = [s for s in required if s.lower() in user_skills_lower]
             strong_match = [s for s in matching if s.lower() in strong_skills_lower]
             
@@ -4726,7 +5232,7 @@ Return ONLY valid JSON (no markdown, no explanation):
             job["strong_matches"] = strong_match
             
             # Backward compat: ensure apply_urls exists
-            if "apply_urls" not in job:
+            if "apply_urls" not in job or not isinstance(job.get("apply_urls"), dict):
                 title_enc = job.get("title", "").replace(" ", "+")
                 loc_enc = job.get("location", "").replace(" ", "+")
                 job["apply_urls"] = {
@@ -4766,6 +5272,9 @@ Return ONLY valid JSON (no markdown, no explanation):
             "jobs": jobs,
             "skill_gap": skill_gap[:15],
             "total_jobs": len(jobs),
+            "jobs_source": provider,
+            "is_live_generated": provider != "fallback-local",
+            "fallback_reason": fallback_reason if provider == "fallback-local" else None,
         }
 
     except HTTPException:
