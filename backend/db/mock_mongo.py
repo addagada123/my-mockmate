@@ -136,6 +136,7 @@ class MockCollection:
                     # basic OR support
                     or_match = False
                     for condition in v:
+                        sub_match = True  # Ensure sub_match is always initialized
                         if isinstance(condition, dict):
                             for sk, sv in condition.items():
                                 if doc.get(sk) != sv:
