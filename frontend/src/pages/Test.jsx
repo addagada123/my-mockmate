@@ -66,6 +66,9 @@ function Test() {
   const [vrBridgeToken, setVrBridgeToken] = useState("");
   const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
   const vrStartedAtRef = useRef(null);
+  const [vrLaunching, setVrLaunching] = useState(false);
+  const [vrShowManual, setVrShowManual] = useState(false); // show fallback manual panel
+  const [vrLaunchMode, setVrLaunchMode] = useState(null); // 'browser' or 'desktop'
 
   // --- Function Declarations (Hoisted) ---
 
@@ -303,13 +306,14 @@ function Test() {
     }
   }
 
-  async function startVRTest() {
+  async function startVRTest(mode) {
     if (!sessionId) {
       showWarning("No session available for VR mode");
       return;
     }
     try {
       setVrBusy(true);
+      setVrLaunchMode(mode);
       const token = localStorage.getItem("mockmate_token");
       const response = await axios.post(
         `${API_BASE}/vr-test/start`,
@@ -335,51 +339,14 @@ function Test() {
       setVrBridgeToken(response.data.bridge_token || "");
       setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
       vrStartedAtRef.current = Date.now();
-      const bridgeToken = response.data.bridge_token || "";
-      try {
-        await axios.post(
-          `${API_BASE}/vr-bridge/register-token`,
-          {
-            device_id: "mockmate-vr-default",
-            bridge_token: bridgeToken,
-            api_base: API_BASE,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-      } catch (regErr) {
-        console.warn("[VR] Token registration failed (non-critical):", regErr);
+      if (vrLaunchMode === "desktop" || mode === "desktop") {
+        const desktopUrl = `mockmate://start-vr?bridge_token=${encodeURIComponent(response.data.bridge_token)}&api_base=${encodeURIComponent(API_BASE)}`;
+        window.location.href = desktopUrl;
+        showWarning("Attempting to launch Desktop VR App. If it doesn't open, ensure you've registered the handle or use Browser VR.");
       }
-      try {
-        if (window.showSaveFilePicker) {
-          const tokenPayload = JSON.stringify({
-            bridge_token: bridgeToken,
-            api_base: API_BASE,
-            created_at: new Date().toISOString(),
-          });
-          const blob = new Blob([tokenPayload], { type: "application/json" });
-          const link = document.createElement("a");
-          link.href = URL.createObjectURL(blob);
-          link.download = "bridge_token.json";
-          link.click();
-          URL.revokeObjectURL(link.href);
-        }
-      } catch (fileErr) {
-        console.warn("[VR] Local file write skipped:", fileErr);
-      }
-      const deepLink = `mockmate://start-vr?bridge_token=${encodeURIComponent(
-        bridgeToken
-      )}&api_base=${encodeURIComponent(API_BASE)}`;
-      try {
-        window.location.href = deepLink;
-        showWarning("VR mode initialized. Bridge token sent to Unity automatically.");
-      } catch {
-        showWarning("VR mode initialized. Token registered — Unity will pick it up automatically.");
-      }
+      
+      setVrLaunching(true);
+      setVrShowManual(false);
     } catch (error) {
       showWarning(
         `VR start failed: ${error.response?.data?.detail || error.message}`
@@ -539,8 +506,8 @@ function Test() {
     }
   }
 
-  function handleStartVR() {
-    startVRTest();
+  function handleStartVR(mode) {
+    startVRTest(mode);
   }
 
   function toggleMarkForReview() {
@@ -831,6 +798,18 @@ function Test() {
     });
   }, [currentQuestionIndex]);
 
+  // Poll for VR question state every 3 seconds when in VR mode
+  useEffect(() => {
+    if (testMode !== "vr" || vrCompleted || testSubmitted) return;
+    if (vrCurrentQuestion) return;
+    
+    const interval = setInterval(() => {
+      refreshVRQuestion();
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [testMode, vrCompleted, testSubmitted, vrCurrentQuestion]);
+
   // --- Rendering ---
 
   if (!difficulty) {
@@ -861,12 +840,39 @@ function Test() {
     return (
       <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
         <div style={{ backgroundColor: "white", borderRadius: "20px", padding: "40px", maxWidth: "560px", boxShadow: "0 20px 60px rgba(99,102,241,0.12)", textAlign: "center" }}>
-          <h1>Questions Ready</h1>
-          <p>{questions.length} questions generated for {decodeURIComponent(topic)}.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "24px" }}>
-            <button onClick={async () => { setTestMode("normal"); await requestFullscreen(); setTestStarted(true); }} style={{ padding: "14px", background: "#6366f1", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600" }}>Take Test</button>
-            {difficulty !== "coding" && <button onClick={handleStartVR} style={{ padding: "14px", background: "#0f766e", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600" }}>Take Test in VR</button>}
+          <h1 style={{ color: "#1e1b4b", marginBottom: "16px" }}>Questions Ready</h1>
+          <p style={{ color: "#666", marginBottom: "32px" }}>{questions.length} questions generated for <strong>{decodeURIComponent(topic)}</strong>.</p>
+          
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <button onClick={async () => { setTestMode("normal"); await requestFullscreen(); setTestStarted(true); }} 
+                    style={{ padding: "16px", background: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "white", borderRadius: "12px", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "16px", boxShadow: "0 4px 12px rgba(99,102,241,0.3)" }}>
+              💻 Start Standard Test
+            </button>
+            
+            {difficulty !== "coding" && (
+              <div style={{ marginTop: "12px", padding: "24px", background: "#f8fafc", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
+                <h3 style={{ fontSize: "16px", color: "#334155", marginBottom: "12px" }}>Experience in VR</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <button onClick={() => handleStartVR("browser")}
+                          style={{ padding: "12px", background: "#0f766e", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
+                    🌐 Browser VR
+                  </button>
+                  <button onClick={() => handleStartVR("desktop")}
+                          style={{ padding: "12px", background: "#0e7490", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
+                    🖥️ Desktop App
+                  </button>
+                </div>
+                <p style={{ fontSize: "12px", color: "#64748b", marginTop: "12px" }}>
+                  Browser mode works instantly. Desktop version requires installation but offers higher fidelity.
+                </p>
+              </div>
+            )}
           </div>
+          
+          <button onClick={() => navigate("/dashboard")} 
+                  style={{ marginTop: "32px", padding: "12px 24px", background: "transparent", color: "#6366f1", border: "2px solid #6366f1", borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: "600" }}>
+            ← Back to Dashboard
+          </button>
         </div>
       </div>
     );
@@ -885,24 +891,121 @@ function Test() {
     );
   }
 
+  // ── VR MODE: Unity WebGL embedded in an iframe ──────────────────────────────
   if (testMode === "vr") {
+    const unityUrl = `/vr/index.html?bridge_token=${encodeURIComponent(vrBridgeToken)}&api_base=${encodeURIComponent(API_BASE)}&session_id=${encodeURIComponent(sessionId || "")}`;
+    const totalQ = questions.length;
+    const progress = totalQ > 0 ? Math.round(((vrCurrentIndex) / totalQ) * 100) : 0;
+
     return (
-      <div style={{ minHeight: "100vh", background: "#f5f3ff", padding: "24px" }}>
-        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
-          <div style={{ backgroundColor: "white", borderRadius: "14px", padding: "24px", boxShadow: "0 8px 30px rgba(0,0,0,0.08)" }}>
-            <h1>VR Test Control</h1>
-            <p>Sync your Unity experience with the web app here.</p>
-            {vrBridgeToken && <div style={{ background: "#eef2ff", padding: "10px", borderRadius: "8px", marginTop: "12px" }}>Token: <code>{vrBridgeToken}</code></div>}
-            <div style={{ marginTop: "24px" }}>
-              <h3>Current Question</h3>
-              <p>{vrCurrentQuestion?.question || "Syncing..."}</p>
-              <textarea value={vrTranscript} onChange={(e) => setVrTranscript(e.target.value)} placeholder="Paste transcript from VR..." style={{ width: "100%", minHeight: "100px", padding: "12px", borderRadius: "8px", border: "1px solid #ddd" }} />
-              <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
-                <button onClick={submitVRAnswer} style={{ padding: "10px 16px", background: "#0f766e", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>Save & Next</button>
-                <button onClick={completeVRTest} style={{ padding: "10px 16px", background: "#059669", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>Complete Test</button>
-              </div>
-            </div>
+      <div style={{ minHeight: "100vh", background: "#080c14", display: "flex", flexDirection: "column" }}>
+
+        {/* ── Top bar ── */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 20px", background: "rgba(255,255,255,0.04)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)", gap: "12px"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "22px" }}>🥽</span>
+            <span style={{ color: "white", fontWeight: "700", fontSize: "16px" }}>MockMate VR</span>
+            <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>· {decodeURIComponent(topic)}</span>
           </div>
+          <div style={{ flex: 1, maxWidth: "320px" }}>
+            <div style={{ height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden" }}>
+              <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, #0ea5e9, #8b5cf6)", transition: "width 0.4s", borderRadius: "3px" }} />
+            </div>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", margin: "4px 0 0", textAlign: "center" }}>
+              Question {vrCurrentIndex + 1} of {totalQ} · Score: {vrRunningScore}%
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button onClick={() => setVrShowManual(v => !v)} style={{
+              padding: "6px 14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)",
+              background: vrShowManual ? "rgba(139,92,246,0.3)" : "transparent",
+              color: "rgba(255,255,255,0.7)", cursor: "pointer", fontSize: "13px"
+            }}>🎛 Manual</button>
+            <button onClick={() => navigate("/dashboard")} style={{
+              padding: "6px 14px", borderRadius: "8px", border: "1px solid rgba(239,68,68,0.4)",
+              background: "transparent", color: "rgba(239,68,68,0.8)", cursor: "pointer", fontSize: "13px"
+            }}>✕ Exit</button>
+          </div>
+        </div>
+
+        {/* ── Main area ── */}
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+          {/* Unity WebGL iframe */}
+          <div style={{ flex: 1, position: "relative" }}>
+            {vrLaunching && (
+              <div style={{
+                position: "absolute", inset: 0, background: "#080c14",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                zIndex: 10, gap: "16px"
+              }}>
+                <div style={{ width: "48px", height: "48px", border: "4px solid rgba(255,255,255,0.1)", borderTop: "4px solid #0ea5e9", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}`}</style>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "14px" }}>Loading VR environment…</p>
+              </div>
+            )}
+            <iframe
+              key={vrBridgeToken}
+              src={unityUrl}
+              title="MockMate VR"
+              onLoad={() => setVrLaunching(false)}
+              style={{ width: "100%", height: "100%", border: "none", display: "block", background: "#080c14" }}
+              allow="microphone; fullscreen"
+              allowFullScreen
+            />
+          </div>
+
+          {/* Manual control panel (slide in from right) */}
+          {vrShowManual && (
+            <div style={{
+              width: "320px", background: "#0f172a", borderLeft: "1px solid rgba(255,255,255,0.08)",
+              padding: "20px", display: "flex", flexDirection: "column", gap: "16px", overflowY: "auto"
+            }}>
+              <h3 style={{ color: "white", margin: 0, fontSize: "15px" }}>Manual Control</h3>
+              <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", margin: 0 }}>
+                Use this panel if the VR view isn't responding.
+              </p>
+
+              {vrCurrentQuestion ? (
+                <>
+                  <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: "10px", padding: "14px" }}>
+                    <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "11px", margin: "0 0 6px" }}>CURRENT QUESTION</p>
+                    <p style={{ color: "white", fontSize: "14px", margin: 0, lineHeight: "1.5" }}>{vrCurrentQuestion.question}</p>
+                  </div>
+                  <textarea
+                    value={vrTranscript}
+                    onChange={e => setVrTranscript(e.target.value)}
+                    placeholder="Type or paste your answer here…"
+                    style={{
+                      width: "100%", minHeight: "110px", background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.12)", borderRadius: "8px",
+                      color: "white", padding: "10px", fontSize: "13px", resize: "vertical",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                  <button onClick={submitVRAnswer} disabled={vrBusy} style={{
+                    padding: "10px", background: "linear-gradient(135deg,#0ea5e9,#0f766e)",
+                    color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600"
+                  }}>Save & Next →</button>
+                </>
+              ) : vrCompleted ? (
+                <p style={{ color: "#10b981", fontSize: "14px" }}>✅ All questions answered!</p>
+              ) : (
+                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>Syncing question…</p>
+              )}
+
+              {vrCompleted && (
+                <button onClick={completeVRTest} disabled={vrBusy} style={{
+                  padding: "12px", background: "linear-gradient(135deg,#059669,#0f766e)",
+                  color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", fontSize: "15px"
+                }}>🏁 Complete Test</button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
