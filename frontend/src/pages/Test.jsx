@@ -691,10 +691,10 @@ function Test() {
   }, [difficulty, topic]);
 
   useEffect(() => {
-    if (questions.length > 0 && testMode === "vr" && !testStarted && !vrBridgeToken && !vrBusy) {
-      handleStartVR();
+    if (questions.length > 0 && testMode === "vr" && !vrBridgeToken && !vrBusy) {
+      handleStartVR("browser");
     }
-  }, [questions.length, testMode, testStarted, vrBridgeToken, vrBusy]);
+  }, [questions.length, testMode, vrBridgeToken, vrBusy]);
 
   useEffect(() => {
     if (questions.length > 0 && timeLeft === null) {
