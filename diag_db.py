@@ -9,9 +9,9 @@ if os.path.exists(venv_path) and venv_path not in sys.path:
 if base_path not in sys.path:
     sys.path.insert(0, base_path)
 
-from dotenv import load_dotenv
-from pymongo import MongoClient
-import certifi
+from dotenv import load_dotenv  # type: ignore
+from pymongo import MongoClient  # type: ignore
+import certifi  # type: ignore
 
 load_dotenv()
 
@@ -33,3 +33,5 @@ for db_name in dbs:
             latest = db[col_name].find_one(sort=[("created_at", -1)])
             if latest:
                 print(f"    Latest Session: {latest.get('_id')} (Has VR: {'vr_test' in latest})")
+                if 'vr_test' in latest:
+                    print(f"      Bridge Token: {latest['vr_test'].get('bridge_token')}")
