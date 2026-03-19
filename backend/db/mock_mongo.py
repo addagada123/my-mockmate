@@ -60,19 +60,22 @@ class MockCursor:
         return self
     
     def __iter__(self):
-        results = list(self.results) # Make a copy
+        results = list(self.results)
         if self._sort_key:
             results = sorted(
                 results,
-                key=lambda x: x.get(self._sort_key or "", ""),
+                key=lambda x: (x.get(self._sort_key) is not None, x.get(self._sort_key, "")),
                 reverse=(self._sort_direction == -1)
             )
         if self._limit is not None:
             results = results[:self._limit]
-        return iter(results)
+        self._iter_obj = iter(results)
+        return self._iter_obj
     
     def __next__(self):
-        return next(iter(self))
+        if not hasattr(self, '_iter_obj'):
+            self.__iter__()
+        return next(self._iter_obj)
     
     def __len__(self):
         return len(self.results)
@@ -93,16 +96,17 @@ class MockCollection:
         self.data[key] = doc
         return InsertOneResult(inserted_id=doc["_id"])
 
-    def find_one(self, filter: Optional[Dict[str, Any]] = None, sort: Optional[List] = None):
-        # Get cursor from find
+    def find_one(self, filter: Optional[Dict[str, Any]] = None, sort: Optional[List[Any]] = None):
         cursor = self.find(filter)
-        
-        # Apply sort if provided
         if sort:
-            key, direction = sort[0]
-            cursor = cursor.sort(key, direction)
+            # handle both [("key", direction)] and ("key", direction)
+            if isinstance(sort, list) and len(sort) > 0:
+                s = sort[0]
+                if isinstance(s, (list, tuple)) and len(s) >= 2:
+                    cursor = cursor.sort(str(s[0]), int(s[1]))
+            elif isinstance(sort, (list, tuple)) and len(sort) >= 2:
+                cursor = cursor.sort(str(sort[0]), int(sort[1]))
         
-        # Get first result
         try:
             return next(iter(cursor))
         except StopIteration:

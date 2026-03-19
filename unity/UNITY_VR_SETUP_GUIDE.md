@@ -156,17 +156,20 @@ Set a custom string like `"my-quest-3"` and configure the web app to use the sam
 
 ---
 
-## Step 8 — Enable Automatic Launch (Optional)
+## Step 8 — Enable Desktop VR App Launch (Optional)
 
-To make the **"Take Test in VR"** button automatically open your Unity build:
+To make the **"Desktop App"** button automatically open your Unity build:
 
 1. Locate the `scripts/register_vr_protocol.ps1` script in the root of the project.
-2. Open PowerShell as Administrator.
+2. Open PowerShell as **Administrator**.
 3. Run the script, passing the path to your compiled Unity `.exe`:
    ```powershell
    .\scripts\register_vr_protocol.ps1 -ExePath "C:\Path\To\Your\MockmateVR.exe"
    ```
-4. Now, when you click **"Take Test in VR"** in the web app, your browser will ask for permission to open **Mockmate Protocol**. Click "Allow".
+4. Now, when you choose **"Desktop App"** in the web app, your browser will launch the protocol.
+
+> [!TIP]
+> Use **"Browser VR"** if you don't want to install anything or if you are on a device that doesn't support the standalone app.
 
 ---
 

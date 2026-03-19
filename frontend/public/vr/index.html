@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MockMate VR</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: #080c14; overflow: hidden; }
+    #unity-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    #unity-canvas { width: 100%; height: 100%; }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: fixed; inset: 0; background: #080c14;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; z-index: 100; transition: opacity 0.5s;
+    }
+    #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 52px; height: 52px;
+      border: 4px solid rgba(255,255,255,0.08);
+      border-top: 4px solid #0ea5e9;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .load-text { color: rgba(255,255,255,0.6); font-family: system-ui, sans-serif; font-size: 15px; }
+    .progress-bar-wrap {
+      width: 220px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; background: linear-gradient(90deg,#0ea5e9,#8b5cf6);
+      border-radius: 3px; transition: width 0.2s;
+    }
+    .logo { font-size: 52px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="logo">🥽</div>
+  <div class="spinner"></div>
+  <p class="load-text" id="load-text">Loading VR environment…</p>
+  <div class="progress-bar-wrap">
+    <div class="progress-bar-fill" id="progress-bar" style="width:0%"></div>
+  </div>
+</div>
+
+<div id="unity-container">
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+</div>
+
+<script>
+  // ── Read bridge token + API base from URL params ──────────────────────────
+  const params  = new URLSearchParams(window.location.search);
+  const BRIDGE_TOKEN = params.get("bridge_token") || "";
+  const API_BASE     = params.get("api_base")     || "https://mockmate-api-gna1.onrender.com";
+  const SESSION_ID   = params.get("session_id")   || "";
+
+  // Expose these globally so the Unity JS bridge can read them
+  window.MOCKMATE_BRIDGE_TOKEN = BRIDGE_TOKEN;
+  window.MOCKMATE_API_BASE     = API_BASE;
+  window.MOCKMATE_SESSION_ID   = SESSION_ID;
+
+  // ── Unity WebGL loader ────────────────────────────────────────────────────
+  // The Unity build tool generates a loader script; update the filename below
+  // to match whatever Unity exported (usually: <ProductName>.loader.js).
+  const LOADER_URL     = "Build/Build1.loader.js";
+  const DATA_URL       = "Build/Build1.data";
+  const FRAMEWORK_URL  = "Build/Build1.framework.js";
+  const WASM_URL       = "Build/Build1.wasm";
+
+  const canvas   = document.getElementById("unity-canvas");
+  const overlay  = document.getElementById("loading-overlay");
+  const bar      = document.getElementById("progress-bar");
+  const loadText = document.getElementById("load-text");
+
+  const script = document.createElement("script");
+  script.src = LOADER_URL;
+  script.onload = () => {
+    createUnityInstance(canvas, {
+      dataUrl:           DATA_URL,
+      frameworkUrl:      FRAMEWORK_URL,
+      codeUrl:           WASM_URL,
+      streamingAssetsUrl: "StreamingAssets",
+      companyName:       "MockMate",
+      productName:       "Build1",
+      productVersion:    "1.0",
+    }, (progress) => {
+      const pct = Math.round(progress * 100);
+      bar.style.width = pct + "%";
+      loadText.textContent = pct < 100 ? `Loading… ${pct}%` : "Starting VR…";
+    }).then((unityInstance) => {
+      console.log("[MockMate] Unity Instance Ready.");
+      // Hide overlay when Unity is ready
+      overlay.classList.add("hidden");
+      // Pass bridge token into Unity via SendMessage (if your C# reads it)
+      if (BRIDGE_TOKEN) {
+        console.log("[MockMate] Sending bridge token to Unity...");
+        try {
+          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken",
+            JSON.stringify({ bridge_token: BRIDGE_TOKEN, api_base: API_BASE, session_id: SESSION_ID })
+          );
+          console.log("[MockMate] Message sent successfully.");
+        } catch (e) {
+          console.error("[MockMate] SendMessage failed:", e);
+          loadText.textContent = "Error communicating with Unity. Check Console.";
+          overlay.classList.remove("hidden");
+        }
+      } else {
+        console.warn("[MockMate] No bridge_token provided in URL.");
+      }
+      window.__unityInstance = unityInstance;
+    }).catch((err) => {
+      loadText.textContent = "Failed to load Unity WebGL build. This is usually due to missing files in public/vr/Build/. Check your server logs and browser console.";
+      console.error("[MockMate] Unity load error:", err);
+      overlay.classList.remove("hidden");
+    });
+  };
+  script.onerror = () => {
+    loadText.textContent = "Unity loader script not found. Ensure public/vr/Build/Build1.loader.js exists.";
+    console.error("[MockMate] Failed to load Build1.loader.js");
+  };
+  document.head.appendChild(script);
+</script>
+</body>
+</html>
