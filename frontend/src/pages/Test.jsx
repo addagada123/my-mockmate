@@ -1051,6 +1051,7 @@ function Test() {
               src={unityUrl}
               title="MockMate VR"
               onLoad={() => {
+                setVrLaunching(false);
                 setVrLoadMessage("VR page loaded. Waiting for Unity runtime...");
               }}
               style={{ width: "100%", height: "100%", border: "none", display: "block", background: "#080c14" }}
