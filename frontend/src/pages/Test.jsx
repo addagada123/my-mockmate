@@ -832,6 +832,24 @@ function Test() {
   }, [testMode, vrLaunching, vrLoadError]);
 
   useEffect(() => {
+    if (testMode !== "vr") return;
+    if (!vrCurrentQuestion) return;
+
+    setVrLaunching(false);
+    setVrLoadError("");
+    setVrLoadMessage("VR environment ready.");
+  }, [testMode, vrCurrentQuestion]);
+
+  useEffect(() => {
+    if (testMode !== "vr") return;
+    if (!vrCompleted) return;
+
+    setVrLaunching(false);
+    setVrLoadError("");
+    setVrLoadMessage("VR test completed.");
+  }, [testMode, vrCompleted]);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qDiff = (params.get("difficulty") || "").toLowerCase();
     const qMode = (params.get("mode") || "").toLowerCase();
