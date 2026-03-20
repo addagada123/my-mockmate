@@ -3552,7 +3552,7 @@ async def get_vr_bridge_next_question(bridge_token: str):
     idx = int(vr_state.get("current_question_index", 0))
 
     if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+        raise HTTPException(status_code=404, detail=f"VR test not initialized for session {bridge_token}. Please ensure the test was started in the web UI.")
 
     if idx >= len(questions):
         return {

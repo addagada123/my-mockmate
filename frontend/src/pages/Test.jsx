@@ -4,7 +4,7 @@ import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === "localhost" ? "http://127.0.0.1:8000" : `http://${window.location.hostname}:8000`);
 
 function isSqlTopic(topicText) {
   const t = (topicText || "").toLowerCase();
@@ -345,6 +345,9 @@ function Test() {
         showWarning("Attempting to launch Desktop VR App. If it doesn't open, ensure you've registered the handle or use Browser VR.");
       }
       
+      if (!response.data.bridge_token) {
+        throw new Error("No bridge token received from server");
+      }
       setVrLaunching(true);
       setVrShowManual(false);
     } catch (error) {

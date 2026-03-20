@@ -2,134 +2,97 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MockMate VR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>MockMate VR | WebXR</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #080c14; overflow: hidden; }
-    #unity-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    html, body { width: 100%; height: 100%; background: #080c14; overflow: hidden; font-family: sans-serif; }
+    #unity-container { width: 100%; height: 100%; position: relative; }
     #unity-canvas { width: 100%; height: 100%; }
-
-    /* Loading overlay */
-    #loading-overlay {
-      position: fixed; inset: 0; background: #080c14;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 20px; z-index: 100; transition: opacity 0.5s;
+    #vr-button-container {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 10px; z-index: 10;
     }
-    #loading-overlay.hidden { opacity: 0; pointer-events: none; }
-    .spinner {
-      width: 52px; height: 52px;
-      border: 4px solid rgba(255,255,255,0.08);
-      border-top: 4px solid #0ea5e9;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
+    .vr-btn {
+      padding: 12px 24px; background: #6366f1; color: white; border: none;
+      border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.2s;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .load-text { color: rgba(255,255,255,0.6); font-family: system-ui, sans-serif; font-size: 15px; }
-    .progress-bar-wrap {
-      width: 220px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;
-    }
-    .progress-bar-fill {
-      height: 100%; background: linear-gradient(90deg,#0ea5e9,#8b5cf6);
-      border-radius: 3px; transition: width 0.2s;
-    }
-    .logo { font-size: 52px; margin-bottom: 8px; }
+    .vr-btn:disabled { background: #334155; cursor: not-allowed; opacity: 0.6; }
+    .vr-btn:hover:not(:disabled) { background: #4f46e5; }
+    #loading-overlay { position: fixed; inset: 0; background: #080c14; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; transition: opacity 0.5s; }
   </style>
 </head>
 <body>
-
-<div id="loading-overlay">
-  <div class="logo">🥽</div>
-  <div class="spinner"></div>
-  <p class="load-text" id="load-text">Loading VR environment…</p>
-  <div class="progress-bar-wrap">
-    <div class="progress-bar-fill" id="progress-bar" style="width:0%"></div>
+  <div id="loading-overlay">
+    <div style="font-size: 40px; margin-bottom: 20px;">🥽</div>
+    <div id="load-text">Loading VR environment...</div>
+    <div style="width: 200px; height: 4px; background: #1e293b; margin-top: 15px; border-radius: 2px; overflow: hidden;">
+      <div id="progress-bar" style="width: 0%; height: 100%; background: #6366f1;"></div>
+    </div>
   </div>
-</div>
 
-<div id="unity-container">
-  <canvas id="unity-canvas" tabindex="-1"></canvas>
-</div>
+  <div id="unity-container">
+    <canvas id="unity-canvas"></canvas>
+    <div id="vr-button-container">
+      <button id="entervr" class="vr-btn" disabled>ENTER VR</button>
+    </div>
+  </div>
 
-<script>
+  <script>
+    // 1. Get Params
+    const urlParams = new URLSearchParams(window.location.search);
+    const BRIDGE_TOKEN = urlParams.get("bridge_token") || "";
+    const API_BASE = urlParams.get("api_base") || "";
+    const SESSION_ID = urlParams.get("session_id") || "";
 
-  // ── Read bridge token + API base from URL params ──────────────────────────
-  const params  = new URLSearchParams(window.location.search);
-  const BRIDGE_TOKEN = params.get("bridge_token") || "";
-  const API_BASE     = params.get("api_base")     || "https://mockmate-api-gna1.onrender.com";
-  const SESSION_ID   = params.get("session_id")   || "";
-
-  // Defensive: If missing bridge_token or session_id, show error and block load
-  if (!BRIDGE_TOKEN || !SESSION_ID) {
-    document.body.innerHTML = '<div style="color:white;background:#080c14;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:22px;font-family:sans-serif;">\n<b>VR session not initialized.</b><br><br>Please return to the dashboard and start the VR test again.<br><br><button onclick="window.location.href=\'/\'" style="margin-top:24px;padding:12px 32px;font-size:18px;border-radius:8px;background:#6366f1;color:white;border:none;cursor:pointer;">Go to Dashboard</button></div>';
-    throw new Error("Missing bridge_token or session_id in URL");
-  }
-
-  // Expose these globally so the Unity JS bridge can read them
-  window.MOCKMATE_BRIDGE_TOKEN = BRIDGE_TOKEN;
-  window.MOCKMATE_API_BASE     = API_BASE;
-  window.MOCKMATE_SESSION_ID   = SESSION_ID;
-
-  // ── Unity WebGL loader ────────────────────────────────────────────────────
-  // The Unity build tool generates a loader script; update the filename below
-  // to match whatever Unity exported (usually: <ProductName>.loader.js).
-  const LOADER_URL     = "Build/Build2.loader.js";
-  const DATA_URL       = "Build/Build2.data";
-  const FRAMEWORK_URL  = "Build/Build2.framework.js";
-  const WASM_URL       = "Build/Build2.wasm";
-
-  const canvas   = document.getElementById("unity-canvas");
-  const overlay  = document.getElementById("loading-overlay");
-  const bar      = document.getElementById("progress-bar");
-  const loadText = document.getElementById("load-text");
-
-  const script = document.createElement("script");
-  script.src = LOADER_URL;
-  script.onload = () => {
-    createUnityInstance(canvas, {
-      dataUrl:           DATA_URL,
-      frameworkUrl:      FRAMEWORK_URL,
-      codeUrl:           WASM_URL,
+    // 2. Unity Config
+    const buildUrl = "Build";
+    const loaderUrl = buildUrl + "/Build2.loader.js";
+    const config = {
+      dataUrl: buildUrl + "/Build2.data",
+      frameworkUrl: buildUrl + "/Build2.framework.js",
+      codeUrl: buildUrl + "/Build2.wasm",
       streamingAssetsUrl: "StreamingAssets",
-      companyName:       "MockMate",
-      productName:       "Build1",
-      productVersion:    "1.0",
-    }, (progress) => {
-      const pct = Math.round(progress * 100);
-      bar.style.width = pct + "%";
-      loadText.textContent = pct < 100 ? `Loading… ${pct}%` : "Starting VR…";
-    }).then((unityInstance) => {
-      console.log("[MockMate] Unity Instance Ready.");
-      // Hide overlay when Unity is ready
-      overlay.classList.add("hidden");
-      // Pass bridge token into Unity via SendMessage (if your C# reads it)
-      if (BRIDGE_TOKEN) {
-        console.log("[MockMate] Sending bridge token to Unity...");
-        try {
-          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken",
+      companyName: "MockMate",
+      productName: "Build1",
+      productVersion: "1.0",
+    };
+
+    const canvas = document.querySelector("#unity-canvas");
+    const loadingOverlay = document.querySelector("#loading-overlay");
+    const progressBar = document.querySelector("#progress-bar");
+    const enterVRButton = document.getElementById('entervr');
+
+    let unityInstance = null;
+
+    const script = document.createElement("script");
+    script.src = loaderUrl;
+    script.onload = () => {
+      createUnityInstance(canvas, config, (progress) => {
+        progressBar.style.width = (progress * 100) + "%";
+      }).then((instance) => {
+        unityInstance = instance;
+        loadingOverlay.style.opacity = "0";
+        setTimeout(() => loadingOverlay.style.display = "none", 500);
+
+        // Send bridge token
+        if (BRIDGE_TOKEN) {
+          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", 
             JSON.stringify({ bridge_token: BRIDGE_TOKEN, api_base: API_BASE, session_id: SESSION_ID })
           );
-          console.log("[MockMate] Message sent successfully.");
-        } catch (e) {
-          console.error("[MockMate] SendMessage failed:", e);
-          loadText.textContent = "Error communicating with Unity. Check Console.";
-          overlay.classList.remove("hidden");
         }
-      } else {
-        console.warn("[MockMate] No bridge_token provided in URL.");
-      }
-      window.__unityInstance = unityInstance;
-    }).catch((err) => {
-      loadText.textContent = "Failed to load Unity WebGL build. This is usually due to missing files in public/vr/Build/. Check your server logs and browser console.";
-      console.error("[MockMate] Unity load error:", err);
-      overlay.classList.remove("hidden");
+      });
+    };
+    document.body.appendChild(script);
+
+    // 3. WebXR Logic
+    document.addEventListener('onVRSupportedCheck', (e) => {
+      enterVRButton.disabled = !e.detail.supported;
+      if (!e.detail.supported) enterVRButton.textContent = "VR NOT SUPPORTED";
     });
-  };
-  script.onerror = () => {
-    loadText.textContent = "Unity loader script not found. Ensure public/vr/Build/Build1.loader.js exists.";
-    console.error("[MockMate] Failed to load Build1.loader.js");
-  };
-  document.head.appendChild(script);
-</script>
+    enterVRButton.addEventListener('click', () => {
+      if (unityInstance) unityInstance.Module.WebXR.toggleVR();
+    });
+  </script>
 </body>
 </html>
