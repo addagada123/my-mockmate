@@ -387,25 +387,35 @@ function Test() {
   }
 
   async function refreshVRQuestion() {
-    if (!sessionId) return;
+    if (!sessionId && !vrBridgeToken) return;
     try {
       const token = localStorage.getItem("mockmate_token");
-      const response = await axios.get(
-        `${API_BASE}/vr-test/next?session_id=${encodeURIComponent(sessionId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = vrBridgeToken
+        ? await axios.get(
+            `${API_BASE}/vr-bridge/next?bridge_token=${encodeURIComponent(vrBridgeToken)}`
+          )
+        : await axios.get(
+            `${API_BASE}/vr-test/next?session_id=${encodeURIComponent(sessionId)}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
       setVrCompleted(!!response.data.completed);
       setVrCurrentQuestion(response.data.current_question || null);
       setVrCurrentIndex(response.data.current_question_index || 0);
     } catch (error) {
-      showWarning(
-        `VR sync failed: ${error.response?.data?.detail || error.message}`
-      );
+      const errorDetail = error.response?.data?.detail || error.message;
+      const isBenignBridgeRace =
+        vrBridgeToken &&
+        error.response?.status === 404 &&
+        typeof errorDetail === "string" &&
+        errorDetail.toLowerCase().includes("vr test not initialized");
+      if (!isBenignBridgeRace) {
+        showWarning(`VR sync failed: ${errorDetail}`);
+      }
     }
   }
 
   async function submitVRAnswer() {
-    if (!sessionId || !vrCurrentQuestion) return;
+    if ((!sessionId && !vrBridgeToken) || !vrCurrentQuestion) return;
     if (!vrTranscript.trim()) {
       showWarning("Please paste or type the transcript from Unity");
       return;
@@ -413,19 +423,30 @@ function Test() {
     try {
       setVrBusy(true);
       const token = localStorage.getItem("mockmate_token");
-      const response = await axios.post(
-        `${API_BASE}/vr-test/answer?session_id=${encodeURIComponent(sessionId)}`,
-        {
-          question_index: vrCurrentIndex,
-          user_answer: vrTranscript.trim(),
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const payload = {
+        question_index: vrCurrentIndex,
+        user_answer: vrTranscript.trim(),
+      };
+      const response = vrBridgeToken
+        ? await axios.post(
+            `${API_BASE}/vr-bridge/answer?bridge_token=${encodeURIComponent(vrBridgeToken)}`,
+            payload,
+            {
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          )
+        : await axios.post(
+            `${API_BASE}/vr-test/answer?session_id=${encodeURIComponent(sessionId)}`,
+            payload,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
       setVrRunningScore(response.data.running_percentage || 0);
       setVrCurrentQuestion(response.data.next_question || null);
       setVrCurrentIndex(response.data.next_question_index || vrCurrentIndex);
@@ -442,23 +463,36 @@ function Test() {
   }
 
   async function completeVRTest() {
-    if (!sessionId) return;
+    if (!sessionId && !vrBridgeToken) return;
     try {
       setVrBusy(true);
       const token = localStorage.getItem("mockmate_token");
       const elapsedSecs = vrStartedAtRef.current
         ? Math.max(1, Math.floor((Date.now() - vrStartedAtRef.current) / 1000))
         : null;
-      const response = await axios.post(
-        `${API_BASE}/vr-test/complete`,
-        { session_id: sessionId, time_spent: elapsedSecs },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const payload = vrBridgeToken
+        ? { time_spent: elapsedSecs }
+        : { session_id: sessionId, time_spent: elapsedSecs };
+      const response = vrBridgeToken
+        ? await axios.post(
+            `${API_BASE}/vr-bridge/complete?bridge_token=${encodeURIComponent(vrBridgeToken)}`,
+            payload,
+            {
+              headers: {
+                "Content-Type": "application/json",
+              },
+            }
+          )
+        : await axios.post(
+            `${API_BASE}/vr-test/complete`,
+            payload,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
       localStorage.setItem("lastTestScore", response.data.percentage ?? 0);
       setTestSubmitted(true);
     } catch (error) {

@@ -64,6 +64,7 @@ public class MockmateVRTokenPoller : MonoBehaviour
             flowController = GetComponent<MockmateVRFlowController>();
         if (apiClient == null)
             apiClient = GetComponent<MockmateVRApiClient>();
+        apiBase = SanitizeApiBase(apiBase);
     }
 
     private void OnEnable()
@@ -142,7 +143,10 @@ public class MockmateVRTokenPoller : MonoBehaviour
 
             // Update api_base if present.
             if (!string.IsNullOrWhiteSpace(payload.api_base) && apiClient != null)
+            {
+                apiBase = SanitizeApiBase(payload.api_base);
                 apiClient.SetApiBase(payload.api_base);
+            }
 
             return payload?.bridge_token;
         }
@@ -155,7 +159,7 @@ public class MockmateVRTokenPoller : MonoBehaviour
 
     private IEnumerator PollBackendOnce()
     {
-        string url = $"{apiBase.TrimEnd('/')}/vr-bridge/token-poll?device_id={UnityWebRequest.EscapeURL(deviceId)}";
+        string url = $"{SanitizeApiBase(apiBase)}/vr-bridge/token-poll?device_id={UnityWebRequest.EscapeURL(deviceId)}";
 
         using (UnityWebRequest req = UnityWebRequest.Get(url))
         {
@@ -188,7 +192,10 @@ public class MockmateVRTokenPoller : MonoBehaviour
 
             // Update api_base if provided.
             if (!string.IsNullOrWhiteSpace(resp.api_base) && apiClient != null)
+            {
+                apiBase = SanitizeApiBase(resp.api_base);
                 apiClient.SetApiBase(resp.api_base);
+            }
 
             PublishStatus("Token received from backend!");
             ConsumeToken(resp.bridge_token, resp.api_base);
@@ -207,7 +214,10 @@ public class MockmateVRTokenPoller : MonoBehaviour
         }
 
         if (!string.IsNullOrWhiteSpace(overrideApiBase))
+        {
+            apiBase = SanitizeApiBase(overrideApiBase);
             flowController.SetApiBase(overrideApiBase);
+        }
 
         flowController.SetBridgeToken(bridgeToken);
         PublishStatus("Starting VR interview...");
@@ -218,5 +228,10 @@ public class MockmateVRTokenPoller : MonoBehaviour
     {
         Debug.Log("[MockmateVR-Poller] " + message);
         OnStatusMessage?.Invoke(message);
+    }
+
+    private string SanitizeApiBase(string baseUrl)
+    {
+        return string.IsNullOrWhiteSpace(baseUrl) ? string.Empty : baseUrl.Trim().TrimEnd('/');
     }
 }

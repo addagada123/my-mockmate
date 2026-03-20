@@ -16,6 +16,10 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private float silenceGapSeconds = 3f;
     [SerializeField] private float minListenSeconds = 1f;
 
+    [Header("Editor Preview")]
+    [SerializeField] private bool correctEditorPreviewHeight = true;
+    [SerializeField] private float editorPreviewYOffset = -1.7f;
+
     [Header("Events")]
     public UnityEvent<string> OnQuestionReceived;
     public UnityEvent OnQuestionSpeakingStart;
@@ -41,6 +45,8 @@ public class MockmateVRFlowController : MonoBehaviour
     private string _transcript = "";
     private float _lastTranscriptUpdateAt = -1f;
     private int _activeQuestionIndex = 0;
+    private bool _editorCameraAdjusted;
+    private Vector3 _editorOriginalCameraLocalPosition;
 
     private void Awake()
     {
@@ -50,9 +56,18 @@ public class MockmateVRFlowController : MonoBehaviour
 
     private void Start()
     {
+        ApplyEditorPreviewHeightFix();
         _startedAt = Time.time;
         if (autoStartWhenTokenPresent && apiClient != null && !string.IsNullOrWhiteSpace(apiClient.BridgeToken))
             BeginFlow();
+    }
+
+    private void OnDestroy()
+    {
+#if UNITY_EDITOR
+        if (_editorCameraAdjusted && Camera.main != null)
+            Camera.main.transform.localPosition = _editorOriginalCameraLocalPosition;
+#endif
     }
 
     public void BeginFlow()
@@ -283,5 +298,25 @@ public class MockmateVRFlowController : MonoBehaviour
         Debug.LogError("[MockmateVR] " + message);
         OnError?.Invoke(message);
         PublishStatus("Error: " + message);
+    }
+
+    private void ApplyEditorPreviewHeightFix()
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying || !correctEditorPreviewHeight || Mathf.Approximately(editorPreviewYOffset, 0f))
+            return;
+
+        Camera mainCamera = Camera.main;
+        if (mainCamera == null)
+        {
+            PublishStatus("Editor preview height fix skipped: Main Camera not found.");
+            return;
+        }
+
+        _editorOriginalCameraLocalPosition = mainCamera.transform.localPosition;
+        mainCamera.transform.localPosition = _editorOriginalCameraLocalPosition + new Vector3(0f, editorPreviewYOffset, 0f);
+        _editorCameraAdjusted = true;
+        PublishStatus($"Editor preview camera Y adjusted by {editorPreviewYOffset:0.##}.");
+#endif
     }
 }

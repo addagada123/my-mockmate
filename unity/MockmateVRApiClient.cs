@@ -84,25 +84,40 @@ public class MockmateVRApiClient : MonoBehaviour
     public string ApiBase => apiBase;
     public string BridgeToken => bridgeToken;
 
+    private void Awake()
+    {
+        apiBase = SanitizeApiBase(apiBase);
+        bridgeToken = (bridgeToken ?? string.Empty).Trim();
+    }
+
     public void SetApiBase(string baseUrl)
     {
-        apiBase = string.IsNullOrWhiteSpace(baseUrl) ? apiBase : baseUrl.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(baseUrl))
+            apiBase = SanitizeApiBase(baseUrl);
     }
 
     public void SetBridgeToken(string token)
     {
-        bridgeToken = token ?? string.Empty;
+        bridgeToken = (token ?? string.Empty).Trim();
     }
 
     public IEnumerator FetchNextQuestion(Action<VrNextResponse, string> callback)
     {
-        string url = $"{apiBase}/vr-bridge/next?bridge_token={UnityWebRequest.EscapeURL(bridgeToken)}";
+        if (!TryBuildBridgeUrl("/vr-bridge/next", out string url, out string error))
+        {
+            callback?.Invoke(default, error);
+            yield break;
+        }
         yield return SendGet(url, callback);
     }
 
     public IEnumerator SubmitAnswer(int questionIndex, string userAnswer, Action<VrAnswerResponse, string> callback)
     {
-        string url = $"{apiBase}/vr-bridge/answer?bridge_token={UnityWebRequest.EscapeURL(bridgeToken)}";
+        if (!TryBuildBridgeUrl("/vr-bridge/answer", out string url, out string error))
+        {
+            callback?.Invoke(default, error);
+            yield break;
+        }
         VrAnswerRequest body = new VrAnswerRequest
         {
             question_index = questionIndex,
@@ -113,7 +128,11 @@ public class MockmateVRApiClient : MonoBehaviour
 
     public IEnumerator CompleteTest(int timeSpentSeconds, Action<VrCompleteResponse, string> callback)
     {
-        string url = $"{apiBase}/vr-bridge/complete?bridge_token={UnityWebRequest.EscapeURL(bridgeToken)}";
+        if (!TryBuildBridgeUrl("/vr-bridge/complete", out string url, out string error))
+        {
+            callback?.Invoke(default, error);
+            yield break;
+        }
         VrCompleteRequest body = new VrCompleteRequest
         {
             time_spent = Mathf.Max(0, timeSpentSeconds)
@@ -130,7 +149,7 @@ public class MockmateVRApiClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                callback?.Invoke(default, req.error);
+                callback?.Invoke(default, FormatRequestError(req));
                 yield break;
             }
 
@@ -164,7 +183,7 @@ public class MockmateVRApiClient : MonoBehaviour
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                callback?.Invoke(default, req.error);
+                callback?.Invoke(default, FormatRequestError(req));
                 yield break;
             }
 
@@ -181,5 +200,67 @@ public class MockmateVRApiClient : MonoBehaviour
             }
             callback?.Invoke(parsed, null);
         }
+    }
+
+    private bool TryBuildBridgeUrl(string route, out string url, out string error)
+    {
+        url = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(apiBase))
+        {
+            error = "API base URL is missing";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(bridgeToken))
+        {
+            error = "Bridge token is required";
+            return false;
+        }
+
+        url = $"{SanitizeApiBase(apiBase)}{route}?bridge_token={UnityWebRequest.EscapeURL(bridgeToken)}";
+        return true;
+    }
+
+    private string SanitizeApiBase(string baseUrl)
+    {
+        return string.IsNullOrWhiteSpace(baseUrl) ? string.Empty : baseUrl.Trim().TrimEnd('/');
+    }
+
+    private string FormatRequestError(UnityWebRequest req)
+    {
+        string detail = TryExtractErrorDetail(req.downloadHandler?.text);
+        long statusCode = req.responseCode;
+        if (!string.IsNullOrWhiteSpace(detail))
+            return $"HTTP {statusCode}: {detail}";
+        if (statusCode > 0)
+            return $"HTTP {statusCode}: {req.error}";
+        return req.error;
+    }
+
+    private string TryExtractErrorDetail(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            VrErrorResponse parsed = JsonUtility.FromJson<VrErrorResponse>(json);
+            if (!string.IsNullOrWhiteSpace(parsed?.detail))
+                return parsed.detail;
+        }
+        catch
+        {
+            // Ignore parse failures and fall back to the raw body.
+        }
+
+        return json.Trim();
+    }
+
+    [Serializable]
+    private class VrErrorResponse
+    {
+        public string detail;
     }
 }
