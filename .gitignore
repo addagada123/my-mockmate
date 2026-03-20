@@ -10,3 +10,4 @@ node_modules/
 frontend/dist/
 *.log
 .vscode/mcp.json
+frontend/public/vr/StreamingAssets/whisper/ggml-base.en.bin
