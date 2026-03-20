@@ -52,11 +52,18 @@
 </div>
 
 <script>
+
   // ── Read bridge token + API base from URL params ──────────────────────────
   const params  = new URLSearchParams(window.location.search);
   const BRIDGE_TOKEN = params.get("bridge_token") || "";
   const API_BASE     = params.get("api_base")     || "https://mockmate-api-gna1.onrender.com";
   const SESSION_ID   = params.get("session_id")   || "";
+
+  // Defensive: If missing bridge_token or session_id, show error and block load
+  if (!BRIDGE_TOKEN || !SESSION_ID) {
+    document.body.innerHTML = '<div style="color:white;background:#080c14;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:22px;font-family:sans-serif;">\n<b>VR session not initialized.</b><br><br>Please return to the dashboard and start the VR test again.<br><br><button onclick="window.location.href=\'/\'" style="margin-top:24px;padding:12px 32px;font-size:18px;border-radius:8px;background:#6366f1;color:white;border:none;cursor:pointer;">Go to Dashboard</button></div>';
+    throw new Error("Missing bridge_token or session_id in URL");
+  }
 
   // Expose these globally so the Unity JS bridge can read them
   window.MOCKMATE_BRIDGE_TOKEN = BRIDGE_TOKEN;
