@@ -820,16 +820,17 @@ function Test() {
   }, []);
 
   useEffect(() => {
-    if (testMode !== "vr" || !vrLaunching || vrLoadError) return;
+    if (testMode !== "vr" || !vrLaunching || vrLoadError || vrCurrentQuestion || vrCompleted) return;
 
     const timeout = setTimeout(() => {
+      if (vrCurrentQuestion || vrCompleted) return;
       setVrLaunching(false);
       setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build3 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
       setVrShowManual(true);
     }, 90000);
 
     return () => clearTimeout(timeout);
-  }, [testMode, vrLaunching, vrLoadError]);
+  }, [testMode, vrLaunching, vrLoadError, vrCurrentQuestion, vrCompleted]);
 
   useEffect(() => {
     if (testMode !== "vr") return;
