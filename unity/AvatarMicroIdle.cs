@@ -12,11 +12,14 @@ public class AvatarMicroIdle : MonoBehaviour
     public float headMovementAmount = 2f;
 
     Vector3 chestStart;
+    Quaternion headStartRotation;
 
     void Start()
     {
         if (chest != null)
             chestStart = chest.localPosition;
+        if (head != null)
+            headStartRotation = head.localRotation;
     }
 
     // LateUpdate runs AFTER the Animator, so breathing and head
@@ -34,7 +37,7 @@ public class AvatarMicroIdle : MonoBehaviour
         if (head != null)
         {
             float tilt = Mathf.Sin(Time.time * headMovementSpeed) * headMovementAmount;
-            head.localRotation = head.localRotation * Quaternion.Euler(tilt, 0, 0);
+            head.localRotation = headStartRotation * Quaternion.Euler(tilt, 0, 0);
         }
     }
 }

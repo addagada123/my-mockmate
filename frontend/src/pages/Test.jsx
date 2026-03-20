@@ -681,9 +681,17 @@ function Test() {
     async function fetchQuestions() {
       try {
         const token = localStorage.getItem("mockmate_token");
+        const activeSessionId = sessionId || new URLSearchParams(location.search).get("session_id");
+        const resumeParams = new URLSearchParams({
+          topic: decodeURIComponent(topic),
+          difficulty: difficulty || "",
+        });
+        if (activeSessionId) {
+          resumeParams.set("session_id", activeSessionId);
+        }
         try {
           const resumeResponse = await axios.get(
-            `${API_BASE}/resume-questions?topic=${encodeURIComponent(decodeURIComponent(topic))}&difficulty=${encodeURIComponent(difficulty || "")}`,
+            `${API_BASE}/resume-questions?${resumeParams.toString()}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (resumeResponse.data.session_id) setSessionId(resumeResponse.data.session_id);
@@ -706,7 +714,7 @@ function Test() {
 
         const response = await axios.post(
           `${API_BASE}/generate-test-questions`,
-          { topic: decodeURIComponent(topic), difficulty: difficulty },
+          { session_id: activeSessionId || undefined, topic: decodeURIComponent(topic), difficulty: difficulty },
           { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
         );
         if (response.data.session_id) setSessionId(response.data.session_id);
@@ -753,7 +761,7 @@ function Test() {
       }
     }
     if (difficulty) fetchQuestions();
-  }, [difficulty, topic]);
+  }, [difficulty, topic, sessionId, location.search]);
 
   useEffect(() => {
     if (questions.length > 0 && testMode === "vr" && !vrBridgeToken && !vrBusy) {

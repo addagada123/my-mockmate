@@ -1,23 +1,21 @@
 using System.Collections;
+using System.Reflection;
 using UnityEngine;
+using UnityEngine.Events;
 
 /// <summary>
-/// Connects coroutine-based scripts (OpenAITTS, AudioRecorder, STTClient)
-/// to the MockmateVRFlowController events.
-///
-/// Animations (InterviewerTalk, ListeningNod, AudioLipSync) should be wired
-/// DIRECTLY on the FlowController events in the Inspector — NOT handled here.
-/// This keeps all behavior visible in one place.
-///
+/// Connects optional TTS/STT/recording components to the MockmateVRFlowController events.
+/// Uses reflection so this script can compile even when those concrete components live only
+/// in the user's Unity project and are not part of this repo.
 /// Attach to MockmateVRManager.
 /// </summary>
 public class VRInterviewGlue : MonoBehaviour
 {
-    [Header("Drag from Hierarchy")]
-    public OpenAITTS openAITTS;
-    public AvatarTTS avatarTTS;
-    public AudioRecorder audioRecorder;
-    public STTClient sttClient;
+    [Header("Optional Components")]
+    public MonoBehaviour openAITTS;
+    public MonoBehaviour avatarTTS;
+    public MonoBehaviour audioRecorder;
+    public MonoBehaviour sttClient;
 
     [Header("Auto-wire")]
     public MockmateVRFlowController flowController;
@@ -26,26 +24,21 @@ public class VRInterviewGlue : MonoBehaviour
     private Coroutine _speakCoroutine;
     private string _currentQuestionText;
 
-    void Awake()
+    private void Awake()
     {
         if (flowController == null)
             flowController = GetComponent<MockmateVRFlowController>();
     }
 
-    void OnEnable()
+    private void OnEnable()
     {
-        // Auto-pipe STT transcript chunks → FlowController
-        if (sttClient != null)
-            sttClient.OnTranscriptChunk.AddListener(OnTranscriptChunk);
+        AddTranscriptListener();
     }
 
-    void OnDisable()
+    private void OnDisable()
     {
-        if (sttClient != null)
-            sttClient.OnTranscriptChunk.RemoveListener(OnTranscriptChunk);
+        RemoveTranscriptListener();
     }
-
-    // ─── Wire these to FlowController events ───
 
     /// <summary>Wire to: OnQuestionReceived(String)</summary>
     public void OnQuestionArrived(string questionText)
@@ -64,14 +57,16 @@ public class VRInterviewGlue : MonoBehaviour
     /// <summary>Wire to: OnListeningStart()</summary>
     public void OnStartListening()
     {
-        if (sttClient != null)
-            sttClient.ClearTranscript();
+        InvokeIfPresent(sttClient, "ClearTranscript");
 
         if (audioRecorder != null)
         {
             if (_recordingCoroutine != null)
                 StopCoroutine(_recordingCoroutine);
-            _recordingCoroutine = StartCoroutine(audioRecorder.RecordOnce());
+
+            IEnumerator recordRoutine = InvokeEnumeratorIfPresent(audioRecorder, "RecordOnce");
+            if (recordRoutine != null)
+                _recordingCoroutine = StartCoroutine(recordRoutine);
         }
     }
 
@@ -84,8 +79,6 @@ public class VRInterviewGlue : MonoBehaviour
             _recordingCoroutine = null;
         }
     }
-
-    // ─── Internal ───
 
     private void OnTranscriptChunk(string chunk)
     {
@@ -103,21 +96,98 @@ public class VRInterviewGlue : MonoBehaviour
 
         if (openAITTS != null)
         {
-            yield return openAITTS.Speak(_currentQuestionText);
-            if (openAITTS.LastSpeakSucceeded)
+            IEnumerator openAiSpeak = InvokeEnumeratorIfPresent(openAITTS, "Speak", _currentQuestionText);
+            if (openAiSpeak != null)
             {
-                flowController?.NotifyQuestionSpeechCompleted();
-                yield break;
+                yield return openAiSpeak;
+                if (ReadBoolMember(openAITTS, "LastSpeakSucceeded"))
+                {
+                    flowController?.NotifyQuestionSpeechCompleted();
+                    yield break;
+                }
             }
         }
 
         if (avatarTTS != null)
         {
-            yield return avatarTTS.Speak(_currentQuestionText);
-            flowController?.NotifyQuestionSpeechCompleted();
-            yield break;
+            IEnumerator avatarSpeak = InvokeEnumeratorIfPresent(avatarTTS, "Speak", _currentQuestionText);
+            if (avatarSpeak != null)
+            {
+                yield return avatarSpeak;
+                flowController?.NotifyQuestionSpeechCompleted();
+                yield break;
+            }
         }
 
         flowController?.NotifyQuestionSpeechCompleted();
+    }
+
+    private void AddTranscriptListener()
+    {
+        UnityEvent<string> transcriptEvent = GetTranscriptEvent();
+        transcriptEvent?.AddListener(OnTranscriptChunk);
+    }
+
+    private void RemoveTranscriptListener()
+    {
+        UnityEvent<string> transcriptEvent = GetTranscriptEvent();
+        transcriptEvent?.RemoveListener(OnTranscriptChunk);
+    }
+
+    private UnityEvent<string> GetTranscriptEvent()
+    {
+        if (sttClient == null)
+            return null;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        FieldInfo field = sttClient.GetType().GetField("OnTranscriptChunk", flags);
+        if (field != null && field.GetValue(sttClient) is UnityEvent<string> fieldEvent)
+            return fieldEvent;
+
+        PropertyInfo property = sttClient.GetType().GetProperty("OnTranscriptChunk", flags);
+        if (property != null && property.GetValue(sttClient, null) is UnityEvent<string> propertyEvent)
+            return propertyEvent;
+
+        return null;
+    }
+
+    private static void InvokeIfPresent(object target, string methodName, params object[] args)
+    {
+        if (target == null)
+            return;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo method = target.GetType().GetMethod(methodName, flags);
+        method?.Invoke(target, args);
+    }
+
+    private static IEnumerator InvokeEnumeratorIfPresent(object target, string methodName, params object[] args)
+    {
+        if (target == null)
+            return null;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo method = target.GetType().GetMethod(methodName, flags);
+        if (method == null)
+            return null;
+
+        return method.Invoke(target, args) as IEnumerator;
+    }
+
+    private static bool ReadBoolMember(object target, string memberName)
+    {
+        if (target == null)
+            return false;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        PropertyInfo property = target.GetType().GetProperty(memberName, flags);
+        if (property != null && property.PropertyType == typeof(bool))
+            return (bool)property.GetValue(target, null);
+
+        FieldInfo field = target.GetType().GetField(memberName, flags);
+        if (field != null && field.FieldType == typeof(bool))
+            return (bool)field.GetValue(target);
+
+        return false;
     }
 }

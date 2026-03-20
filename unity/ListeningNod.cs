@@ -43,6 +43,6 @@ public class ListeningNod : MonoBehaviour
         Quaternion nodRotation =
             Quaternion.Euler(angle, 0, 0);
 
-        head.localRotation = head.localRotation * nodRotation;
+        head.localRotation = originalRotation * nodRotation;
     }
 }
