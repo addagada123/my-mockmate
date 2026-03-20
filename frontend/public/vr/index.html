@@ -19,7 +19,20 @@
     }
     .vr-btn:disabled { background: #334155; cursor: not-allowed; opacity: 0.6; }
     .vr-btn:hover:not(:disabled) { background: #4f46e5; }
-    #loading-overlay { position: fixed; inset: 0; background: #080c14; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; transition: opacity 0.5s; }
+    #loading-overlay { position: fixed; inset: 0; background: #080c14; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; transition: opacity 0.5s; padding: 24px; text-align: center; }
+    #error-box {
+      display: none;
+      margin-top: 16px;
+      max-width: 720px;
+      padding: 14px 16px;
+      border: 1px solid rgba(248,113,113,0.5);
+      border-radius: 12px;
+      background: rgba(127,29,29,0.35);
+      color: #fecaca;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
@@ -29,6 +42,7 @@
     <div style="width: 200px; height: 4px; background: #1e293b; margin-top: 15px; border-radius: 2px; overflow: hidden;">
       <div id="progress-bar" style="width: 0%; height: 100%; background: #6366f1;"></div>
     </div>
+    <div id="error-box"></div>
   </div>
 
   <div id="unity-container">
@@ -47,42 +61,90 @@
 
     // 2. Unity Config
     const buildUrl = "Build";
-    const loaderUrl = buildUrl + "/Build2.loader.js";
+    const loaderUrl = buildUrl + "/Build3.loader.js";
     const config = {
-      dataUrl: buildUrl + "/Build2.data",
-      frameworkUrl: buildUrl + "/Build2.framework.js",
-      codeUrl: buildUrl + "/Build2.wasm",
+      dataUrl: buildUrl + "/Build3.data",
+      frameworkUrl: buildUrl + "/Build3.framework.js",
+      codeUrl: buildUrl + "/Build3.wasm",
       streamingAssetsUrl: "StreamingAssets",
       companyName: "MockMate",
-      productName: "Build1",
+      productName: "Build3",
       productVersion: "1.0",
     };
 
     const canvas = document.querySelector("#unity-canvas");
     const loadingOverlay = document.querySelector("#loading-overlay");
     const progressBar = document.querySelector("#progress-bar");
+    const loadText = document.querySelector("#load-text");
+    const errorBox = document.querySelector("#error-box");
     const enterVRButton = document.getElementById('entervr');
 
     let unityInstance = null;
 
+    function notifyParent(status, detail) {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          source: "mockmate-vr",
+          status,
+          detail: detail || "",
+        }, window.location.origin);
+      }
+    }
+
+    function showError(message) {
+      const rendered = String(message || "Unknown VR loading error.");
+      loadText.textContent = "VR environment failed to load";
+      errorBox.style.display = "block";
+      errorBox.textContent = rendered;
+      notifyParent("error", rendered);
+      console.error("[MockMate VR]", rendered);
+    }
+
+    function setLoadingMessage(message) {
+      loadText.textContent = message;
+      notifyParent("loading", message);
+    }
+
+    window.addEventListener("error", (event) => {
+      const runtimeMessage = event?.error?.stack || event?.message || "Unexpected runtime error inside the VR page.";
+      showError(runtimeMessage);
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event?.reason?.stack || event?.reason?.message || String(event?.reason || "Unhandled promise rejection inside the VR page.");
+      showError(reason);
+    });
+
     const script = document.createElement("script");
     script.src = loaderUrl;
+    script.onerror = () => {
+      showError(`Unable to load Unity loader: ${loaderUrl}`);
+    };
     script.onload = () => {
+      setLoadingMessage("Unity loader ready. Starting WebGL content...");
       createUnityInstance(canvas, config, (progress) => {
         progressBar.style.width = (progress * 100) + "%";
+        setLoadingMessage(`Loading VR environment... ${Math.round(progress * 100)}%`);
       }).then((instance) => {
         unityInstance = instance;
+        notifyParent("ready", "Unity WebGL content initialized.");
         loadingOverlay.style.opacity = "0";
         setTimeout(() => loadingOverlay.style.display = "none", 500);
 
         // Send bridge token
         if (BRIDGE_TOKEN) {
+          setLoadingMessage("Unity loaded. Connecting to MockMate session...");
           unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", 
             JSON.stringify({ bridge_token: BRIDGE_TOKEN, api_base: API_BASE, session_id: SESSION_ID })
           );
+        } else {
+          setLoadingMessage("Unity loaded. Waiting for VR session token.");
         }
+      }).catch((error) => {
+        showError(error?.stack || error?.message || "createUnityInstance failed");
       });
     };
+    setLoadingMessage("Loading Unity WebGL loader...");
     document.body.appendChild(script);
 
     // 3. WebXR Logic

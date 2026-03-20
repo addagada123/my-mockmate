@@ -67,6 +67,8 @@ function Test() {
   const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
   const vrStartedAtRef = useRef(null);
   const [vrLaunching, setVrLaunching] = useState(false);
+  const [vrLoadMessage, setVrLoadMessage] = useState("Preparing VR environment...");
+  const [vrLoadError, setVrLoadError] = useState("");
   const [vrShowManual, setVrShowManual] = useState(false); // show fallback manual panel
   const [vrLaunchMode, setVrLaunchMode] = useState(null); // 'browser' or 'desktop'
 
@@ -336,6 +338,8 @@ function Test() {
       setVrRunningScore(0);
       setVrTranscript("");
       setVrCompleted(false);
+      setVrLoadError("");
+      setVrLoadMessage("Preparing VR environment...");
       setVrBridgeToken(response.data.bridge_token || "");
       setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
       vrStartedAtRef.current = Date.now();
@@ -768,6 +772,43 @@ function Test() {
   }, [testStarted, testMode]);
 
   useEffect(() => {
+    function handleVRFrameMessage(event) {
+      if (event.origin !== window.location.origin) return;
+      const payload = event.data;
+      if (!payload || payload.source !== "mockmate-vr") return;
+
+      if (payload.status === "loading") {
+        setVrLaunching(true);
+        setVrLoadError("");
+        setVrLoadMessage(payload.detail || "Loading VR environment...");
+      } else if (payload.status === "ready") {
+        setVrLaunching(false);
+        setVrLoadError("");
+        setVrLoadMessage(payload.detail || "VR environment ready.");
+      } else if (payload.status === "error") {
+        setVrLaunching(false);
+        setVrLoadError(payload.detail || "VR environment failed to load.");
+        setVrShowManual(true);
+      }
+    }
+
+    window.addEventListener("message", handleVRFrameMessage);
+    return () => window.removeEventListener("message", handleVRFrameMessage);
+  }, []);
+
+  useEffect(() => {
+    if (testMode !== "vr" || !vrLaunching || vrLoadError) return;
+
+    const timeout = setTimeout(() => {
+      setVrLaunching(false);
+      setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build3 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
+      setVrShowManual(true);
+    }, 20000);
+
+    return () => clearTimeout(timeout);
+  }, [testMode, vrLaunching, vrLoadError]);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qDiff = (params.get("difficulty") || "").toLowerCase();
     const qMode = (params.get("mode") || "").toLowerCase();
@@ -948,14 +989,28 @@ function Test() {
               }}>
                 <div style={{ width: "48px", height: "48px", border: "4px solid rgba(255,255,255,0.1)", borderTop: "4px solid #0ea5e9", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
                 <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}`}</style>
+                <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", maxWidth: "440px", textAlign: "center", margin: 0 }}>{vrLoadMessage}</p>
                 <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "14px" }}>Loading VR environment…</p>
+              </div>
+            )}
+            {vrLoadError && (
+              <div style={{
+                position: "absolute", top: "18px", left: "18px", right: "18px",
+                padding: "14px 16px", borderRadius: "12px", zIndex: 11,
+                border: "1px solid rgba(248,113,113,0.45)",
+                background: "rgba(127,29,29,0.88)", color: "#fecaca",
+                fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap"
+              }}>
+                {vrLoadError}
               </div>
             )}
             <iframe
               key={vrBridgeToken}
               src={unityUrl}
               title="MockMate VR"
-              onLoad={() => setVrLaunching(false)}
+              onLoad={() => {
+                setVrLoadMessage("VR page loaded. Waiting for Unity runtime...");
+              }}
               style={{ width: "100%", height: "100%", border: "none", display: "block", background: "#080c14" }}
               allow="microphone; fullscreen"
               allowFullScreen
