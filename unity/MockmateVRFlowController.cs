@@ -15,6 +15,8 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private float prepTimeSeconds = 10f;
     [SerializeField] private float silenceGapSeconds = 3f;
     [SerializeField] private float minListenSeconds = 1f;
+    [SerializeField] private int initialFetchRetryCount = 8;
+    [SerializeField] private float initialFetchRetryDelaySeconds = 1f;
 
     [Header("Editor Preview")]
     [SerializeField] private bool correctEditorPreviewHeight = true;
@@ -86,7 +88,7 @@ public class MockmateVRFlowController : MonoBehaviour
         _completed = false;
         _startedAt = Time.time;
         PublishStatus("Fetching first question...");
-        StartCoroutine(apiClient.FetchNextQuestion(OnNextQuestionFetched));
+        StartCoroutine(FetchInitialQuestionWithRetry());
     }
 
     public void SetApiBase(string apiBase)
@@ -127,6 +129,46 @@ public class MockmateVRFlowController : MonoBehaviour
 
         StopAllCoroutines();
         StartCoroutine(RunQuestionLifecycle(_currentQuestion.question));
+    }
+
+    private IEnumerator FetchInitialQuestionWithRetry()
+    {
+        int maxAttempts = Mathf.Max(1, initialFetchRetryCount + 1);
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            bool completed = false;
+            VrNextResponse response = null;
+            string error = null;
+
+            yield return apiClient.FetchNextQuestion((res, err) =>
+            {
+                response = res;
+                error = err;
+                completed = true;
+            });
+
+            if (!completed)
+                yield break;
+
+            if (string.IsNullOrEmpty(error))
+            {
+                OnNextQuestionFetched(response, null);
+                yield break;
+            }
+
+            bool shouldRetry =
+                attempt < maxAttempts &&
+                IsInitializationRaceError(error);
+
+            if (!shouldRetry)
+            {
+                OnNextQuestionFetched(response, error);
+                yield break;
+            }
+
+            PublishStatus($"VR session still syncing, retrying question fetch ({attempt}/{maxAttempts - 1})...");
+            yield return new WaitForSeconds(Mathf.Max(0.1f, initialFetchRetryDelaySeconds));
+        }
     }
 
     private IEnumerator RunQuestionLifecycle(string questionText)
@@ -298,6 +340,15 @@ public class MockmateVRFlowController : MonoBehaviour
         Debug.LogError("[MockmateVR] " + message);
         OnError?.Invoke(message);
         PublishStatus("Error: " + message);
+    }
+
+    private bool IsInitializationRaceError(string error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+            return false;
+
+        string normalized = error.ToLowerInvariant();
+        return normalized.Contains("vr test not initialized");
     }
 
     private void ApplyEditorPreviewHeightFix()
