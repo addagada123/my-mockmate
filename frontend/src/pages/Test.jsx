@@ -5,6 +5,7 @@ import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === "localhost" ? "http://127.0.0.1:8000" : `http://${window.location.hostname}:8000`);
+const VR_DEVICE_ID = "mockmate-vr-default";
 
 function isSqlTopic(topicText) {
   const t = (topicText || "").toLowerCase();
@@ -343,6 +344,28 @@ function Test() {
       setVrBridgeToken(response.data.bridge_token || "");
       setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
       vrStartedAtRef.current = Date.now();
+
+      if (response.data.bridge_token) {
+        try {
+          await axios.post(
+            `${API_BASE}/vr-bridge/register-token`,
+            {
+              device_id: VR_DEVICE_ID,
+              bridge_token: response.data.bridge_token,
+              api_base: API_BASE,
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
+        } catch (registerError) {
+          console.error("VR bridge token registration failed:", registerError);
+        }
+      }
+
       if (vrLaunchMode === "desktop" || mode === "desktop") {
         const desktopUrl = `mockmate://start-vr?bridge_token=${encodeURIComponent(response.data.bridge_token)}&api_base=${encodeURIComponent(API_BASE)}`;
         window.location.href = desktopUrl;
@@ -803,7 +826,7 @@ function Test() {
       setVrLaunching(false);
       setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build3 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
       setVrShowManual(true);
-    }, 20000);
+    }, 90000);
 
     return () => clearTimeout(timeout);
   }, [testMode, vrLaunching, vrLoadError]);
