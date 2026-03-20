@@ -20,6 +20,7 @@ import sys
 import time
 from datetime import datetime
 
+
 import openai
 from dotenv import load_dotenv
 from pymongo import MongoClient
