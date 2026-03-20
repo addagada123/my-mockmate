@@ -17,6 +17,7 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private float minListenSeconds = 1f;
     [SerializeField] private int initialFetchRetryCount = 8;
     [SerializeField] private float initialFetchRetryDelaySeconds = 1f;
+    [SerializeField] private float speechCompletionFallbackSeconds = 20f;
 
     [Header("Editor Preview")]
     [SerializeField] private bool correctEditorPreviewHeight = true;
@@ -44,6 +45,10 @@ public class MockmateVRFlowController : MonoBehaviour
     private bool _busy;
     private bool _isListening;
     private bool _completed;
+    private bool _flowStarting;
+    private bool _manualSubmitRequested;
+    private bool _awaitingQuestionSpeechCompletion;
+    private bool _listeningEndedNotified;
     private string _transcript = "";
     private float _lastTranscriptUpdateAt = -1f;
     private int _activeQuestionIndex = 0;
@@ -74,7 +79,7 @@ public class MockmateVRFlowController : MonoBehaviour
 
     public void BeginFlow()
     {
-        if (_busy) return;
+        if (_busy || _flowStarting) return;
         if (apiClient == null)
         {
             RaiseError("API client missing");
@@ -86,6 +91,9 @@ public class MockmateVRFlowController : MonoBehaviour
             return;
         }
         _completed = false;
+        _flowStarting = true;
+        _manualSubmitRequested = false;
+        _currentQuestion = null;
         _startedAt = Time.time;
         PublishStatus("Fetching first question...");
         StartCoroutine(FetchInitialQuestionWithRetry());
@@ -107,8 +115,10 @@ public class MockmateVRFlowController : MonoBehaviour
 
     private void OnNextQuestionFetched(VrNextResponse response, string error)
     {
+        _flowStarting = false;
         if (!string.IsNullOrEmpty(error))
         {
+            _busy = false;
             RaiseError($"Fetch question failed: {error}");
             return;
         }
@@ -174,13 +184,34 @@ public class MockmateVRFlowController : MonoBehaviour
     private IEnumerator RunQuestionLifecycle(string questionText)
     {
         _busy = true;
+        _manualSubmitRequested = false;
 
         if (autoSpeakWhenQuestionArrives)
         {
             OnQuestionSpeakingStart?.Invoke();
             PublishStatus("Interviewer speaking...");
             float speakDuration = Mathf.Clamp((questionText ?? string.Empty).Length / Mathf.Max(5f, simulatedSpeakCharsPerSecond), 1f, 12f);
-            yield return new WaitForSeconds(speakDuration);
+            float maxWait = Mathf.Max(speakDuration, speechCompletionFallbackSeconds);
+            _awaitingQuestionSpeechCompletion = HasExternalSpeechHandler();
+            if (_awaitingQuestionSpeechCompletion)
+            {
+                float waited = 0f;
+                while (_awaitingQuestionSpeechCompletion && waited < maxWait)
+                {
+                    waited += Time.deltaTime;
+                    yield return null;
+                }
+
+                if (_awaitingQuestionSpeechCompletion)
+                {
+                    PublishStatus("Speech completion timeout reached. Continuing interview flow...");
+                    _awaitingQuestionSpeechCompletion = false;
+                }
+            }
+            else
+            {
+                yield return new WaitForSeconds(speakDuration);
+            }
             OnQuestionSpeakingEnd?.Invoke();
         }
 
@@ -189,6 +220,7 @@ public class MockmateVRFlowController : MonoBehaviour
         PublishStatus("Answer now");
 
         _isListening = true;
+        _listeningEndedNotified = false;
         _lastTranscriptUpdateAt = Time.time;
         OnListeningStart?.Invoke();
         PublishStatus("Listening for answer...");
@@ -209,11 +241,13 @@ public class MockmateVRFlowController : MonoBehaviour
             yield return null;
         }
 
-        OnListeningEnd?.Invoke();
+        EndListeningSession();
         _busy = false;
 
-        if (!_completed)
+        if (!_completed && !_manualSubmitRequested)
             SubmitCurrentAnswer(_transcript.Trim());
+
+        _manualSubmitRequested = false;
     }
 
     private IEnumerator PrepCountdownCoroutine()
@@ -242,10 +276,18 @@ public class MockmateVRFlowController : MonoBehaviour
     public void ForceSubmitCurrentAnswer()
     {
         if (_currentQuestion == null) return;
-        if (_busy) return;
+        if (!_isListening) return;
+        _manualSubmitRequested = true;
         _isListening = false;
-        OnListeningEnd?.Invoke();
+        EndListeningSession();
+        _busy = false;
         SubmitCurrentAnswer(_transcript.Trim());
+    }
+
+    public void NotifyQuestionSpeechCompleted()
+    {
+        if (_awaitingQuestionSpeechCompletion)
+            _awaitingQuestionSpeechCompletion = false;
     }
 
     public void SubmitCurrentAnswer(string transcript)
@@ -261,6 +303,7 @@ public class MockmateVRFlowController : MonoBehaviour
             return;
         }
 
+        _busy = true;
         StartCoroutine(apiClient.SubmitAnswer(_activeQuestionIndex, transcript, OnAnswerSubmitted));
     }
 
@@ -268,12 +311,14 @@ public class MockmateVRFlowController : MonoBehaviour
     {
         if (!string.IsNullOrEmpty(error))
         {
+            _busy = false;
             RaiseError($"Submit answer failed: {error}");
             return;
         }
 
         if (response == null)
         {
+            _busy = false;
             RaiseError("Empty answer response");
             return;
         }
@@ -305,9 +350,11 @@ public class MockmateVRFlowController : MonoBehaviour
     {
         if (_completed) return;
         _completed = true;
+        _flowStarting = false;
         _isListening = false;
-        OnListeningEnd?.Invoke();
+        EndListeningSession();
         int elapsed = Mathf.RoundToInt(Time.time - _startedAt);
+        _busy = true;
         StartCoroutine(apiClient.CompleteTest(elapsed, OnCompletePosted));
     }
 
@@ -315,15 +362,18 @@ public class MockmateVRFlowController : MonoBehaviour
     {
         if (!string.IsNullOrEmpty(error))
         {
+            _busy = false;
             RaiseError($"Complete test failed: {error}");
             return;
         }
         if (response == null)
         {
+            _busy = false;
             RaiseError("Empty complete response");
             return;
         }
         string msg = $"Test completed. Score: {response.percentage:F1}%";
+        _busy = false;
         PublishStatus(msg);
         OnCompletedMessage?.Invoke(msg);
         OnCompleted?.Invoke(response.percentage);
@@ -349,6 +399,20 @@ public class MockmateVRFlowController : MonoBehaviour
 
         string normalized = error.ToLowerInvariant();
         return normalized.Contains("vr test not initialized");
+    }
+
+    private bool HasExternalSpeechHandler()
+    {
+        return OnQuestionSpeakingStart != null && OnQuestionSpeakingStart.GetPersistentEventCount() > 0;
+    }
+
+    private void EndListeningSession()
+    {
+        if (_listeningEndedNotified)
+            return;
+
+        _listeningEndedNotified = true;
+        OnListeningEnd?.Invoke();
     }
 
     private void ApplyEditorPreviewHeightFix()

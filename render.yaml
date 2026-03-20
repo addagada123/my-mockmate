@@ -30,6 +30,8 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: https://mockmate-api-gna1.onrender.com
+      - key: VITE_VR_STREAMING_ASSETS_URL
+        sync: false
     routes:
       - type: rewrite
         source: /*

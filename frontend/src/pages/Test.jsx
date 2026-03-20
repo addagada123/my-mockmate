@@ -5,6 +5,7 @@ import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === "localhost" ? "http://127.0.0.1:8000" : `http://${window.location.hostname}:8000`);
+const VR_STREAMING_ASSETS_URL = (import.meta.env.VITE_VR_STREAMING_ASSETS_URL || "").trim();
 const VR_DEVICE_ID = "mockmate-vr-default";
 
 function isSqlTopic(topicText) {
@@ -1013,7 +1014,15 @@ function Test() {
 
   // ── VR MODE: Unity WebGL embedded in an iframe ──────────────────────────────
   if (testMode === "vr") {
-    const unityUrl = `/vr/index.html?bridge_token=${encodeURIComponent(vrBridgeToken)}&api_base=${encodeURIComponent(API_BASE)}&session_id=${encodeURIComponent(sessionId || "")}`;
+    const unityParams = new URLSearchParams({
+      bridge_token: vrBridgeToken || "",
+      api_base: API_BASE,
+      session_id: sessionId || "",
+    });
+    if (VR_STREAMING_ASSETS_URL) {
+      unityParams.set("streaming_assets_url", VR_STREAMING_ASSETS_URL.replace(/\/+$/, ""));
+    }
+    const unityUrl = `/vr/index.html?${unityParams.toString()}`;
     const totalQ = questions.length;
     const progress = totalQ > 0 ? Math.round(((vrCurrentIndex) / totalQ) * 100) : 0;
 

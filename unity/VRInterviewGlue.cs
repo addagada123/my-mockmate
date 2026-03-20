@@ -96,16 +96,28 @@ public class VRInterviewGlue : MonoBehaviour
     private IEnumerator SpeakQuestion()
     {
         if (string.IsNullOrWhiteSpace(_currentQuestionText))
+        {
+            flowController?.NotifyQuestionSpeechCompleted();
             yield break;
+        }
 
         if (openAITTS != null)
         {
             yield return openAITTS.Speak(_currentQuestionText);
             if (openAITTS.LastSpeakSucceeded)
+            {
+                flowController?.NotifyQuestionSpeechCompleted();
                 yield break;
+            }
         }
 
         if (avatarTTS != null)
+        {
             yield return avatarTTS.Speak(_currentQuestionText);
+            flowController?.NotifyQuestionSpeechCompleted();
+            yield break;
+        }
+
+        flowController?.NotifyQuestionSpeechCompleted();
     }
 }
