@@ -24,7 +24,7 @@ if project_root not in sys.path:
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Tuple
 import os
@@ -3573,10 +3573,29 @@ async def complete_vr_test(
     }
 
 
+@app.get("/vr-test/next")
 @app.get("/vr-bridge/next")
-async def get_vr_bridge_next_question(bridge_token: str):
+async def get_vr_bridge_next_question(
+    bridge_token: str = None, 
+    session_id: str = None
+):
+    print(f"DEBUG: VR Next Question requested. bridge_token={bridge_token}, session_id={session_id}")
     db = get_db()
-    session = _get_session_by_bridge_token(db, bridge_token)
+    
+    # Try bridge_token first, then session_id
+    if bridge_token:
+        session = _get_session_by_bridge_token(db, bridge_token)
+    elif session_id:
+        from bson import ObjectId
+        try:
+            session = db.user_sessions.find_one({"_id": ObjectId(session_id)})
+            if not session:
+                raise HTTPException(status_code=404, detail="Session not found by session_id")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid session_id format: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="Either bridge_token or session_id is required")
+
 
     vr_state = session.get("vr_test") or {}
     questions = vr_state.get("questions") or []
@@ -3601,6 +3620,62 @@ async def get_vr_bridge_next_question(bridge_token: str):
         "total_questions": len(questions),
         "current_question": questions[idx],
     }
+
+
+@app.post("/vr-test/tts")
+@app.post("/vr-bridge/tts")
+async def vr_bridge_tts(
+    payload: VRBridgeTTSRequest,
+    bridge_token: str = None,
+    session_id: str = None
+):
+    print(f"DEBUG: VR TTS requested. bridge_token={bridge_token}, session_id={session_id}")
+    db = get_db()
+    
+    if bridge_token:
+        session = _get_session_by_bridge_token(db, bridge_token)
+    elif session_id:
+        from bson import ObjectId
+        try:
+            session = db.user_sessions.find_one({"_id": ObjectId(session_id)})
+            if not session:
+                raise HTTPException(status_code=404, detail="Session not found by session_id")
+        except Exception:
+             raise HTTPException(status_code=404, detail="Invalid session_id")
+    if not httpx:
+        raise HTTPException(status_code=500, detail="httpx library not installed on server")
+
+    # Hardcoded to 'tts-1' for local testing stability
+    tts_model = "tts-1"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if not openai_key:
+                raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+                
+            response = await client.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": tts_model,
+                    "input": payload.text,
+                    "voice": "alloy",
+                },
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                print(f"ERROR: OpenAI TTS failed with {response.status_code}: {response.text}")
+                raise HTTPException(status_code=response.status_code, detail=f"OpenAI TTS error: {response.text}")
+                
+            return StreamingResponse(response.iter_bytes(), media_type="audio/mpeg")
+    except Exception as e:
+        print(f"ERROR: TTS processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/vr-bridge/answer")
