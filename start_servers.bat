@@ -3,16 +3,16 @@ echo ===================================================
 echo Starting My Mockmate Application
 echo ===================================================
 
-REM Check if .venv exists
-if not exist ".venv" (
-    echo Virtual environment not found! Please run setup first.
+REM Check if backend\venv exists
+if not exist "backend\venv" (
+    echo Virtual environment not found! Please create it in the backend folder.
     pause
     exit /b
 )
 
 REM Start Backend
 echo Starting Backend Server on port 8000...
-start "My Mockmate Backend" cmd /k "call .venv\Scripts\activate && python -m uvicorn backend.api:app --reload --port 8000"
+start "My Mockmate Backend" cmd /k "call backend\venv\Scripts\activate && cd backend && python -m uvicorn api:app --reload --port 8000"
 
 REM Start Frontend
 echo Starting Frontend Server...
