@@ -1,10 +1,19 @@
-# pyright: basic
 import os
 import sys
+from dotenv import load_dotenv
 
 # Inject .venv path and project root to help IDE find dependencies
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
+
+# Explicitly load .env from the backend directory
+load_dotenv(os.path.join(current_dir, ".env"))
+
+# Quick verification log
+if os.getenv("OPENAI_API_KEY"):
+    print("✅ OpenAI API Key loaded from backend/.env")
+else:
+    print("❌ WARNING: No OpenAI API Key found in backend/.env!")
 venv_path = os.path.join(project_root, ".venv", "Lib", "site-packages")
 
 if os.path.exists(venv_path) and venv_path not in sys.path:
