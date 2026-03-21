@@ -16,7 +16,7 @@ public class MockmateVRBackendTTS : MonoBehaviour
 
     [Header("Voice")]
     [SerializeField] private string voice = "alloy";
-    [SerializeField] private string model = "gpt-4o-mini-tts";
+    [SerializeField] private string model = "tts-1";
     [SerializeField] private string instructions = "";
     [SerializeField] private string responseFormat = "wav";
 

@@ -3803,7 +3803,7 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
 
     response_format = str(payload.response_format or "wav").strip().lower()
     upstream_payload: Dict[str, Any] = {
-        "model": str(payload.model or "gpt-4o-mini-tts").strip() or "gpt-4o-mini-tts",
+        "model": "tts-1",
         "voice": str(payload.voice or "alloy").strip() or "alloy",
         "input": text,
         "response_format": response_format,
