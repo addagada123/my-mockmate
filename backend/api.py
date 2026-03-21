@@ -1547,6 +1547,15 @@ class VRRegisterTokenRequest(BaseModel):
     bridge_token: str
     api_base: Optional[str] = None
 
+
+class VRTTSRequest(BaseModel):
+    bridge_token: str
+    text: str
+    voice: Optional[str] = "alloy"
+    model: Optional[str] = "gpt-4o-mini-tts"
+    instructions: Optional[str] = None
+    response_format: Optional[str] = "wav"
+
 # Upload directory
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -3298,6 +3307,19 @@ def _get_session_by_bridge_token(db, bridge_token: str):
     return session
 
 
+def _tts_media_type(response_format: str) -> str:
+    format_key = str(response_format or "wav").strip().lower()
+    if format_key == "mp3":
+        return "audio/mpeg"
+    if format_key == "opus":
+        return "audio/ogg"
+    if format_key == "aac":
+        return "audio/aac"
+    if format_key == "flac":
+        return "audio/flac"
+    return "audio/wav"
+
+
 @app.post("/vr-test/start")
 async def start_vr_test(
     payload: VRStartRequest,
@@ -3757,6 +3779,67 @@ async def poll_bridge_token(device_id: str):
             else str(mapping.get("created_at", ""))
         ),
     }
+
+
+@app.post("/vr-bridge/tts")
+async def generate_vr_bridge_tts(payload: VRTTSRequest):
+    """
+    Server-side TTS proxy for WebGL/VR clients.
+    Uses the VR bridge token as authorization so browsers never call OpenAI directly.
+    """
+    db = get_db()
+    _get_session_by_bridge_token(db, payload.bridge_token)
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    if httpx is None:
+        raise HTTPException(status_code=500, detail="httpx is not installed")
+
+    response_format = str(payload.response_format or "wav").strip().lower()
+    upstream_payload: Dict[str, Any] = {
+        "model": str(payload.model or "gpt-4o-mini-tts").strip() or "gpt-4o-mini-tts",
+        "voice": str(payload.voice or "alloy").strip() or "alloy",
+        "input": text,
+        "response_format": response_format,
+    }
+    instructions = (payload.instructions or "").strip()
+    if instructions:
+        upstream_payload["instructions"] = instructions
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            upstream = await client.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json",
+                },
+                json=upstream_payload,
+            )
+    except Exception as exc:
+        logger.exception("VR TTS upstream request failed")
+        raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc
+
+    if upstream.status_code >= 400:
+        detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
+        logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
+        raise HTTPException(status_code=502, detail=detail)
+
+    return Response(
+        content=upstream.content,
+        media_type=_tts_media_type(response_format),
+        headers={
+            "Cache-Control": "no-store",
+            "X-Mockmate-TTS-Voice": upstream_payload["voice"],
+            "X-Mockmate-TTS-Model": upstream_payload["model"],
+        },
+    )
 
 
 @app.post("/submit-test")
@@ -5440,4 +5523,3 @@ async def delete_session(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)
-

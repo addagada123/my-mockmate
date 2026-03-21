@@ -36,14 +36,14 @@
       var STREAMING_ASSETS_URL = (urlParams.get("streaming_assets_url") || "StreamingAssets").replace(/\/+$/, "");
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/Build3.loader.js";
+      var loaderUrl = buildUrl + "/Build5.loader.js";
       var config = {
-        dataUrl: buildUrl + "/Build3.data",
-        frameworkUrl: buildUrl + "/Build3.framework.js",
-        codeUrl: buildUrl + "/Build3.wasm",
+        dataUrl: buildUrl + "/Build5.data",
+        frameworkUrl: buildUrl + "/Build5.framework.js",
+        codeUrl: buildUrl + "/Build5.wasm",
         streamingAssetsUrl: STREAMING_ASSETS_URL,
         companyName: "MockMate",
-        productName: "Build3",
+        productName: "MockMate VR",
         productVersion: "1.0",
       };
 
@@ -57,18 +57,24 @@
 
       function notifyParent(status, detail) {
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage({
-            source: "mockmate-vr",
-            status: status,
-            detail: detail || "",
-          }, window.location.origin);
+          window.parent.postMessage(
+            {
+              source: "mockmate-vr",
+              status: status,
+              detail: detail || "",
+            },
+            window.location.origin
+          );
         }
       }
 
       function renderError(message) {
         var rendered = String(message || "Unknown VR loading error.");
         loadingBar.style.display = "block";
-        loadingBar.innerHTML = '<div style="max-width:720px;padding:16px 18px;border:1px solid rgba(248,113,113,0.5);border-radius:12px;background:rgba(127,29,29,0.35);color:#fecaca;font-size:14px;line-height:1.5;white-space:pre-wrap;">' + rendered + '</div>';
+        loadingBar.innerHTML =
+          '<div style="max-width:720px;padding:16px 18px;border:1px solid rgba(248,113,113,0.5);border-radius:12px;background:rgba(127,29,29,0.35);color:#fecaca;font-size:14px;line-height:1.5;white-space:pre-wrap;">' +
+          rendered +
+          "</div>";
         notifyParent("error", rendered);
         console.error("[MockMate VR]", rendered);
       }
@@ -77,17 +83,93 @@
         notifyParent("loading", message);
       }
 
+      function sanitizeApiBase(baseUrl) {
+        return String(baseUrl || "").trim().replace(/\/+$/, "");
+      }
+
+      async function verifyBridgeSession() {
+        if (!BRIDGE_TOKEN || !API_BASE) {
+          return;
+        }
+
+        var apiBase = sanitizeApiBase(API_BASE);
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function () {
+          controller.abort();
+        }, 15000);
+
+        try {
+          var response = await fetch(
+            apiBase + "/vr-bridge/next?bridge_token=" + encodeURIComponent(BRIDGE_TOKEN),
+            {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              signal: controller.signal,
+            }
+          );
+
+          var bodyText = await response.text();
+          var detail = "";
+          try {
+            var parsed = bodyText ? JSON.parse(bodyText) : null;
+            detail = parsed && parsed.detail ? parsed.detail : "";
+          } catch (parseError) {
+            detail = bodyText || "";
+          }
+
+          if (!response.ok) {
+            throw new Error(detail || ("HTTP " + response.status));
+          }
+        } catch (error) {
+          if (error && error.name === "AbortError") {
+            throw new Error("Timed out while contacting the MockMate backend.");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      function sendBridgeTokenToUnity() {
+        if (!unityInstance || !BRIDGE_TOKEN) {
+          return;
+        }
+
+        var payload = JSON.stringify({
+          bridge_token: BRIDGE_TOKEN,
+          api_base: API_BASE,
+          session_id: SESSION_ID,
+        });
+
+        try {
+          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
+          notifyParent("bridge-token-sent", "MockMate VR bootstrap token delivered to Unity.");
+        } catch (error) {
+          renderError(
+            "Unity loaded but MockMate bootstrap could not receive the bridge token.\n" +
+              (((error && error.message) || error || "").toString())
+          );
+        }
+      }
+
       window.addEventListener("error", function (event) {
-        var runtimeMessage = (event && event.error && event.error.stack) || (event && event.message) || "Unexpected runtime error inside the VR page.";
+        var runtimeMessage =
+          (event && event.error && event.error.stack) ||
+          (event && event.message) ||
+          "Unexpected runtime error inside the VR page.";
         renderError(runtimeMessage);
       });
 
       window.addEventListener("unhandledrejection", function (event) {
-        var reason = (event && event.reason && event.reason.stack) || (event && event.reason && event.reason.message) || String((event && event.reason) || "Unhandled promise rejection inside the VR page.");
+        var reason =
+          (event && event.reason && event.reason.stack) ||
+          (event && event.reason && event.reason.message) ||
+          String((event && event.reason) || "Unhandled promise rejection inside the VR page.");
         renderError(reason);
       });
 
       loadingBar.style.display = "block";
+      setLoadingMessage("Loading Unity WebGL loader...");
 
       var script = document.createElement("script");
       script.src = loaderUrl;
@@ -111,14 +193,18 @@
           }
 
           if (BRIDGE_TOKEN) {
-            setLoadingMessage("Unity loaded. Connecting to MockMate session...");
-            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken",
-              JSON.stringify({
-                bridge_token: BRIDGE_TOKEN,
-                api_base: API_BASE,
-                session_id: SESSION_ID
+            setLoadingMessage("Unity loaded. Verifying MockMate session...");
+            verifyBridgeSession()
+              .then(() => {
+                setLoadingMessage("Unity loaded. MockMate session verified. Starting interview bootstrap...");
+                sendBridgeTokenToUnity();
               })
-            );
+              .catch((error) => {
+                renderError(
+                  "Unable to verify the MockMate VR session before starting Unity.\n" +
+                    (((error && error.message) || error || "").toString())
+                );
+              });
           } else {
             setLoadingMessage("Unity loaded. Waiting for VR session token.");
           }
@@ -126,7 +212,6 @@
           renderError((message && message.stack) || (message && message.message) || message || "createUnityInstance failed");
         });
       };
-      setLoadingMessage("Loading Unity WebGL loader...");
       document.body.appendChild(script);
 
       let enterARButton = document.getElementById('enterar');

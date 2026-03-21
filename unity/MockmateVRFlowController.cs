@@ -268,8 +268,20 @@ public class MockmateVRFlowController : MonoBehaviour
     {
         if (!_isListening) return;
         if (string.IsNullOrWhiteSpace(textChunk)) return;
+
+        string normalizedChunk = textChunk.Trim();
+        if (normalizedChunk.Length == 0)
+            return;
+
+        // Some STT integrations repeatedly emit the full transcript-so-far or duplicate
+        // chunks while the speaker is silent. Ignore no-op updates so silence detection
+        // can advance to the next question.
+        if (string.Equals(_transcript, normalizedChunk, StringComparison.OrdinalIgnoreCase) ||
+            _transcript.EndsWith(normalizedChunk, StringComparison.OrdinalIgnoreCase))
+            return;
+
         if (_transcript.Length > 0) _transcript += " ";
-        _transcript += textChunk.Trim();
+        _transcript += normalizedChunk;
         _lastTranscriptUpdateAt = Time.time;
     }
 

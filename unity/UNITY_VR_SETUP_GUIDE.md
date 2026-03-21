@@ -23,6 +23,7 @@ Copy these **4 C# files** from the `unity/` folder into your Unity project's `As
 | `MockmateVRDeepLinkBootstrap.cs` | Handles deep link launches (backup method) |
 | `MockmateVRTokenPoller.cs` | Polls for bridge tokens automatically |
 | `MockmateVRAnimationBridge.cs` | **NEW** — Handles mouth, jaw, and typing animations |
+| `MockmateVRBackendTTS.cs` | **NEW** — Proxies TTS through the Mockmate backend for WebGL |
 
 ---
 
@@ -76,6 +77,19 @@ Your Inspector for `MockmateVRManager` should show all 4 scripts.
 | Flow Controller | Drag the `MockmateVRManager` GameObject here |
 | Default Api Base | `https://mockmate-api-gna1.onrender.com` |
 | Auto Begin On Deep Link | ✅ Checked |
+
+### MockmateVRBackendTTS (Optional for Audio)
+| Field | Value |
+|-------|-------|
+| Api Client | Drag the `MockmateVRManager` GameObject here |
+| Audio Source | Drag the `MockmateVRManager` GameObject here |
+| Voice | `alloy` (or your preferred OpenAI TTS voice) |
+
+### VRInterviewGlue
+| Field | Value |
+|-------|-------|
+| Backend TTS | Drag the `MockmateVRManager` GameObject here |
+| Flow Controller | Drag the `MockmateVRManager` GameObject here |
 
 ---
 

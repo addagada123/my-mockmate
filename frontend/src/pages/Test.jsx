@@ -68,6 +68,7 @@ function Test() {
   const [vrBridgeToken, setVrBridgeToken] = useState("");
   const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
   const vrStartedAtRef = useRef(null);
+  const vrIframeInitializedRef = useRef(false);
   const [vrLaunching, setVrLaunching] = useState(false);
   const [vrLoadMessage, setVrLoadMessage] = useState("Preparing VR environment...");
   const [vrLoadError, setVrLoadError] = useState("");
@@ -844,10 +845,13 @@ function Test() {
       if (!payload || payload.source !== "mockmate-vr") return;
 
       if (payload.status === "loading") {
-        setVrLaunching(true);
+        if (!vrIframeInitializedRef.current && !vrCurrentQuestion && !vrCompleted) {
+          setVrLaunching(true);
+        }
         setVrLoadError("");
         setVrLoadMessage(payload.detail || "Loading VR environment...");
       } else if (payload.status === "ready") {
+        vrIframeInitializedRef.current = true;
         setVrLaunching(false);
         setVrLoadError("");
         setVrLoadMessage(payload.detail || "VR environment ready.");
@@ -860,7 +864,7 @@ function Test() {
 
     window.addEventListener("message", handleVRFrameMessage);
     return () => window.removeEventListener("message", handleVRFrameMessage);
-  }, []);
+  }, [vrCurrentQuestion, vrCompleted]);
 
   useEffect(() => {
     if (testMode !== "vr" || !vrLaunching || vrLoadError || vrCurrentQuestion || vrCompleted) return;
@@ -868,7 +872,7 @@ function Test() {
     const timeout = setTimeout(() => {
       if (vrCurrentQuestion || vrCompleted) return;
       setVrLaunching(false);
-      setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build3 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
+      setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build4 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
       setVrShowManual(true);
     }, 90000);
 
@@ -879,6 +883,7 @@ function Test() {
     if (testMode !== "vr") return;
     if (!vrCurrentQuestion) return;
 
+    vrIframeInitializedRef.current = true;
     setVrLaunching(false);
     setVrLoadError("");
     setVrLoadMessage("VR environment ready.");
@@ -1102,6 +1107,7 @@ function Test() {
               src={unityUrl}
               title="MockMate VR"
               onLoad={() => {
+                vrIframeInitializedRef.current = true;
                 setVrLaunching(false);
                 setVrLoadMessage("VR page loaded. Waiting for Unity runtime...");
               }}

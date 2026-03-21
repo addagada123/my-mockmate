@@ -13,9 +13,14 @@ public class VRInterviewGlue : MonoBehaviour
 {
     [Header("Optional Components")]
     public MonoBehaviour openAITTS;
+    public MonoBehaviour backendTTS;
     public MonoBehaviour avatarTTS;
     public MonoBehaviour audioRecorder;
     public MonoBehaviour sttClient;
+
+    [Header("WebGL Safety")]
+    [Tooltip("Disable direct OpenAI TTS calls inside WebGL/browser builds to avoid CORS/auth failures.")]
+    public bool allowOpenAITTSInWebGL = false;
 
     [Header("Auto-wire")]
     public MockmateVRFlowController flowController;
@@ -94,7 +99,27 @@ public class VRInterviewGlue : MonoBehaviour
             yield break;
         }
 
-        if (openAITTS != null)
+        bool isWebGL = Application.platform.Equals(RuntimePlatform.WebGLPlayer);
+        bool canUseBackendTTS = backendTTS != null;
+        bool canUseOpenAITTS = openAITTS != null && (allowOpenAITTSInWebGL || !isWebGL);
+
+        // Prioritize backend TTS in WebGL (to avoid CORS/Auth issues) or if OpenAI TTS is explicitly disabled
+        if (canUseBackendTTS && (isWebGL || !canUseOpenAITTS))
+        {
+            IEnumerator backendSpeak = InvokeEnumeratorIfPresent(backendTTS, "Speak", _currentQuestionText);
+            if (backendSpeak != null)
+            {
+                yield return backendSpeak;
+                if (ReadBoolMember(backendTTS, "LastSpeakSucceeded"))
+                {
+                    flowController?.NotifyQuestionSpeechCompleted();
+                    yield break;
+                }
+            }
+        }
+
+        // Fallback to direct OpenAI TTS if available and permitted
+        if (canUseOpenAITTS)
         {
             IEnumerator openAiSpeak = InvokeEnumeratorIfPresent(openAITTS, "Speak", _currentQuestionText);
             if (openAiSpeak != null)
