@@ -34,7 +34,9 @@ public class MockmateVRBackendTTS : MonoBehaviour
         if (audioSource == null)
             audioSource = GetComponent<AudioSource>();
     }
-
+    public IEnumerator Speak(string text)
+    {
+        LastSpeakSucceeded = false;
         Debug.Log($"[MockmateVR-TTS] Speak called with text: {text}");
         if (string.IsNullOrWhiteSpace(text))
         {
