@@ -1548,6 +1548,10 @@ class VRCompleteRequest(BaseModel):
 
 class VRBridgeTTSRequest(BaseModel):
     text: str
+    bridge_token: Optional[str] = None
+    voice: Optional[str] = "alloy"
+    model: Optional[str] = "tts-1"
+    response_format: Optional[str] = "wav"
 
 class VRBridgeAnswerRequest(BaseModel):
     question_index: int
@@ -3637,11 +3641,12 @@ async def vr_bridge_tts(
     bridge_token: Optional[str] = None,
     session_id: Optional[str] = None
 ):
-    print(f"DEBUG: VR TTS requested. bridge_token={bridge_token}, session_id={session_id}")
+    actual_token = payload.bridge_token or bridge_token
+    print(f"DEBUG: VR TTS requested. bridge_token={actual_token}, session_id={session_id}")
     db = get_db()
     
-    if bridge_token:
-        session = _get_session_by_bridge_token(db, bridge_token)
+    if actual_token:
+        session = _get_session_by_bridge_token(db, actual_token)
     elif session_id:
         if not ObjectId:
              raise HTTPException(status_code=500, detail="bson/ObjectId not available")
@@ -3682,6 +3687,8 @@ async def vr_bridge_tts(
                 raise HTTPException(status_code=response.status_code, detail=f"OpenAI TTS error: {response.text}")
                 
             return StreamingResponse(response.iter_bytes(), media_type="audio/mpeg")
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"ERROR: TTS processing error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
