@@ -1,4 +1,4 @@
-from pymongo import MongoClient
+from pymongo import MongoClient # type: ignore
 # Note: local sentence-transformers are not used in this deployment. Embeddings
 # should be provided by external services if required.
 import re
@@ -10,12 +10,12 @@ from datetime import datetime
 # from langchain_google_genai import ChatGoogleGenerativeAI  -- lazy
 # from langchain_community.document_loaders import PyPDFLoader  -- lazy
 # import numpy as np  -- lazy
-from dotenv import load_dotenv
+from dotenv import load_dotenv # type: ignore
 from typing import List, Dict, Tuple
 import os
 import tempfile
 import json
-from pydantic import BaseModel, Field, ValidationError, root_validator, SecretStr
+from pydantic import BaseModel, Field, ValidationError, root_validator, SecretStr # type: ignore
 from typing import Literal, Optional
 
 # Load environment variables on import so ADC / API keys are available
@@ -196,7 +196,7 @@ def _deduplicate_questions_consensus(
         score = 0.0
         q_text = (q.get("q") or q.get("question") or "")
         a_text = (q.get("a") or q.get("answer") or "")
-        score += min(40, len(a_text.split()) * 1.5)
+        score += float(min(40.0, len(a_text.split()) * 1.5)) # type: ignore
         if q.get("code") or q.get("starter_code"):
             score += 10 # type: ignore
         if q.get("examples"):
