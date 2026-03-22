@@ -3885,7 +3885,10 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
 
     text = (payload.text or "").strip()
     if not text:
+        logger.warning(f"VR TTS request failed: text is empty for bridge_token={payload.bridge_token[:8]}...")
         raise HTTPException(status_code=400, detail="text is required")
+
+    logger.info(f"VR TTS request received. Text length: {len(text)}. Voice: {payload.voice}")
 
     openai_key = os.getenv("OPENAI_API_KEY")
     if not openai_key:
@@ -3915,6 +3918,7 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
                 },
                 json=upstream_payload,
             )
+            logger.info(f"VR TTS upstream response: {upstream.status_code}, content_length={len(upstream.content)} bytes")
     except Exception as exc:
         logger.exception("VR TTS upstream request failed")
         raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc

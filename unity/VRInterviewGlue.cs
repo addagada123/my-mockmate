@@ -14,6 +14,7 @@ public class VRInterviewGlue : MonoBehaviour
     [Header("Optional Components")]
     public MonoBehaviour openAITTS;
     public MockmateVRBackendTTS backendTTS;
+    public MockmateVRAnimationBridge animationBridge;
     public MonoBehaviour avatarTTS;
     public MonoBehaviour audioRecorder;
     public MonoBehaviour sttClient;
@@ -93,8 +94,10 @@ public class VRInterviewGlue : MonoBehaviour
 
     private IEnumerator SpeakQuestion()
     {
+        Debug.Log($"[MockmateVR-Glue] SpeakQuestion starting. Text: {(_currentQuestionText != null ? _currentQuestionText.Substring(0, Mathf.Min(20, _currentQuestionText.Length)) : "null")}...");
         if (string.IsNullOrWhiteSpace(_currentQuestionText))
         {
+            Debug.Log("[MockmateVR-Glue] No question text to speak.");
             flowController?.NotifyQuestionSpeechCompleted();
             yield break;
         }
@@ -106,15 +109,29 @@ public class VRInterviewGlue : MonoBehaviour
         // Prioritize backend TTS in WebGL (to avoid CORS/Auth issues) or if OpenAI TTS is explicitly disabled
         if (canUseBackendTTS && (isWebGL || !canUseOpenAITTS))
         {
+            Debug.Log("[MockmateVR-Glue] Using Backend TTS.");
+            if (animationBridge != null) animationBridge.StartTalking();
+
             IEnumerator backendSpeak = InvokeEnumeratorIfPresent(backendTTS, "Speak", _currentQuestionText);
             if (backendSpeak != null)
             {
                 yield return backendSpeak;
+                if (animationBridge != null) animationBridge.StopTalking();
+
                 if (ReadBoolMember(backendTTS, "LastSpeakSucceeded"))
                 {
+                    Debug.Log("[MockmateVR-Glue] Backend TTS success.");
                     flowController?.NotifyQuestionSpeechCompleted();
                     yield break;
                 }
+                else
+                {
+                    Debug.LogWarning("[MockmateVR-Glue] Backend TTS reported failure.");
+                }
+            }
+            else
+            {
+                if (animationBridge != null) animationBridge.StopTalking();
             }
         }
 

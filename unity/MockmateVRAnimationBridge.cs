@@ -16,6 +16,7 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     public Transform jawBone;
     public float jawOpenAmount = 20f;
     public float talkSpeed = 10f;
+    [Range(0f, 1f)] public float talkJitter = 0.15f;
 
     [Header("Blend Shape Lip Sync (Optional)")]
     public SkinnedMeshRenderer faceRenderer;
@@ -41,6 +42,7 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     [ContextMenu("Start Talking")]
     public void StartTalking()
     {
+        Debug.Log("[MockmateVR-Animation] StartTalking called.");
         StopTyping();
         _isSpeaking = true;
         if (animator != null) animator.SetBool(talkBoolParam, true);
@@ -49,6 +51,7 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     [ContextMenu("Stop Talking")]
     public void StopTalking()
     {
+        Debug.Log("[MockmateVR-Animation] StopTalking called.");
         _isSpeaking = false;
         if (animator != null) animator.SetBool(talkBoolParam, false);
         if (jawBone != null) jawBone.localRotation = _jawStartRot;
@@ -58,6 +61,7 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     [ContextMenu("Start Typing")]
     public void StartTyping()
     {
+        Debug.Log("[MockmateVR-Animation] StartTyping called.");
         StopTalking();
         if (animateListeningState && animator != null && !string.IsNullOrWhiteSpace(typeBoolParam))
             animator.SetBool(typeBoolParam, true);
@@ -76,14 +80,16 @@ public class MockmateVRAnimationBridge : MonoBehaviour
 
         if (_isSpeaking && jawBone != null)
         {
-            float angle = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed)) * jawOpenAmount;
+            float noise = Mathf.PerlinNoise(Time.time * talkSpeed * 0.5f, 0f) * talkJitter;
+            float angle = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed + noise)) * jawOpenAmount;
             jawBone.localRotation = _jawStartRot * Quaternion.Euler(angle, 0, 0);
             updatedSpeakingPose = true;
         }
 
         if (_isSpeaking && HasMouthBlendShapes())
         {
-            float targetWeight = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed)) * mouthBlendShapeMaxWeight;
+            float noise = Mathf.PerlinNoise(0f, Time.time * talkSpeed * 0.5f) * talkJitter;
+            float targetWeight = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed + noise)) * mouthBlendShapeMaxWeight;
             ApplyMouthWeight(targetWeight, false);
             updatedSpeakingPose = true;
         }

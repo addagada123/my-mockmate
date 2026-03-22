@@ -18,6 +18,7 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private int initialFetchRetryCount = 8;
     [SerializeField] private float initialFetchRetryDelaySeconds = 1f;
     [SerializeField] private float speechCompletionFallbackSeconds = 20f;
+    [SerializeField] private float nextQuestionDelaySeconds = 3.5f;
 
     [Header("Editor Preview")]
     [SerializeField] private bool correctEditorPreviewHeight = true;
@@ -139,46 +140,6 @@ public class MockmateVRFlowController : MonoBehaviour
 
         StopAllCoroutines();
         StartCoroutine(RunQuestionLifecycle(_currentQuestion.question));
-    }
-
-    private IEnumerator FetchInitialQuestionWithRetry()
-    {
-        int maxAttempts = Mathf.Max(1, initialFetchRetryCount + 1);
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            bool completed = false;
-            VrNextResponse response = null;
-            string error = null;
-
-            yield return apiClient.FetchNextQuestion((res, err) =>
-            {
-                response = res;
-                error = err;
-                completed = true;
-            });
-
-            if (!completed)
-                yield break;
-
-            if (string.IsNullOrEmpty(error))
-            {
-                OnNextQuestionFetched(response, null);
-                yield break;
-            }
-
-            bool shouldRetry =
-                attempt < maxAttempts &&
-                IsInitializationRaceError(error);
-
-            if (!shouldRetry)
-            {
-                OnNextQuestionFetched(response, error);
-                yield break;
-            }
-
-            PublishStatus($"VR session still syncing, retrying question fetch ({attempt}/{maxAttempts - 1})...");
-            yield return new WaitForSeconds(Mathf.Max(0.1f, initialFetchRetryDelaySeconds));
-        }
     }
 
     private IEnumerator RunQuestionLifecycle(string questionText)
@@ -351,11 +312,22 @@ public class MockmateVRFlowController : MonoBehaviour
             _lastTranscriptUpdateAt = -1f;
             OnQuestionReceived?.Invoke(_currentQuestion.question);
             StopAllCoroutines();
-            StartCoroutine(RunQuestionLifecycle(_currentQuestion.question));
+            StartCoroutine(WaitAndStartNextQuestion(_currentQuestion.question));
             return;
         }
 
         StartCoroutine(apiClient.FetchNextQuestion(OnNextQuestionFetched));
+    }
+
+    private IEnumerator WaitAndStartNextQuestion(string questionText)
+    {
+        _busy = true;
+        if (nextQuestionDelaySeconds > 0)
+        {
+            PublishStatus($"Next question in {nextQuestionDelaySeconds}s...");
+            yield return new WaitForSeconds(nextQuestionDelaySeconds);
+        }
+        StartCoroutine(RunQuestionLifecycle(questionText));
     }
 
     public void CompleteFlow()
@@ -445,5 +417,45 @@ public class MockmateVRFlowController : MonoBehaviour
         _editorCameraAdjusted = true;
         PublishStatus($"Editor preview camera Y adjusted by {editorPreviewYOffset:0.##}.");
 #endif
+    }
+
+    private IEnumerator FetchInitialQuestionWithRetry()
+    {
+        int maxAttempts = Mathf.Max(1, initialFetchRetryCount + 1);
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            bool completed = false;
+            VrNextResponse response = null;
+            string error = null;
+
+            yield return apiClient.FetchNextQuestion((res, err) =>
+            {
+                response = res;
+                error = err;
+                completed = true;
+            });
+
+            if (!completed)
+                yield break;
+
+            if (string.IsNullOrEmpty(error))
+            {
+                OnNextQuestionFetched(response, null);
+                yield break;
+            }
+
+            bool shouldRetry =
+                attempt < maxAttempts &&
+                IsInitializationRaceError(error);
+
+            if (!shouldRetry)
+            {
+                OnNextQuestionFetched(response, error);
+                yield break;
+            }
+
+            PublishStatus($"VR session still syncing, retrying question fetch ({attempt}/{maxAttempts - 1})...");
+            yield return new WaitForSeconds(Mathf.Max(0.1f, initialFetchRetryDelaySeconds));
+        }
     }
 }
