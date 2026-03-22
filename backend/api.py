@@ -3892,7 +3892,7 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
 
     text = (payload.text or "").strip()
     if not text:
-        logger.warning(f"VR TTS request failed: text is empty for bridge_token={payload.bridge_token[:8]}...")
+        logger.warning(f"VR TTS request failed: text is empty for bridge_token={str(payload.bridge_token)[:8]}...")
         raise HTTPException(status_code=400, detail="text is required")
 
     logger.info(f"VR TTS request received. Text length: {len(text)}. Voice: {payload.voice}")
@@ -4348,7 +4348,7 @@ async def get_performance(
                 study_recommendations.append({
                     "topic": "General",
                     "priority": "growth",
-                    "reason": f"Average of {round(avg_score, 1)}% on {dominant_diff} â€” ready for more challenge",
+                    "reason": f"Average of {float(avg_score):.1f}% on {dominant_diff} â€” ready for more challenge",
                     "action": f"Try switching to {next_diff} difficulty to continue improving.",
                 })
         
@@ -4987,7 +4987,7 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                         "type": "open",
                     })
 
-        max_score = total_questions * 100
+        max_score = int(total_questions) * 100
         percentage = float(_safe_round(float(total_score) / float(max_score) * 100.0, 2)) if max_score > 0 else 0.0
 
         # Section-wise breakdown
@@ -4995,13 +4995,13 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
         for ev in evaluated:
             sec = ev.get("section", "Unknown")
             if sec not in section_scores:
-                section_scores[sec] = {"total": 0, "count": 0}
+                section_scores[sec] = {"total": 0, "count": 0, "percentage": 0.0}
             section_scores[sec]["total"] = int(section_scores[sec]["total"]) + int(ev["score"])
             section_scores[sec]["count"] = int(section_scores[sec]["count"]) + 1
         for sec in section_scores:
-            section_scores[sec]["percentage"] = _safe_round(
+            section_scores[sec]["percentage"] = float(_safe_round(
                 float(section_scores[sec]["total"]) / float(section_scores[sec]["count"] * 100) * 100.0, 1
-            )
+            ))
 
         # Update DB
         db.user_sessions.update_one(
