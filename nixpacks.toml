@@ -1,9 +1,4 @@
-[phases.setup]
-nixPkgs = ["python311"]
+providers = ["python"]
 
-[phases.install]
-cmds = ["cd backend && pip install -r requirements.txt"]
-
-# Prevent Nixpacks from auto-detecting Node.js in the monorepo
 [phases.build]
-cmds = ["echo 'Skipping frontend build on Railway — frontend deploys via Vercel'"]
+cmds = ["echo 'Backend only — frontend deploys on Vercel'"]
