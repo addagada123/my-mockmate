@@ -36,11 +36,11 @@
       var STREAMING_ASSETS_URL = (urlParams.get("streaming_assets_url") || "StreamingAssets").replace(/\/+$/, "");
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/Build5.loader.js";
+      var loaderUrl = buildUrl + "/vr.loader.js";
       var config = {
-        dataUrl: buildUrl + "/Build5.data",
-        frameworkUrl: buildUrl + "/Build5.framework.js",
-        codeUrl: buildUrl + "/Build5.wasm",
+        dataUrl: buildUrl + "/vr.data",
+        frameworkUrl: buildUrl + "/vr.framework.js",
+        codeUrl: buildUrl + "/vr.wasm",
         streamingAssetsUrl: STREAMING_ASSETS_URL,
         companyName: "MockMate",
         productName: "MockMate VR",

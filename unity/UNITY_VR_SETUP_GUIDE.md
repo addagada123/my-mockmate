@@ -47,7 +47,7 @@ Your Inspector for `MockmateVRManager` should show all 4 scripts.
 ### MockmateVRApiClient
 | Field | Value |
 |-------|-------|
-| Api Base | `https://mockmate-api-gna1.onrender.com` (or your local URL) |
+| Api Base | `https://mockmate-api-production.up.railway.app` (or your local URL) |
 | Bridge Token | *Leave empty* — this gets auto-filled |
 
 ### MockmateVRFlowController
@@ -66,7 +66,7 @@ Your Inspector for `MockmateVRManager` should show all 4 scripts.
 | Api Client | Drag the `MockmateVRManager` GameObject here |
 | Poll Interval Seconds | `2.5` |
 | Device Id | *Leave empty* (auto-uses `SystemInfo.deviceUniqueIdentifier`) **OR** paste your **session ID** from the web app |
-| Api Base | `https://mockmate-api-gna1.onrender.com` |
+| Api Base | `https://mockmate-api-production.up.railway.app` |
 | Poll Local File | ✅ Checked |
 | Local Folder Name | `MockmateVR` |
 | Local File Name | `bridge_token.json` |
@@ -75,7 +75,7 @@ Your Inspector for `MockmateVRManager` should show all 4 scripts.
 | Field | Value |
 |-------|-------|
 | Flow Controller | Drag the `MockmateVRManager` GameObject here |
-| Default Api Base | `https://mockmate-api-gna1.onrender.com` |
+| Default Api Base | `https://mockmate-api-production.up.railway.app` |
 | Auto Begin On Deep Link | ✅ Checked |
 
 ### MockmateVRBackendTTS (Optional for Audio)

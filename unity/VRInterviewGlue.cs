@@ -13,7 +13,7 @@ public class VRInterviewGlue : MonoBehaviour
 {
     [Header("Optional Components")]
     public MonoBehaviour openAITTS;
-    public MonoBehaviour backendTTS;
+    public MockmateVRBackendTTS backendTTS;
     public MonoBehaviour avatarTTS;
     public MonoBehaviour audioRecorder;
     public MonoBehaviour sttClient;

@@ -60,6 +60,11 @@ except ImportError:
     httpx = None
 
 try:
+    from bson import ObjectId
+except ImportError:
+    ObjectId = None
+
+try:
     from backend.endeavor_rag_service import (
         interview_rag_pipeline as _real_interview_rag_pipeline,
         get_rag_collection as _real_get_rag_collection,
@@ -1456,8 +1461,7 @@ cors_origins = [o.strip() for o in raw_origins if o.strip() and o.strip() != "*"
 # Always allow known frontend deployments and local development
 _known_frontends = [
     "https://my-mockmate.vercel.app",
-    "https://mockmate.onrender.com",
-    "https://mockmate-frontend-7j29.onrender.com",
+    "https://mockmate-production.up.railway.app",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
     "http://localhost:3000",
@@ -1541,6 +1545,9 @@ class VRCompleteRequest(BaseModel):
     session_id: str
     time_spent: Optional[int] = None
 
+
+class VRBridgeTTSRequest(BaseModel):
+    text: str
 
 class VRBridgeAnswerRequest(BaseModel):
     question_index: int
@@ -3576,8 +3583,8 @@ async def complete_vr_test(
 @app.get("/vr-test/next")
 @app.get("/vr-bridge/next")
 async def get_vr_bridge_next_question(
-    bridge_token: str = None, 
-    session_id: str = None
+    bridge_token: Optional[str] = None, 
+    session_id: Optional[str] = None
 ):
     print(f"DEBUG: VR Next Question requested. bridge_token={bridge_token}, session_id={session_id}")
     db = get_db()
@@ -3586,7 +3593,8 @@ async def get_vr_bridge_next_question(
     if bridge_token:
         session = _get_session_by_bridge_token(db, bridge_token)
     elif session_id:
-        from bson import ObjectId
+        if not ObjectId:
+             raise HTTPException(status_code=500, detail="bson/ObjectId not available")
         try:
             session = db.user_sessions.find_one({"_id": ObjectId(session_id)})
             if not session:
@@ -3626,8 +3634,8 @@ async def get_vr_bridge_next_question(
 @app.post("/vr-bridge/tts")
 async def vr_bridge_tts(
     payload: VRBridgeTTSRequest,
-    bridge_token: str = None,
-    session_id: str = None
+    bridge_token: Optional[str] = None,
+    session_id: Optional[str] = None
 ):
     print(f"DEBUG: VR TTS requested. bridge_token={bridge_token}, session_id={session_id}")
     db = get_db()
@@ -3635,7 +3643,8 @@ async def vr_bridge_tts(
     if bridge_token:
         session = _get_session_by_bridge_token(db, bridge_token)
     elif session_id:
-        from bson import ObjectId
+        if not ObjectId:
+             raise HTTPException(status_code=500, detail="bson/ObjectId not available")
         try:
             session = db.user_sessions.find_one({"_id": ObjectId(session_id)})
             if not session:
