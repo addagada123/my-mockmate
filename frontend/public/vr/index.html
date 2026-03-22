@@ -48,7 +48,25 @@
       var progressBarFull = document.querySelector("#unity-progress-bar-full");
       var fullscreenButton = document.querySelector("#unity-fullscreen-button");
       var unityInstance = null;
-      
+
+      // ── Read VR Bridge parameters from URL ──
+      var urlParams = new URLSearchParams(window.location.search);
+      var bridgeToken = urlParams.get("bridge_token") || "";
+      var apiBase = urlParams.get("api_base") || "";
+      var sessionId = urlParams.get("session_id") || "";
+
+      console.log("[VR-Bridge] URL params parsed:");
+      console.log("[VR-Bridge]   bridge_token:", bridgeToken ? bridgeToken.substring(0, 8) + "..." : "(empty)");
+      console.log("[VR-Bridge]   api_base:", apiBase || "(empty)");
+
+      // Notify parent frame that we're loading
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          source: "mockmate-vr",
+          status: "loading",
+          detail: "Loading Unity WebGL runtime..."
+        }, "*");
+      }
 
       loadingBar.style.display = "block";
 
@@ -57,19 +75,63 @@
       script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
+          
+          // Notify parent of loading progress
+          if (window.parent !== window && progress < 1) {
+            window.parent.postMessage({
+              source: "mockmate-vr",
+              status: "loading",
+              detail: "Loading VR assets... " + Math.round(progress * 100) + "%"
+            }, "*");
+          }
         }).then((instance) => {
           unityInstance = instance;
           loadingBar.style.display = "none";
-          if (fullscreenButton)
-          {
+
+          if (fullscreenButton) {
             fullscreenButton.onclick = () => {
               unityInstance.SetFullscreen(1);
             };
           }
+
+          // ── VR Bridge Injection ──
+          if (bridgeToken || apiBase) {
+            var payload = {
+              bridge_token: bridgeToken,
+              api_base: apiBase,
+              session_id: sessionId
+            };
+            var jsonString = JSON.stringify(payload);
+            console.log("[VR-Bridge] Injecting JSON payload into Unity: MockmateVRBootstrap.SetBridgeToken");
+            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", jsonString);
+          }
+
+          // Notify parent frame that Unity is ready
+          if (window.parent !== window) {
+            window.parent.postMessage({
+              source: "mockmate-vr",
+              status: "ready",
+              detail: "Unity VR environment is ready."
+            }, "*");
+          }
+
         }).catch((message) => {
+          console.error("[VR-Bridge] Unity failed to load:", message);
+          if (window.parent !== window) {
+            window.parent.postMessage({
+              source: "mockmate-vr",
+              status: "error",
+              detail: "Unity failed to load: " + message
+            }, "*");
+          }
           alert(message);
         });
       };
+      
+      script.onerror = () => {
+        console.error("[VR-Bridge] Failed to load Unity loader script:", loaderUrl);
+      };
+
       document.body.appendChild(script);
 
       let enterARButton = document.getElementById('enterar');

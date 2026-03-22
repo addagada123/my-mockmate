@@ -1319,8 +1319,8 @@ Requirements:
                     "difficulty": diff_label,
                     "topic": base_topic,
                 })
-                index = int(index) + 1
-                if int(len(results)) >= int(count):
+                index += 1
+                if len(results) >= count:
                     break
 
             if results:
@@ -1385,9 +1385,9 @@ Requirements:
                     "difficulty": diff_label,
                     "topic": base_topic,
                 })
-                index = int(index) + 1
+                index += 1
 
-        attempts = int(attempts) + 1 # type: ignore
+        attempts += 1 # type: ignore
 
     return results
 
@@ -1572,7 +1572,7 @@ class VRTTSRequest(BaseModel):
     bridge_token: str
     text: str
     voice: Optional[str] = "alloy"
-    model: Optional[str] = "gpt-4o-mini-tts"
+    model: Optional[str] = "tts-1"
     instructions: Optional[str] = None
     response_format: Optional[str] = "wav"
 
@@ -3319,9 +3319,18 @@ def _get_session_by_bridge_token(db, bridge_token: str):
         
     vr_state = session.get("vr_test") or {}
     expires_at = vr_state.get("bridge_expires_at")
-    if expires_at and datetime.now() > expires_at:
-        logger.warning(f"Expired bridge_token: {bt_str[:8]}...") # type: ignore
-        raise HTTPException(status_code=401, detail="bridge_token expired")
+    if expires_at:
+        # If stored as string (ISO format), convert to datetime object
+        if isinstance(expires_at, str):
+            try:
+                expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            except ValueError:
+                logger.error(f"Invalid bridge_expires_at format: {expires_at}")
+                expires_at = None
+        
+        if expires_at and datetime.now() > expires_at:
+            logger.warning(f"Expired bridge_token: {bt_str[:8]}...") # type: ignore
+            raise HTTPException(status_code=401, detail="bridge_token expired")
         
     logger.info(f"Found session {session.get('_id')} for bridge_token")
     return session
@@ -3892,7 +3901,8 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
 
         text = (payload.text or "").strip()
         if not text:
-            logger.warning(f"VR TTS request failed: text is empty for bridge_token={str(payload.bridge_token)[:8]}...")
+            b_token = str(payload.bridge_token or "unknown")
+            logger.warning(f"VR TTS request failed: text is empty for bridge_token={b_token[:8]}...")
             raise HTTPException(status_code=400, detail="text is required")
 
         logger.info(f"VR TTS request received. Text length: {len(text)}. Voice: {payload.voice}")
@@ -3905,13 +3915,26 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
             raise HTTPException(status_code=500, detail="httpx is not installed")
 
         response_format = str(payload.response_format or "wav").strip().lower()
+        
+        # Determine model: use requested model, but MUST use tts-1 or similar if instructions are provided
+        # Note: openai /audio/speech only supports tts-1 and tts-1-hd
+        requested_model = str(payload.model or "tts-1").strip()
+        instructions = (payload.instructions or "").strip()
+        
+        tts_model = requested_model
+        if tts_model not in ["tts-1", "tts-1-hd"]:
+            logger.info(f"Normalizing model {tts_model} to tts-1")
+            tts_model = "tts-1"
+
+        if instructions:
+             logger.warning(f"Instructions provided for TTS, but /audio/speech does not support them. bridge_token={_safe_str_slice(payload.bridge_token, 8)}...")
+
         upstream_payload: Dict[str, Any] = {
-            "model": "tts-1",
+            "model": tts_model,
             "voice": str(payload.voice or "alloy").strip() or "alloy",
             "input": text,
             "response_format": response_format,
         }
-        instructions = (payload.instructions or "").strip()
         if instructions:
             upstream_payload["instructions"] = instructions
 
@@ -3998,10 +4021,10 @@ async def submit_test(
                 "is_correct": evaluation.get("is_correct", False)
             })
             
-            total_score = int(total_score) + int(evaluation.get("score", 0))
+            total_score += int(evaluation.get("score", 0))
         
         # Calculate percentage
-        max_score = int(len(submission.answers)) * 100
+        max_score = len(submission.answers) * 100
         percentage = (float(total_score) / float(max_score) * 100.0) if max_score > 0 else 0.0
         
         # Derive a topic if not provided
@@ -4273,14 +4296,14 @@ async def get_performance(
         temp_streak = 0
         for a in sorted_attempts:
             if a["score"] >= 70:
-                temp_streak = int(temp_streak) + 1
+                temp_streak += 1
                 best_streak = max(best_streak, temp_streak)
             else:
                 temp_streak = 0
         # Current streak counts backward from last attempt
         for a in reversed(sorted_attempts):
             if a["score"] >= 70:
-                current_streak = int(current_streak) + 1
+                current_streak += 1
             else:
                 break
         
@@ -4922,7 +4945,7 @@ async def submit_comm_test(
         open_ended_to_grade = []
 
         for ans in submission.answers:
-            total_questions = int(total_questions) + 1
+            total_questions += 1
             q_type = str(ans.get("type", "mcq"))
             if q_type == "mcq":
                 # Auto-grade MCQ
@@ -4932,7 +4955,7 @@ async def submit_comm_test(
                 correct = corr_ans_str.strip().upper()[:1] # type: ignore
                 is_correct = user_choice == correct
                 score = 100 if is_correct else 0
-                total_score = int(total_score) + int(score)
+                total_score += int(score)
                 evaluated.append({
                     "question_id": ans.get("question_id"),
                     "section": ans.get("section"),
@@ -4968,7 +4991,7 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                         grade_data = {"score": 50, "feedback": "Could not parse grade"}
 
                     score = min(100, max(0, int(grade_data.get("score", 50))))
-                    total_score = int(total_score) + int(score)
+                    total_score += int(score)
                     evaluated.append({
                         "question_id": ans.get("question_id"),
                         "section": ans.get("section"),
@@ -4981,7 +5004,7 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                     })
                 except Exception as ge:
                     logger.warning(f"AI grading error: {ge}")
-                    total_score = int(total_score) + 50
+                    total_score += 50
                     evaluated.append({
                         "question_id": ans.get("question_id"),
                         "section": ans.get("section"),
@@ -4992,7 +5015,7 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                         "type": "open",
                     })
 
-        max_score = int(total_questions) * 100
+        max_score = total_questions * 100
         percentage = float(_safe_round(float(total_score) / float(max_score) * 100.0, 2)) if max_score > 0 else 0.0
 
         # Section-wise breakdown
@@ -5001,8 +5024,8 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
             sec = ev.get("section", "Unknown")
             if sec not in section_scores:
                 section_scores[sec] = {"total": 0, "count": 0, "percentage": 0.0}
-            section_scores[sec]["total"] = int(section_scores[sec]["total"]) + int(ev["score"])
-            section_scores[sec]["count"] = int(section_scores[sec]["count"]) + 1
+            section_scores[sec]["total"] += int(ev["score"])
+            section_scores[sec]["count"] += 1
         for sec in section_scores:
             section_scores[sec]["percentage"] = float(_safe_round(
                 float(section_scores[sec]["total"]) / float(section_scores[sec]["count"] * 100) * 100.0, 1

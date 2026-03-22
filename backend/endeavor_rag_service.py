@@ -177,7 +177,7 @@ def _jaccard_similarity(text_a: str, text_b: str) -> float:
         return 0.0
     intersection = tokens_a & tokens_b
     union = tokens_a | tokens_b
-    return len(intersection) / len(union) if union else 0.0 # type: ignore
+    return len(intersection) / len(union) if union else 0.0
 
 
 def _deduplicate_questions_consensus(
@@ -196,8 +196,7 @@ def _deduplicate_questions_consensus(
         score = 0.0
         q_text = (q.get("q") or q.get("question") or "")
         a_text = (q.get("a") or q.get("answer") or "")
-        score += min(30, len(q_text.split()) * 2) # type: ignore
-        score += min(40, len(a_text.split()) * 1.5) # type: ignore
+        score += min(40, len(a_text.split()) * 1.5)
         if q.get("code") or q.get("starter_code"):
             score += 10 # type: ignore
         if q.get("examples"):
@@ -1167,7 +1166,7 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
                             qobj['constraints'] = "1 <= n <= 10^4\n1 <= values <= 10^9"
 
                     questions.append(qobj)
-                    qid += 1 # type: ignore
+                    qid += 1
                 final_sections.append({"title": title, "questions": questions})
 
         final_response = {
@@ -1204,7 +1203,8 @@ if __name__ == "__main__":
     load_dotenv()
     
     # Update your resume path
-    resume_pdf_path = "/Users/vishnuvardhan/Downloads/Main_resume_mvv.pdf"
+    # resume_pdf_path = "/Users/vishnuvardhan/Downloads/Main_resume_mvv.pdf"
+    resume_pdf_path = "test_resume.pdf"  # Placeholder for local testing
     
     try:
         result = interview_rag_pipeline(resume_pdf_path, get_rag_collection())
