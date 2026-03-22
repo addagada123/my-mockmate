@@ -97,19 +97,17 @@
           }
 
           // ── VR Bridge Injection ──
-          // Send bridge token and API base to Unity's MockmateVRManager
-          if (bridgeToken) {
-            console.log("[VR-Bridge] Injecting bridgeToken into Unity...");
-            unityInstance.SendMessage("MockmateVRManager", "SetBridgeToken", bridgeToken);
+          if (bridgeToken || apiBase) {
+            var payload = {
+              bridge_token: bridgeToken,
+              api_base: apiBase,
+              session_id: sessionId
+            };
+            var jsonString = JSON.stringify(payload);
+            console.log("[VR-Bridge] Injecting JSON payload into Unity: MockmateVRBootstrap.SetBridgeToken");
+            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", jsonString);
           } else {
-            console.warn("[VR-Bridge] No bridge_token in URL — Unity won't be able to communicate with backend.");
-          }
-
-          if (apiBase) {
-            console.log("[VR-Bridge] Injecting apiBase into Unity:", apiBase);
-            unityInstance.SendMessage("MockmateVRManager", "SetApiBase", apiBase);
-          } else {
-            console.warn("[VR-Bridge] No api_base in URL — Unity will use its default API base.");
+            console.warn("[VR-Bridge] No bridge credentials found in URL to inject.");
           }
 
           // ── Notify parent frame that Unity is ready ──
