@@ -3635,7 +3635,6 @@ async def get_vr_bridge_next_question(
 
 
 @app.post("/vr-test/tts")
-@app.post("/vr-bridge/tts")
 async def vr_bridge_tts(
     payload: VRBridgeTTSRequest,
     bridge_token: Optional[str] = None,
@@ -3887,63 +3886,69 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest):
     Server-side TTS proxy for WebGL/VR clients.
     Uses the VR bridge token as authorization so browsers never call OpenAI directly.
     """
-    db = get_db()
-    _get_session_by_bridge_token(db, payload.bridge_token)
-
-    text = (payload.text or "").strip()
-    if not text:
-        logger.warning(f"VR TTS request failed: text is empty for bridge_token={str(payload.bridge_token)[:8]}...")
-        raise HTTPException(status_code=400, detail="text is required")
-
-    logger.info(f"VR TTS request received. Text length: {len(text)}. Voice: {payload.voice}")
-
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
-
-    if httpx is None:
-        raise HTTPException(status_code=500, detail="httpx is not installed")
-
-    response_format = str(payload.response_format or "wav").strip().lower()
-    upstream_payload: Dict[str, Any] = {
-        "model": "tts-1",
-        "voice": str(payload.voice or "alloy").strip() or "alloy",
-        "input": text,
-        "response_format": response_format,
-    }
-    instructions = (payload.instructions or "").strip()
-    if instructions:
-        upstream_payload["instructions"] = instructions
-
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            upstream = await client.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {openai_key}",
-                    "Content-Type": "application/json",
-                },
-                json=upstream_payload,
-            )
-            logger.info(f"VR TTS upstream response: {upstream.status_code}, content_length={len(upstream.content)} bytes")
-    except Exception as exc:
-        logger.exception("VR TTS upstream request failed")
-        raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc
+        db = get_db()
+        _get_session_by_bridge_token(db, payload.bridge_token)
 
-    if upstream.status_code >= 400:
-        detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
-        logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
-        raise HTTPException(status_code=502, detail=detail)
+        text = (payload.text or "").strip()
+        if not text:
+            logger.warning(f"VR TTS request failed: text is empty for bridge_token={str(payload.bridge_token)[:8]}...")
+            raise HTTPException(status_code=400, detail="text is required")
 
-    return Response(
-        content=upstream.content,
-        media_type=_tts_media_type(response_format),
-        headers={
-            "Cache-Control": "no-store",
-            "X-Mockmate-TTS-Voice": upstream_payload["voice"],
-            "X-Mockmate-TTS-Model": upstream_payload["model"],
-        },
-    )
+        logger.info(f"VR TTS request received. Text length: {len(text)}. Voice: {payload.voice}")
+
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+        if httpx is None:
+            raise HTTPException(status_code=500, detail="httpx is not installed")
+
+        response_format = str(payload.response_format or "wav").strip().lower()
+        upstream_payload: Dict[str, Any] = {
+            "model": "tts-1",
+            "voice": str(payload.voice or "alloy").strip() or "alloy",
+            "input": text,
+            "response_format": response_format,
+        }
+        instructions = (payload.instructions or "").strip()
+        if instructions:
+            upstream_payload["instructions"] = instructions
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                upstream = await client.post(
+                    "https://api.openai.com/v1/audio/speech",
+                    headers={
+                        "Authorization": f"Bearer {openai_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=upstream_payload,
+                )
+                logger.info(f"VR TTS upstream response: {upstream.status_code}, content_length={len(upstream.content)} bytes")
+        except Exception as exc:
+            logger.exception("VR TTS upstream request failed")
+            raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc
+
+        if upstream.status_code >= 400:
+            detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
+            logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
+            raise HTTPException(status_code=502, detail=detail)
+
+        return Response(
+            content=upstream.content,
+            media_type=_tts_media_type(response_format),
+            headers={
+                "Cache-Control": "no-store",
+                "X-Mockmate-TTS-Voice": upstream_payload["voice"],
+                "X-Mockmate-TTS-Model": upstream_payload["model"],
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"CRITICAL: Unhandled error in generate_vr_bridge_tts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/submit-test")
