@@ -21,7 +21,7 @@ else:
     print("❌ WARNING: No OpenAI API Key found in backend/.env!")
 
 # Support both global and local imports
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks, Request # type: ignore
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks, Request, Query # type: ignore
 from fastapi.concurrency import run_in_threadpool # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from fastapi.responses import JSONResponse, StreamingResponse # type: ignore
@@ -3952,29 +3952,86 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
                     json=upstream_payload,
                 )
                 logger.info(f"VR TTS upstream response: {upstream.status_code}, content_length={len(upstream.content)} bytes")
+                
+                if upstream.status_code >= 400:
+                    detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
+                    logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
+                    raise HTTPException(status_code=upstream.status_code, detail=detail)
+
+                return Response(
+                    content=upstream.content,
+                    media_type=_tts_media_type(response_format),
+                    headers={
+                        "Cache-Control": "no-store",
+                        "X-Mockmate-TTS-Voice": upstream_payload["voice"],
+                        "X-Mockmate-TTS-Model": upstream_payload["model"],
+                    },
+                )
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("VR TTS upstream request failed")
             raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc
-
-        if upstream.status_code >= 400:
-            detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
-            logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
-            # Use original status code for quota errors (429) or other API errors
-            raise HTTPException(status_code=upstream.status_code, detail=detail)
-
-        return Response(
-            content=upstream.content,
-            media_type=_tts_media_type(response_format),
-            headers={
-                "Cache-Control": "no-store",
-                "X-Mockmate-TTS-Voice": upstream_payload["voice"],
-                "X-Mockmate-TTS-Model": upstream_payload["model"],
-            },
-        )
     except HTTPException:
         raise
     except Exception as e:
         logger.exception(f"CRITICAL: Unhandled error in generate_vr_bridge_tts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/vr-bridge/transcribe")
+async def transcribe_vr_bridge_audio(
+    file: UploadFile = File(...),
+    bridge_token: str = Query(...),
+    language: Optional[str] = "en"
+):
+    """
+    Server-side STT proxy for WebGL/VR clients.
+    Authenticates via bridge_token and forwards audio to OpenAI Whisper.
+    """
+    try:
+        db = get_db()
+        _get_session_by_bridge_token(db, bridge_token)
+
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+        # Read file content
+        audio_content = await file.read()
+        
+        # Call OpenAI Whisper via httpx
+        # Whisper requires a multipart/form-data request
+        files = {
+            "file": (file.filename or "recording.wav", audio_content, file.content_type or "audio/wav"),
+            "model": (None, "whisper-1"),
+        }
+        if language:
+            files["language"] = (None, language)
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                upstream = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {openai_key}"},
+                    files=files
+                )
+                
+                if upstream.status_code >= 400:
+                    detail = upstream.text.strip() or f"OpenAI STT failed with HTTP {upstream.status_code}"
+                    logger.error(f"VR STT upstream error {upstream.status_code}: {detail}")
+                    raise HTTPException(status_code=upstream.status_code, detail=detail)
+
+                return upstream.json()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("VR STT upstream request failed")
+            raise HTTPException(status_code=502, detail=f"STT upstream request failed: {exc}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"CRITICAL: Unhandled error in transcribe_vr_bridge_audio: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
