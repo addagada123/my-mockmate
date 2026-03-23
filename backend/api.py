@@ -2,9 +2,14 @@ import os
 import sys
 from dotenv import load_dotenv # type: ignore
 
-# Inject .venv path and project root to help IDE find dependencies
+# Inject .venv path and current directory to help IDE find dependencies
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
+
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Explicitly load .env from the backend directory
 load_dotenv(os.path.join(current_dir, ".env"))
@@ -14,14 +19,9 @@ if os.getenv("OPENAI_API_KEY"):
     print("✅ OpenAI API Key loaded from backend/.env")
 else:
     print("❌ WARNING: No OpenAI API Key found in backend/.env!")
-venv_path = os.path.join(project_root, ".venv", "Lib", "site-packages")
 
-if os.path.exists(venv_path) and venv_path not in sys.path:
-    sys.path.insert(0, venv_path)
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks # type: ignore
+# Support both global and local imports
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks, Request # type: ignore
 from fastapi.concurrency import run_in_threadpool # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from fastapi.responses import JSONResponse, StreamingResponse # type: ignore
@@ -45,12 +45,12 @@ import tempfile
 import subprocess
 from collections import Counter, defaultdict
 
-from backend.auth.utils import get_current_user
-from backend.db.mongo import get_db
-from backend.auth.routes import router as auth_router
+from backend.auth.utils import get_current_user # type: ignore
+from backend.db.mongo import get_db # type: ignore
+from backend.auth.routes import router as auth_router # type: ignore
 
 try:
-    import openai
+    import openai # type: ignore
 except ImportError:
     openai = None
 
@@ -60,12 +60,12 @@ except ImportError:
     httpx = None
 
 try:
-    from bson import ObjectId
+    from bson import ObjectId # type: ignore
 except ImportError:
     ObjectId = None
 
 try:
-    from backend.endeavor_rag_service import (
+    from backend.endeavor_rag_service import ( # type: ignore
         interview_rag_pipeline as _real_interview_rag_pipeline,
         get_rag_collection as _real_get_rag_collection,
     )
@@ -1288,7 +1288,7 @@ Requirements:
 
         if all_questions:
             # Import deduplication from endeavor_rag_service
-            from backend.endeavor_rag_service import _deduplicate_questions_consensus, _jaccard_similarity
+            from backend.endeavor_rag_service import _deduplicate_questions_consensus, _jaccard_similarity # type: ignore
 
             # Map question keys to match expected format
             for q in all_questions:
@@ -1889,7 +1889,7 @@ _keep_alive_task = None
 
 async def _keep_alive_loop():
     """Ping own /health endpoint every 13 minutes to prevent Render sleep (15min idle timeout)"""
-    import httpx
+    import httpx # type: ignore
     # Determine our public URL
     render_url = os.getenv("RENDER_EXTERNAL_URL")  # Render sets this automatically
     base_url = render_url or os.getenv("PUBLIC_URL", "")
@@ -2305,10 +2305,10 @@ async def generate_test_questions(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             make_object_id = ObjectId
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             make_object_id = MockObjectId
 
         session = None
@@ -2445,10 +2445,10 @@ async def get_session_topics(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             session_id_obj = ObjectId(session_id)
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             session_id_obj = MockObjectId(session_id)
         
         # Get session
@@ -2498,10 +2498,10 @@ async def generate_section_questions(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             session_id_obj = ObjectId(session_id)
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             session_id_obj = MockObjectId(session_id)
         
         # Get session
@@ -2587,10 +2587,10 @@ async def regenerate_question(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             session_id_obj = ObjectId(session_id)
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             session_id_obj = MockObjectId(session_id)
         
         # Get session
@@ -3286,10 +3286,10 @@ def _get_file_ext(lang: str) -> str:
 
 def _build_session_object_id(session_id: str):
     try:
-        from bson import ObjectId
+        from bson import ObjectId # type: ignore
         return ObjectId(session_id)
     except Exception:
-        from backend.db.mock_mongo import MockObjectId
+        from backend.db.mock_mongo import MockObjectId # type: ignore
         return MockObjectId(session_id)
 
 
@@ -3650,7 +3650,7 @@ async def vr_bridge_tts(
     session_id: Optional[str] = None
 ):
     actual_token = payload.bridge_token or bridge_token
-    print(f"DEBUG: VR TTS requested. bridge_token={actual_token}, session_id={session_id}")
+    print(f"DEBUG: [/vr-test/tts] VR TTS requested. bridge_token={actual_token}, session_id={session_id}")
     db = get_db()
     
     if actual_token:
@@ -3890,12 +3890,15 @@ async def poll_bridge_token(device_id: str):
 
 
 @app.post("/vr-bridge/tts")
-async def generate_vr_bridge_tts(payload: VRTTSRequest):
+async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
     """
     Server-side TTS proxy for WebGL/VR clients.
     Uses the VR bridge token as authorization so browsers never call OpenAI directly.
     """
     try:
+        print(f"DEBUG: [/vr-bridge/tts] VR TTS requested. bridge_token={payload.bridge_token}")
+        raw_body = await request.body()
+        print(f"DEBUG: [/vr-bridge/tts] Raw body: {raw_body.decode('utf-8', errors='ignore')}")
         db = get_db()
         _get_session_by_bridge_token(db, payload.bridge_token)
 
@@ -3987,10 +3990,10 @@ async def submit_test(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             session_id_obj = ObjectId(submission.session_id)
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             session_id_obj = MockObjectId(submission.session_id)
         
         # Get session
@@ -4108,10 +4111,10 @@ async def get_user_session(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             make_object_id = ObjectId
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             make_object_id = MockObjectId
         
         session = db.user_sessions.find_one({"_id": make_object_id(session_id)})
@@ -4474,11 +4477,11 @@ Return ONLY valid JSON with "passage" and "sections" keys. Each question has: id
                         "created_at": datetime.now(),
                         "times_served": 0,
                     })
-                    results["generated"] = int(results["generated"]) + 1
-                    results["details"].append(f"{diff} #{i+1}: OK")
+                    results["generated"] = int(results["generated"]) + 1 # type: ignore
+                    results["details"].append(f"{diff} #{i+1}: OK") # type: ignore
                 else:
                     results["failed"] = int(results.get("failed", 0)) + 1
-                    results["details"].append(f"{diff} #{i+1}: parse failed")
+                    results["details"].append(f"{diff} #{i+1}: parse failed") # type: ignore
             except Exception as e:
                 results["failed"] = int(results.get("failed", 0)) + 1
                 err_msg_seed: str = str(e)
@@ -4725,7 +4728,7 @@ def _merge_comm_test_candidates(candidates: List[Dict[str, Any]]) -> Dict[str, A
                 email_scenario = (sec.get("scenario") or "").strip()
             for q in sec.get("questions", []):
                 if isinstance(q, dict) and (q.get("question") or "").strip():
-                    pooled[canonical].append(q)
+                    pooled[canonical].append(q) # type: ignore
 
     merged_sections: List[Dict[str, Any]] = []
     template_sections = {((s.get("name") or "").strip().lower()): s for s in template.get("sections", [])}
@@ -4926,10 +4929,10 @@ async def submit_comm_test(
     try:
         db = get_db()
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             session_id_obj = ObjectId(session_id)
         except Exception:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             session_id_obj = MockObjectId(session_id)
 
         session = db.user_sessions.find_one({"_id": session_id_obj})
@@ -5113,7 +5116,7 @@ async def communication_feedback(
             for sec, data in (sess.get("section_scores") or {}).items():
                 if sec not in all_section_scores:
                     all_section_scores[sec] = []
-                all_section_scores[sec].append(data.get("percentage", 0))
+                all_section_scores[sec].append(data.get("percentage", 0)) # type: ignore
 
             for ev in (sess.get("evaluated_answers") or []):
                 if ev.get("type") == "open":
@@ -5305,8 +5308,8 @@ async def recommend_jobs(
                 if t and p > 0:
                     if t not in skill_performance:
                         skill_performance[t] = {"scores": [], "difficulty": []}
-                    skill_performance[t]["scores"].append(p)
-                    skill_performance[t]["difficulty"].append(att.get("difficulty", "medium"))
+                    skill_performance[t]["scores"].append(p) # type: ignore
+                    skill_performance[t]["difficulty"].append(att.get("difficulty", "medium")) # type: ignore
         
         # Classify skills as strong/moderate/weak
         strong_skills: List[str] = []
@@ -5330,7 +5333,7 @@ async def recommend_jobs(
         resume_text = ""
         if resume_path and os.path.exists(resume_path):
             try:
-                from langchain_community.document_loaders import PyPDFLoader
+                from langchain_community.document_loaders import PyPDFLoader # type: ignore
                 loader = PyPDFLoader(resume_path)
                 docs = loader.load()
                 resume_text = "\n".join([d.page_content for d in docs])
@@ -5566,6 +5569,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 
         # â”€â”€ Hybrid sort: match_score_pct (60%) + proximity (40%) â”€â”€
         proximity_score = {"Same City": 1.0, "Nearby": 0.6, "Distant": 0.2}
+        # type: ignore
         jobs.sort(
             key=lambda j: (
                 j.get("match_score_pct", 0) * 0.6
@@ -5619,10 +5623,10 @@ async def delete_session(
         
         # Try to import ObjectId, fall back to mock
         try:
-            from bson import ObjectId
+            from bson import ObjectId # type: ignore
             make_object_id = ObjectId
         except:
-            from backend.db.mock_mongo import MockObjectId
+            from backend.db.mock_mongo import MockObjectId # type: ignore
             make_object_id = MockObjectId
         
         # Get session to verify ownership
@@ -5652,5 +5656,5 @@ async def delete_session(
         )
 
 if __name__ == "__main__":
-    import uvicorn
+    import uvicorn # type: ignore
     uvicorn.run("backend.api:app", host="0.0.0.0", port=8000, reload=True)
