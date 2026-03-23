@@ -3425,7 +3425,7 @@ async def start_vr_test(
     }
 
 
-@app.get("/vr-test/next")
+@app.get("/vr-test/web-next")
 async def get_vr_next_question(
     session_id: str,
     current_user: Dict = Depends(get_current_user)
@@ -3959,7 +3959,8 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
         if upstream.status_code >= 400:
             detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
             logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
-            raise HTTPException(status_code=502, detail=detail)
+            # Use original status code for quota errors (429) or other API errors
+            raise HTTPException(status_code=upstream.status_code, detail=detail)
 
         return Response(
             content=upstream.content,
