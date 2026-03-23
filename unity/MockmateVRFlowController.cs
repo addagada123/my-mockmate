@@ -18,7 +18,8 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private int initialFetchRetryCount = 8;
     [SerializeField] private float initialFetchRetryDelaySeconds = 1f;
     [SerializeField] private float speechCompletionFallbackSeconds = 20f;
-    [SerializeField] private float nextQuestionDelaySeconds = 3.5f;
+    [SerializeField] private float nextQuestionDelaySeconds = 2.5f;
+    [SerializeField] private float listenTimeoutSeconds = 3.5f;
 
     [Header("Editor Preview")]
     [SerializeField] private bool correctEditorPreviewHeight = true;
@@ -193,9 +194,12 @@ public class MockmateVRFlowController : MonoBehaviour
             bool minListenDone = (now - listenStart) >= minListenSeconds;
             bool silenceExceeded = _lastTranscriptUpdateAt > 0 && (now - _lastTranscriptUpdateAt) >= silenceGapSeconds;
             bool hasTranscript = !string.IsNullOrWhiteSpace(_transcript);
+            bool timeoutReached = (now - listenStart) >= listenTimeoutSeconds;
 
-            if (minListenDone && hasTranscript && silenceExceeded)
+            if (minListenDone && ((hasTranscript && silenceExceeded) || timeoutReached))
             {
+                if (timeoutReached && !hasTranscript)
+                    PublishStatus("No speech detected. Advancing question...");
                 _isListening = false;
                 break;
             }
@@ -272,8 +276,8 @@ public class MockmateVRFlowController : MonoBehaviour
         }
         if (string.IsNullOrWhiteSpace(transcript))
         {
-            RaiseError("Transcript is empty");
-            return;
+            // Allow empty answers to advance the question
+            transcript = "[No answer detected]";
         }
 
         _busy = true;

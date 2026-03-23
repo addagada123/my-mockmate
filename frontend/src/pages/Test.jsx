@@ -1028,9 +1028,9 @@ function Test() {
   // ── VR MODE: Unity WebGL embedded in an iframe ──────────────────────────────
   if (testMode === "vr") {
     const unityParams = new URLSearchParams({
-      bridge_token: vrBridgeToken || "",
-      api_base: API_BASE,
-      session_id: sessionId || "",
+      bridge_token: (vrBridgeToken || "").trim(),
+      api_base: (API_BASE || "").trim(),
+      session_id: (sessionId || "").trim(),
     });
     if (VR_STREAMING_ASSETS_URL) {
       unityParams.set("streaming_assets_url", VR_STREAMING_ASSETS_URL.replace(/\/+$/, ""));

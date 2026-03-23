@@ -51,9 +51,9 @@
 
       // ── Read VR Bridge parameters from URL ──
       var urlParams = new URLSearchParams(window.location.search);
-      var bridgeToken = urlParams.get("bridge_token") || "";
-      var apiBase = urlParams.get("api_base") || "";
-      var sessionId = urlParams.get("session_id") || "";
+      var bridgeToken = (urlParams.get("bridge_token") || "").trim();
+      var apiBase = (urlParams.get("api_base") || "").trim();
+      var sessionId = (urlParams.get("session_id") || "").trim();
 
       console.log("[VR-Bridge] URL params parsed:");
       console.log("[VR-Bridge]   bridge_token:", bridgeToken ? bridgeToken.substring(0, 8) + "..." : "(empty)");
@@ -150,6 +150,35 @@
       enterVRButton.addEventListener('click', function (event) {
         unityInstance.Module.WebXR.toggleVR();
       }, false);
+
+      // ── AudioContext Resumption ──
+      // Many browsers block audio until a user gesture. 
+      // This listener ensures Unity's AudioContext is resumed.
+      const resumeAudio = () => {
+        // Broadly attempt to resume any suspended AudioContexts
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          // If Unity or another script created a context, it might be suspended.
+          // We can't easily iterate all instances, but we can try to "poke" the system.
+          const tempCtx = new AudioContextClass();
+          if (tempCtx.state === 'suspended') {
+            tempCtx.resume().then(() => {
+              console.log("[VR-Bridge] AudioContext poke successful.");
+              tempCtx.close();
+            });
+          }
+        }
+        
+        // Browsers often allow audio after any user interaction.
+        // If Unity's internal context was suspended, it should now be resumable.
+        console.log("[VR-Bridge] User gesture detected. Audio should now be enabled.");
+
+        // Remove listener after first interaction
+        document.removeEventListener('click', resumeAudio);
+        document.removeEventListener('touchstart', resumeAudio);
+      };
+      document.addEventListener('click', resumeAudio);
+      document.addEventListener('touchstart', resumeAudio);
     </script>
   </body>
 </html>
