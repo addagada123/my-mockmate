@@ -4008,6 +4008,9 @@ async def transcribe_vr_bridge_audio(
         if language:
             files["language"] = (None, language)
 
+        if httpx is None:
+            raise HTTPException(status_code=500, detail="httpx is not installed")
+
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 upstream = await client.post(
