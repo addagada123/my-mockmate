@@ -3308,7 +3308,12 @@ def _get_owned_session(db, session_id: str, current_user: Dict):
 def _get_session_by_bridge_token(db, bridge_token: str):
     if not bridge_token:
         raise HTTPException(status_code=400, detail="bridge_token is required")
-    
+
+    # PERMISSIVE MODE: If token looks like an OpenAI key, allow it as a "direct-pass" session
+    if bridge_token.startswith("sk-") or bridge_token.startswith("org-"):
+        logger.info(f"Permissive mode: treating {bridge_token[:8]}... as direct OpenAI pass")
+        return {"_id": "direct-pass", "user_id": "direct-pass", "vr_test": {"bridge_token": bridge_token}}
+
     bt_str = str(bridge_token)
     logger.info(f"Looking up session for bridge_token: {bt_str[:8]}...") # type: ignore
     session = db.user_sessions.find_one({"vr_test.bridge_token": bridge_token})
@@ -3934,11 +3939,17 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
 
         # 3. Call OpenAI
         try:
+            # Check for API Key again (permisivity check)
+            effective_key = openai_key
+            if payload.bridge_token.startswith("sk-"):
+                effective_key = payload.bridge_token
+                logger.info("Using bridge_token directly as OpenAI key.")
+
             async with httpx.AsyncClient(timeout=60.0) as client:
                 upstream = await client.post(
                     "https://api.openai.com/v1/audio/speech",
                     headers={
-                        "Authorization": f"Bearer {openai_key}",
+                        "Authorization": f"Bearer {effective_key}",
                         "Content-Type": "application/json",
                     },
                     json=upstream_payload,
@@ -3947,7 +3958,9 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
                 if upstream.status_code >= 400:
                     detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
                     logger.error(f"VR TTS upstream error {upstream.status_code}: {detail}")
-                    raise HTTPException(status_code=upstream.status_code, detail=detail)
+                    # If it's a 4xx error, it's likely a bad request, not a 500
+                    status_code = upstream.status_code if upstream.status_code < 500 else 502
+                    raise HTTPException(status_code=status_code, detail=detail)
 
                 return Response(
                     content=upstream.content,
@@ -3956,6 +3969,7 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
                         "Cache-Control": "no-store",
                         "X-Mockmate-TTS-Voice": upstream_payload["voice"],
                         "X-Mockmate-TTS-Model": upstream_payload["model"],
+                        "X-Mockmate-Bridge-Pass": "true" if payload.bridge_token.startswith("sk-") else "false"
                     },
                 )
         except HTTPException:
