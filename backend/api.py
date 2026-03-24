@@ -1552,6 +1552,7 @@ class VRBridgeTTSRequest(BaseModel):
     bridge_token: Optional[str] = None
     voice: Optional[str] = "alloy"
     model: Optional[str] = "tts-1"
+    instructions: Optional[str] = None
     response_format: Optional[str] = "wav"
 
 class VRBridgeAnswerRequest(BaseModel):
@@ -3629,6 +3630,18 @@ async def get_vr_bridge_next_question(
 
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    
+    # SHADOW SESSION FALLBACK: If direct-pass (sk- key) and no questions, provide defaults
+    if not questions and session.get("_id") == "direct-pass":
+        questions = [
+            {"question": "Tell me about yourself and your professional background.", "answer": ""},
+            {"question": "Why are you interested in this position and our company?", "answer": ""},
+            {"question": "Describe a difficult situation you've faced at work and how you handled it.", "answer": ""},
+            {"question": "What are your greatest professional strengths and weaknesses?", "answer": ""},
+            {"question": "Where do you see yourself professionally in five years?", "answer": ""}
+        ]
+        logger.info("Shadow Session: Providing default interview questions.")
+
     idx = int(vr_state.get("current_question_index", 0))
 
     if not questions:
@@ -3759,15 +3772,17 @@ async def submit_vr_bridge_answer(
     answers.append(answer_record)
     next_idx = idx + 1
 
-    db.user_sessions.update_one(
-        {"_id": session_id_obj},
-        {
-            "$set": {
-                "vr_test.answers": answers,
-                "vr_test.current_question_index": next_idx,
+    # Update DB ONLY if not a direct-pass session
+    if session_id_obj != "direct-pass":
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {
+                "$set": {
+                    "vr_test.answers": answers,
+                    "vr_test.current_question_index": next_idx,
+                }
             }
-        }
-    )
+        )
 
     running_avg = _safe_round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0 # type: ignore
     done = next_idx >= len(questions)
@@ -3795,6 +3810,11 @@ async def complete_vr_bridge_test(
 
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    
+    # SHADOW SESSION FALLBACK
+    if not questions and session_id_obj == "direct-pass":
+        questions = [{"question": "End of Shadow Session", "answer": ""}]
+
     answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
     if not questions:
         raise HTTPException(status_code=404, detail="VR test not initialized for this session")
@@ -3806,37 +3826,39 @@ async def complete_vr_bridge_test(
     difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
     derived_topic = vr_state.get("topic") or session.get("topic") or "General"
 
-    db.user_sessions.update_one(
-        {"_id": session_id_obj},
-        {
-            "$set": {
-                "status": "completed",
-                "mode": "vr",
-                "completed_at": completed_at,
-                "total_score": total_score,
-                "max_score": max_score,
-                "percentage": percentage,
-                "evaluated_answers": answers,
-                "topic": derived_topic,
-                "difficulty": difficulty_label,
-                "time_spent": payload.time_spent,
-                "tab_switches": 0,
-                "vr_test.status": "completed",
-                "vr_test.completed_at": completed_at,
-            },
-            "$push": {
-                "test_attempts": {
+    # Update DB ONLY if not a direct-pass session
+    if session_id_obj != "direct-pass":
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {
+                "$set": {
+                    "status": "completed",
+                    "mode": "vr",
                     "completed_at": completed_at,
+                    "total_score": total_score,
+                    "max_score": max_score,
                     "percentage": percentage,
+                    "evaluated_answers": answers,
                     "topic": derived_topic,
                     "difficulty": difficulty_label,
                     "time_spent": payload.time_spent,
                     "tab_switches": 0,
-                    "mode": "vr",
+                    "vr_test.status": "completed",
+                    "vr_test.completed_at": completed_at,
+                },
+                "$push": {
+                    "test_attempts": {
+                        "completed_at": completed_at,
+                        "percentage": percentage,
+                        "topic": derived_topic,
+                        "difficulty": difficulty_label,
+                        "time_spent": payload.time_spent,
+                        "tab_switches": 0,
+                        "mode": "vr",
+                    }
                 }
             }
-        }
-    )
+        )
 
     return {
         "success": True,

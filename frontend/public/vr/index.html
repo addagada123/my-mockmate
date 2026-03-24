@@ -205,7 +205,7 @@
         rec.onresult = (event) => {
           const transcript = event.results[0][0].transcript;
           console.log("[WebSpeech] Result:", transcript);
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", transcript);
+          if (window.unityInstance) window.unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', transcript);
         };
         rec.onerror = (event) => {
           console.error("[WebSpeech] Recognition error:", event.error);
