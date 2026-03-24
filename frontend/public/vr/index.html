@@ -105,16 +105,26 @@
       const script = document.createElement("script");
       script.src = loaderUrl;
       script.onload = () => {
+        // --- Added for Unity 6 + WebXR consistency ---
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+          config.devicePixelRatio = 1;
+        }
+
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
           if (progress < 1) postStatus("loading", `Loading VR assets... ${Math.round(progress * 100)}%`);
         }).then((instance) => {
           unityInstance = instance;
+          console.log("[VR-Bridge] Unity Instance loaded successfully.");
+          
           loadingBar.style.opacity = "0";
           setTimeout(() => loadingBar.style.display = "none", 500);
 
           if (fullscreenButton) {
-            fullscreenButton.onclick = () => unityInstance.SetFullscreen(1);
+            fullscreenButton.onclick = () => {
+              if (unityInstance) unityInstance.SetFullscreen(1);
+              else console.error("[VR-Bridge] Cannot toggle fullscreen: unityInstance not found.");
+            };
           }
 
           // ── Bridge Data Injection ──
@@ -122,6 +132,8 @@
             const payload = { bridge_token: bridgeToken, api_base: apiBase, session_id: sessionId };
             console.log("[VR-Bridge] Injecting payload into Unity...");
             unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", JSON.stringify(payload));
+          } else {
+            console.warn("[VR-Bridge] No bridge parameters to inject.");
           }
 
           postStatus("ready", "Virtual environment synchronized.");
@@ -137,11 +149,36 @@
       document.body.appendChild(script);
 
       // ── WebXR Listeners ──
-      document.addEventListener('onARSupportedCheck', (e) => enterARButton.disabled = !e.detail.supported);
-      document.addEventListener('onVRSupportedCheck', (e) => enterVRButton.disabled = !e.detail.supported);
+      // Some templates use events, others use direct Module access
+      document.addEventListener('onARSupportedCheck', (e) => {
+        console.log("[VR-Bridge] AR Support Check:", e.detail.supported);
+        if (enterARButton) enterARButton.disabled = !e.detail.supported;
+      });
+      document.addEventListener('onVRSupportedCheck', (e) => {
+        console.log("[VR-Bridge] VR Support Check:", e.detail.supported);
+        if (enterVRButton) enterVRButton.disabled = !e.detail.supported;
+      });
 
-      enterVRButton.onclick = () => unityInstance.Module.WebXR.toggleVR();
-      enterARButton.onclick = () => unityInstance.Module.WebXR.toggleAR();
+      if (enterVRButton) {
+        enterVRButton.onclick = () => {
+          if (unityInstance && unityInstance.Module && unityInstance.Module.WebXR) {
+            unityInstance.Module.WebXR.toggleVR();
+          } else {
+            console.warn("[VR-Bridge] WebXR module not ready.");
+            alert("VR initialization in progress, please wait...");
+          }
+        };
+      }
+      
+      if (enterARButton) {
+        enterARButton.onclick = () => {
+          if (unityInstance && unityInstance.Module && unityInstance.Module.WebXR) {
+            unityInstance.Module.WebXR.toggleAR();
+          } else {
+            console.warn("[VR-Bridge] WebXR module not ready.");
+          }
+        };
+      }
 
       // ── Audio Context Fix ──
       const resumeAudio = () => {
