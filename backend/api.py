@@ -1461,6 +1461,7 @@ cors_origins = [o.strip() for o in raw_origins if o.strip() and o.strip() != "*"
 # Always allow known frontend deployments and local development
 _known_frontends = [
     "https://my-mockmate.vercel.app",
+    "https://mockmate-api-production.up.railway.app",
     "https://mockmate-production.up.railway.app",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -3679,15 +3680,20 @@ async def vr_bridge_tts(
     tts_model = "tts-1"
     
     try:
+        # Check for direct API key pass
+        effective_key = os.getenv("OPENAI_API_KEY")
+        if actual_token and actual_token.startswith("sk-"):
+            effective_key = actual_token
+            print(f"DEBUG: Using bridge_token directly as OpenAI key for TTS.")
+
+        if not effective_key:
+            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured and no sk- token provided")
+
         async with httpx.AsyncClient() as client:
-            openai_key = os.getenv("OPENAI_API_KEY")
-            if not openai_key:
-                raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
-                
             response = await client.post(
                 "https://api.openai.com/v1/audio/speech",
                 headers={
-                    "Authorization": f"Bearer {openai_key}",
+                    "Authorization": f"Bearer {effective_key}",
                     "Content-Type": "application/json",
                 },
                 json={
