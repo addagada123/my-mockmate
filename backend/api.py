@@ -4017,10 +4017,16 @@ async def transcribe_vr_bridge_audio(
             raise HTTPException(status_code=500, detail="httpx is not installed")
 
         try:
+            # Check for direct API key pass
+            effective_key = openai_key
+            if bridge_token.startswith("sk-"):
+                effective_key = bridge_token
+                logger.info("Using bridge_token directly as OpenAI key for transcription.")
+
             async with httpx.AsyncClient(timeout=60.0) as client:
                 upstream = await client.post(
                     "https://api.openai.com/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {openai_key}"},
+                    headers={"Authorization": f"Bearer {effective_key}"},
                     files=files
                 )
                 
