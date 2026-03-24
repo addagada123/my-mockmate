@@ -56,8 +56,60 @@
     <script>
       // ── Global State for Unity Plugins ──
       // Some versions of the WebGL Whisper plugin may expect these global objects.
-      window._whisperData = window._whisperData || {};
-      window.WebGLWhisperState = window.WebGLWhisperState || {};
+      window._whisperData = window._whisperData || {
+        chunks: [],
+        recorder: null,
+        apiBase: "",
+        bridgeToken: "",
+        language: "en",
+        unityObjectName: "",
+        unityMethodName: ""
+      };
+      window.WebGLWhisperState = window.WebGLWhisperState || window._whisperData;
+
+      // Patch for older .jslib versions that call _SendToWhisper
+      window._SendToWhisper = function(blob) {
+        console.log("[VR-Bridge] _SendToWhisper called with blob:", blob);
+        const state = window._whisperData;
+        
+        // Handle both naming styles (apiKey was used in early versions of the bridge)
+        const token = state.bridgeToken || state.apiKey;
+        const apiBase = state.apiBase || window.apiBase || ""; // Fallback to global if needed
+
+        if (!token) {
+          console.error("[VR-Bridge] Cannot send to Whisper: Bridge Token (or apiKey) missing in _whisperData.");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", blob, "recording.wav");
+        
+        const base = apiBase ? apiBase.replace(/\/$/, "") : "";
+        let url = `${base}/vr-bridge/transcribe?bridge_token=${encodeURIComponent(token)}`;
+        if (state.language) url += `&language=${encodeURIComponent(state.language)}`;
+
+        fetch(url, { method: "POST", body: formData })
+          .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          })
+          .then(data => {
+            console.log("[VR-Bridge] Transcription success:", data);
+            const objName = state.unityObjectName || "WebGLWhisperSTT";
+            const methodName = state.unityMethodName || "OnTranscriptionReceived";
+            if (unityInstance) {
+              unityInstance.SendMessage(objName, methodName, data.text || "");
+            }
+          })
+          .catch(err => {
+            console.error("[VR-Bridge] Transcription error:", err);
+            const objName = state.unityObjectName || "WebGLWhisperSTT";
+            const methodName = state.unityMethodName || "OnTranscriptionReceived";
+            if (unityInstance) {
+              unityInstance.SendMessage(objName, methodName, "ERROR: " + err.message);
+            }
+          });
+      };
       
       const buildUrl = "Build";
       const loaderUrl = buildUrl + "/Build7.loader.js";
