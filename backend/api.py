@@ -141,6 +141,17 @@ provider_stats = ProviderStats()
 _last_provider_index = 0
 
 
+async def get_optional_current_user(request: Request) -> Optional[Dict]:
+    """ Optional version of get_current_user that returns None if auth fails instead of raising 401. """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ")[1]
+    try:
+        return await get_current_user(token)
+    except Exception:
+        return None
+
 def _add_entropy_seed(messages: List[Dict[str, str]]):
     """Inject a random seed into the system prompt to force unique results."""
     seed = secrets.token_hex(4)
@@ -3357,6 +3368,31 @@ def _tts_media_type(response_format: str) -> str:
     if format_key == "flac":
         return "audio/flac"
     return "audio/wav"
+@app.post("/vr-bridge/start")
+async def start_vr_bridge_session(
+    payload: VRStartRequest,
+    current_user: Optional[Dict] = Depends(get_optional_current_user)
+):
+    """
+    Standardized entry point for VR tests.
+    Supports Shadow Sessions (using sk- bridge_token) which bypass traditional auth/DB.
+    """
+    session_id = str(payload.session_id or "").strip()
+    
+    # SHADOW SESSION: sk- token pass (No dashboard required)
+    if session_id.startswith("sk-") and not current_user:
+        return {
+            "success": True,
+            "bridge_token": session_id,
+            "session_id": session_id,
+            "message": "Shadow Session initialized successfully."
+        }
+
+    # STANDARD SESSION: Requires authenticated user
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required for standard sessions")
+    
+    return await start_vr_test(payload, current_user)
 
 
 @app.post("/vr-test/start")
