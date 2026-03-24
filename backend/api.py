@@ -3589,49 +3589,39 @@ async def complete_vr_test(
             }
         }
     )
-
     return {
-        "success": True,
-        "session_id": payload.session_id,
-        "mode": "vr",
-        "answered": len(answers),
-        "total_questions": len(questions),
-        "total_score": total_score,
-        "max_score": max_score,
-        "percentage": _safe_round(percentage, 2),
-        "evaluated_answers": answers,
+        "success": True, "session_id": payload.session_id, "mode": "vr",
+        "answered": len(answers), "total_questions": len(questions),
+        "total_score": total_score, "max_score": max_score,
+        "percentage": _safe_round(percentage, 2), "evaluated_answers": answers,
     }
 
+# --- Standardized VR Bridge Endpoints ---
 
-@app.get("/vr-test/next")
 @app.get("/vr-bridge/next")
-async def get_vr_bridge_next_question(
-    bridge_token: Optional[str] = None, 
-    session_id: Optional[str] = None
-):
-    print(f"DEBUG: VR Next Question requested. bridge_token={bridge_token}, session_id={session_id}")
+async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, session_id: Optional[str] = None):
+    """ Standardized endpoint for fetching the next VR question. """
+    token_pref = _safe_str_slice(str(bridge_token or ""), 8)
+    print(f"DEBUG: [/vr-bridge/next] VR Next Question requested. Token: {token_pref}")
     db = get_db()
     
-    # Try bridge_token first, then session_id
+    session = None
     if bridge_token:
         session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
     elif session_id:
-        if not ObjectId:
-             raise HTTPException(status_code=500, detail="bson/ObjectId not available")
         try:
+            if not ObjectId: raise HTTPException(status_code=500, detail="bson/ObjectId not available")
             session = cast(Dict[str, Any], db.user_sessions.find_one({"_id": ObjectId(session_id)}))
-            if not session:
-                raise HTTPException(status_code=404, detail="Session not found by session_id")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid session_id format: {str(e)}")
-    else:
+            if not session: raise HTTPException(status_code=404, detail="Session not found")
+        except Exception:
+             raise HTTPException(status_code=400, detail="Invalid session_id format")
+    
+    if not session:
         raise HTTPException(status_code=400, detail="Either bridge_token or session_id is required")
-
 
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
     
-    # SHADOW SESSION FALLBACK: If direct-pass (sk- key) and no questions, provide defaults
     if not questions and session.get("_id") == "direct-pass":
         questions = [
             {"question": "Tell me about yourself and your professional background.", "answer": ""},
@@ -3640,93 +3630,18 @@ async def get_vr_bridge_next_question(
             {"question": "What are your greatest professional strengths and weaknesses?", "answer": ""},
             {"question": "Where do you see yourself professionally in five years?", "answer": ""}
         ]
-        logger.info("Shadow Session: Providing default interview questions.")
 
     idx = int(vr_state.get("current_question_index", 0))
-
     if not questions:
-        raise HTTPException(status_code=404, detail=f"VR test not initialized for session {bridge_token}. Please ensure the test was started in the web UI.")
+        raise HTTPException(status_code=404, detail="VR test not initialized")
 
     if idx >= len(questions):
-        return {
-            "success": True,
-            "completed": True,
-            "current_question": None,
-            "current_question_index": idx,
-            "total_questions": len(questions),
-        }
+        return {"success": True, "completed": True, "current_question": None, "current_question_index": idx, "total_questions": len(questions)}
 
     return {
-        "success": True,
-        "completed": False,
-        "current_question_index": idx,
-        "total_questions": len(questions),
-        "current_question": questions[idx],
+        "success": True, "completed": False, "current_question_index": idx,
+        "total_questions": len(questions), "current_question": questions[idx]
     }
-
-
-@app.post("/vr-test/tts")
-async def vr_bridge_tts(
-    payload: VRBridgeTTSRequest,
-    bridge_token: Optional[str] = None,
-    session_id: Optional[str] = None
-):
-    actual_token = payload.bridge_token or bridge_token
-    print(f"DEBUG: [/vr-test/tts] VR TTS requested. bridge_token={actual_token}, session_id={session_id}")
-    db = get_db()
-    
-    if actual_token:
-        session = cast(Dict[str, Any], _get_session_by_bridge_token(db, actual_token))
-    elif session_id:
-        if not ObjectId:
-             raise HTTPException(status_code=500, detail="bson/ObjectId not available")
-        try:
-            session = cast(Dict[str, Any], db.user_sessions.find_one({"_id": ObjectId(session_id)}))
-            if not session:
-                raise HTTPException(status_code=404, detail="Session not found by session_id")
-        except Exception:
-             raise HTTPException(status_code=404, detail="Invalid session_id")
-    if not httpx:
-        raise HTTPException(status_code=500, detail="httpx library not installed on server")
-
-    # Hardcoded to 'tts-1' for local testing stability
-    tts_model = "tts-1"
-    
-    try:
-        # Check for direct API key pass
-        effective_key = os.getenv("OPENAI_API_KEY")
-        if actual_token and actual_token.startswith("sk-"):
-            effective_key = actual_token
-            print(f"DEBUG: Using bridge_token directly as OpenAI key for TTS.")
-
-        if not effective_key:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured and no sk- token provided")
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {effective_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": tts_model,
-                    "input": payload.text,
-                    "voice": "alloy",
-                },
-                timeout=30.0
-            )
-            
-            if response.status_code != 200:
-                print(f"ERROR: OpenAI TTS failed with {response.status_code}: {response.text}")
-                raise HTTPException(status_code=response.status_code, detail=f"OpenAI TTS error: {response.text}")
-                
-            return StreamingResponse(response.iter_bytes(), media_type="audio/mpeg")
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"ERROR: TTS processing error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/vr-bridge/answer")
@@ -3926,93 +3841,75 @@ async def poll_bridge_token(device_id: str):
 
 
 @app.post("/vr-bridge/tts")
-async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
+async def generate_vr_bridge_tts(payload: VRBridgeTTSRequest, request: Request):
     """
     Server-side TTS proxy for WebGL/VR clients.
-    Uses the VR bridge token as authorization so browsers never call OpenAI directly.
+    Consolidated implementation supporting Shadow Sessions and SK- token pass.
     """
-    try:
-        # 1. Auth check
-        db = get_db()
-        try:
-            _get_session_by_bridge_token(db, payload.bridge_token)
-        except Exception as auth_exc:
-            logger.warning(f"VR TTS Auth failed: {auth_exc}")
-            if isinstance(auth_exc, HTTPException): raise
-            raise HTTPException(status_code=401, detail=f"Authentication failed: {auth_exc}")
-
-        # 2. Parameter validation
-        text = (payload.text or "").strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="text is required")
-
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            logger.error("OPENAI_API_KEY is not configured on the server")
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
-
-        if httpx is None:
-            raise HTTPException(status_code=500, detail="httpx is not installed")
-
-        response_format = str(payload.response_format or "wav").strip().lower()
-        requested_model = str(payload.model or "tts-1").strip()
+    actual_token = str(payload.bridge_token or "")
+    token_preview = _safe_str_slice(actual_token, 8)
+    print(f"DEBUG: [/vr-bridge/tts] VR TTS requested for token: {token_preview}...")
+    
+    db = get_db()
+    if not actual_token:
+        raise HTTPException(status_code=400, detail="bridge_token is required")
         
-        tts_model = requested_model
-        if tts_model not in ["tts-1", "tts-1-hd"]:
-            tts_model = "tts-1"
+    try:
+        # Validate session (handles shadow bypass for sk- keys)
+        _get_session_by_bridge_token(db, actual_token)
+    except Exception as auth_exc:
+        logger.warning(f"VR TTS Auth failed: {auth_exc}")
+        if isinstance(auth_exc, HTTPException): raise
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {auth_exc}")
 
-        upstream_payload = {
-            "model": tts_model,
-            "voice": str(payload.voice or "alloy").strip() or "alloy",
-            "input": text,
-            "response_format": response_format,
-        }
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
 
-        # 3. Call OpenAI
-        try:
-            # Check for API Key again (permisivity check)
-            effective_key = openai_key
-            if payload.bridge_token.startswith("sk-"):
-                effective_key = payload.bridge_token
-                logger.info("Using bridge_token directly as OpenAI key.")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if actual_token and actual_token.startswith("sk-"):
+        openai_key = actual_token
+        logger.info("Shadow Pass: Using sk- token as OpenAI key for TTS.")
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                upstream = await client.post(
-                    "https://api.openai.com/v1/audio/speech",
-                    headers={
-                        "Authorization": f"Bearer {effective_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=upstream_payload,
-                )
-                
-                if upstream.status_code >= 400:
-                    detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
-                    logger.error(f"VR TTS upstream error {upstream.status_code}: {detail}")
-                    # If it's a 4xx error, it's likely a bad request, not a 500
-                    status_code = upstream.status_code if upstream.status_code < 500 else 502
-                    raise HTTPException(status_code=status_code, detail=detail)
+    if not openai_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
-                return Response(
-                    content=upstream.content,
-                    media_type=_tts_media_type(response_format),
-                    headers={
-                        "Cache-Control": "no-store",
-                        "X-Mockmate-TTS-Voice": upstream_payload["voice"],
-                        "X-Mockmate-TTS-Model": upstream_payload["model"],
-                        "X-Mockmate-Bridge-Pass": "true" if payload.bridge_token.startswith("sk-") else "false"
-                    },
-                )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.exception("VR TTS upstream request failed")
-            raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"CRITICAL: Unhandled error in generate_vr_bridge_tts")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {type(e).__name__}: {str(e)}")
+    if httpx is None:
+        raise HTTPException(status_code=500, detail="httpx is not installed")
+
+    response_format = str(payload.response_format or "wav").strip().lower()
+    tts_model = str(payload.model or "tts-1").strip()
+    if tts_model not in ["tts-1", "tts-1-hd"]: tts_model = "tts-1"
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            upstream = await client.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": tts_model,
+                    "voice": str(payload.voice or "alloy").strip() or "alloy",
+                    "input": text,
+                    "response_format": response_format,
+                },
+            )
+            
+            if upstream.status_code >= 400:
+                detail = upstream.text.strip() or f"OpenAI TTS failed with {upstream.status_code}"
+                raise HTTPException(status_code=upstream.status_code, detail=detail)
+
+            return Response(
+                content=upstream.content,
+                media_type=_tts_media_type(response_format),
+                headers={"Cache-Control": "no-store"}
+            )
+    except Exception as exc:
+        if isinstance(exc, HTTPException): raise
+        logger.exception("VR TTS upstream request failed")
+        raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}")
 
 @app.post("/vr-bridge/transcribe")
 async def transcribe_vr_bridge_audio(
@@ -4023,12 +3920,17 @@ async def transcribe_vr_bridge_audio(
     """
     Server-side STT proxy for WebGL/VR clients.
     Authenticates via bridge_token and forwards audio to OpenAI Whisper.
+    Supports Shadow Sessions/Direct sk- token pass.
     """
     try:
         db = get_db()
-        cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
+        _get_session_by_bridge_token(db, bridge_token)
 
         openai_key = os.getenv("OPENAI_API_KEY")
+        if bridge_token and bridge_token.startswith("sk-"):
+            openai_key = bridge_token
+            logger.info("Shadow Pass: Using sk- token as OpenAI key for transcription.")
+
         if not openai_key:
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
