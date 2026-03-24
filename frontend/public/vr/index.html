@@ -154,6 +154,69 @@
       const enterARButton = document.getElementById('enterar');
       let unityInstance = null;
 
+      // ── Native Web Speech Fallback ──
+      window._nativeSpeech = {
+        synth: window.speechSynthesis,
+        recognition: null,
+        isSpeaking: false
+      };
+
+      window.speakNative = function(text, objectName) {
+        if (!window._nativeSpeech.synth) {
+          console.error("[WebSpeech] Speech Synthesis not supported.");
+          return;
+        }
+        window._nativeSpeech.synth.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        
+        utterance.onstart = () => {
+          window._nativeSpeech.isSpeaking = true;
+          console.log("[WebSpeech] Speaking started.");
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart");
+        };
+        
+        utterance.onend = () => {
+          window._nativeSpeech.isSpeaking = false;
+          console.log("[WebSpeech] Speaking finished.");
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
+        };
+
+        window._nativeSpeech.synth.speak(utterance);
+      };
+
+      window.startNativeSTT = function(objectName) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          console.error("[WebSpeech] Speech Recognition not supported.");
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", "ERROR: Speech Recognition not supported in this browser.");
+          return;
+        }
+
+        if (window._nativeSpeech.recognition) window._nativeSpeech.recognition.stop();
+        
+        const rec = new SpeechRecognition();
+        rec.lang = 'en-US';
+        rec.interimResults = false;
+        rec.maxAlternatives = 1;
+
+        rec.onstart = () => console.log("[WebSpeech] Recognition started.");
+        rec.onresult = (event) => {
+          const transcript = event.results[0][0].transcript;
+          console.log("[WebSpeech] Result:", transcript);
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", transcript);
+        };
+        rec.onerror = (event) => {
+          console.error("[WebSpeech] Recognition error:", event.error);
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", "ERROR: " + event.error);
+        };
+        rec.onend = () => console.log("[WebSpeech] Recognition ended.");
+
+        window._nativeSpeech.recognition = rec;
+        rec.start();
+      };
+
       // ── Enhanced URL Parameter Handling ──
       const bridgeToken = (urlParams.get("bridge_token") || "").trim();
       const apiBase = (urlParams.get("api_base") || "").trim();
