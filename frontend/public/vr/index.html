@@ -67,17 +67,38 @@
       };
       window.WebGLWhisperState = window.WebGLWhisperState || window._whisperData;
 
+      // Handle URL parameters early for fallbacks
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlBridgeToken = (urlParams.get("bridge_token") || "").trim();
+      const urlApiBase = (urlParams.get("api_base") || "").trim();
+
+      // Patch for older .jslib versions that call _InitWhisperSTT
+      window._InitWhisperSTT = function(apiKey, language, objectName, methodName) {
+        console.log("[VR-Bridge] _InitWhisperSTT patch called.");
+        const state = window._whisperData;
+        state.apiKey = UTF8ToString ? UTF8ToString(apiKey) : apiKey;
+        state.language = UTF8ToString ? UTF8ToString(language) : language;
+        state.unityObjectName = UTF8ToString ? UTF8ToString(objectName) : objectName;
+        state.unityMethodName = UTF8ToString ? UTF8ToString(methodName) : methodName;
+        
+        // If apiBase or bridgeToken is missing in the call, use URL params as fallback
+        if (!state.apiBase) state.apiBase = urlApiBase;
+        if (!state.bridgeToken) state.bridgeToken = urlBridgeToken || state.apiKey;
+        
+        console.log("[VR-Bridge] _whisperData populated:", state);
+      };
+
       // Patch for older .jslib versions that call _SendToWhisper
       window._SendToWhisper = function(blob) {
         console.log("[VR-Bridge] _SendToWhisper called with blob:", blob);
         const state = window._whisperData;
         
-        // Handle both naming styles (apiKey was used in early versions of the bridge)
-        const token = state.bridgeToken || state.apiKey;
-        const apiBase = state.apiBase || window.apiBase || ""; // Fallback to global if needed
+        // Handle both naming styles and prioritize URL params if state is empty
+        const token = state.bridgeToken || state.apiKey || urlBridgeToken;
+        const apiBase = state.apiBase || urlApiBase || window.apiBase || "";
 
         if (!token) {
-          console.error("[VR-Bridge] Cannot send to Whisper: Bridge Token (or apiKey) missing in _whisperData.");
+          console.error("[VR-Bridge] Cannot send to Whisper: Bridge Token (or apiKey) missing.");
           return;
         }
 
@@ -87,6 +108,8 @@
         const base = apiBase ? apiBase.replace(/\/$/, "") : "";
         let url = `${base}/vr-bridge/transcribe?bridge_token=${encodeURIComponent(token)}`;
         if (state.language) url += `&language=${encodeURIComponent(state.language)}`;
+
+        console.log("[VR-Bridge] Transcribing at:", url);
 
         fetch(url, { method: "POST", body: formData })
           .then(res => {
@@ -132,7 +155,6 @@
       let unityInstance = null;
 
       // ── Enhanced URL Parameter Handling ──
-      const urlParams = new URLSearchParams(window.location.search);
       const bridgeToken = (urlParams.get("bridge_token") || "").trim();
       const apiBase = (urlParams.get("api_base") || "").trim();
       const sessionId = (urlParams.get("session_id") || "").trim();
