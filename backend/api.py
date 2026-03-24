@@ -26,7 +26,7 @@ from fastapi.concurrency import run_in_threadpool # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from fastapi.responses import JSONResponse, StreamingResponse # type: ignore
 from pydantic import BaseModel # type: ignore
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, cast
 import os
 import re
 from datetime import datetime, timedelta
@@ -3305,17 +3305,19 @@ def _get_owned_session(db, session_id: str, current_user: Dict):
     return session_id_obj, session
 
 
-def _get_session_by_bridge_token(db, bridge_token: str):
+def _get_session_by_bridge_token(db, bridge_token: str) -> Dict[str, Any]:
     if not bridge_token:
         raise HTTPException(status_code=400, detail="bridge_token is required")
 
     # PERMISSIVE MODE: If token looks like an OpenAI key, allow it as a "direct-pass" session
     if bridge_token.startswith("sk-") or bridge_token.startswith("org-"):
-        logger.info(f"Permissive mode: treating {bridge_token[:8]}... as direct OpenAI pass")
+        token_prefix = _safe_str_slice(bridge_token, 8)
+        logger.info(f"Permissive mode: treating {token_prefix}... as direct OpenAI pass")
         return {"_id": "direct-pass", "user_id": "direct-pass", "vr_test": {"bridge_token": bridge_token}}
 
     bt_str = str(bridge_token)
-    logger.info(f"Looking up session for bridge_token: {bt_str[:8]}...") # type: ignore
+    token_pref = _safe_str_slice(bt_str, 8)
+    logger.info(f"Looking up session for bridge_token: {token_pref}...") # type: ignore
     session = db.user_sessions.find_one({"vr_test.bridge_token": bridge_token})
     
     if not session:
@@ -3334,7 +3336,8 @@ def _get_session_by_bridge_token(db, bridge_token: str):
                 expires_at = None
         
         if expires_at and datetime.now() > expires_at:
-            logger.warning(f"Expired bridge_token: {bt_str[:8]}...") # type: ignore
+            token_pref = _safe_str_slice(bt_str, 8)
+            logger.warning(f"Expired bridge_token: {token_pref}...") # type: ignore
             raise HTTPException(status_code=401, detail="bridge_token expired")
         
     logger.info(f"Found session {session.get('_id')} for bridge_token")
@@ -3438,8 +3441,8 @@ async def get_vr_next_question(
     db = get_db()
     _, session = _get_owned_session(db, session_id, current_user)
 
-    vr_state = session.get("vr_test") or {}
-    questions = vr_state.get("questions") or []
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
     idx = int(vr_state.get("current_question_index", 0))
 
     if not questions:
@@ -3472,9 +3475,9 @@ async def submit_vr_answer(
     db = get_db()
     session_id_obj, session = _get_owned_session(db, session_id, current_user)
 
-    vr_state = session.get("vr_test") or {}
-    questions = vr_state.get("questions") or []
-    answers = vr_state.get("answers") or []
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
     idx = int(vr_state.get("current_question_index", 0))
 
     if not questions:
@@ -3609,12 +3612,12 @@ async def get_vr_bridge_next_question(
     
     # Try bridge_token first, then session_id
     if bridge_token:
-        session = _get_session_by_bridge_token(db, bridge_token)
+        session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
     elif session_id:
         if not ObjectId:
              raise HTTPException(status_code=500, detail="bson/ObjectId not available")
         try:
-            session = db.user_sessions.find_one({"_id": ObjectId(session_id)})
+            session = cast(Dict[str, Any], db.user_sessions.find_one({"_id": ObjectId(session_id)}))
             if not session:
                 raise HTTPException(status_code=404, detail="Session not found by session_id")
         except Exception as e:
@@ -3623,8 +3626,8 @@ async def get_vr_bridge_next_question(
         raise HTTPException(status_code=400, detail="Either bridge_token or session_id is required")
 
 
-    vr_state = session.get("vr_test") or {}
-    questions = vr_state.get("questions") or []
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
     idx = int(vr_state.get("current_question_index", 0))
 
     if not questions:
@@ -3659,12 +3662,12 @@ async def vr_bridge_tts(
     db = get_db()
     
     if actual_token:
-        session = _get_session_by_bridge_token(db, actual_token)
+        session = cast(Dict[str, Any], _get_session_by_bridge_token(db, actual_token))
     elif session_id:
         if not ObjectId:
              raise HTTPException(status_code=500, detail="bson/ObjectId not available")
         try:
-            session = db.user_sessions.find_one({"_id": ObjectId(session_id)})
+            session = cast(Dict[str, Any], db.user_sessions.find_one({"_id": ObjectId(session_id)}))
             if not session:
                 raise HTTPException(status_code=404, detail="Session not found by session_id")
         except Exception:
@@ -3713,12 +3716,12 @@ async def submit_vr_bridge_answer(
     bridge_token: str,
 ):
     db = get_db()
-    session = _get_session_by_bridge_token(db, bridge_token)
+    session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
     session_id_obj = session["_id"]
 
-    vr_state = session.get("vr_test") or {}
-    questions = vr_state.get("questions") or []
-    answers = vr_state.get("answers") or []
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
     idx = int(vr_state.get("current_question_index", 0))
 
     if not questions:
@@ -3781,12 +3784,12 @@ async def complete_vr_bridge_test(
     bridge_token: str,
 ):
     db = get_db()
-    session = _get_session_by_bridge_token(db, bridge_token)
+    session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
     session_id_obj = session["_id"]
 
-    vr_state = session.get("vr_test") or {}
-    questions = vr_state.get("questions") or []
-    answers = vr_state.get("answers") or []
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
     if not questions:
         raise HTTPException(status_code=404, detail="VR test not initialized for this session")
 
@@ -3995,7 +3998,7 @@ async def transcribe_vr_bridge_audio(
     """
     try:
         db = get_db()
-        _get_session_by_bridge_token(db, bridge_token)
+        cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
 
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
