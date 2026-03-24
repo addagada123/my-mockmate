@@ -3938,8 +3938,8 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
             "input": text,
             "response_format": response_format,
         }
-        if instructions:
-            upstream_payload["instructions"] = instructions
+        # instructions is NOT supported by OpenAI /audio/speech
+        # We process it only as a warning if present, which was already logged above
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -3969,6 +3969,8 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
                 )
         except HTTPException:
             raise
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("VR TTS upstream request failed")
             raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc
@@ -3976,7 +3978,11 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
         raise
     except Exception as e:
         logger.exception(f"CRITICAL: Unhandled error in generate_vr_bridge_tts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return a safer error message to the client
+        error_detail = str(e)
+        if "bridge_token" in error_detail.lower():
+             error_detail = "Authentication error or bridge session lookup failed"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.post("/vr-bridge/transcribe")
 async def transcribe_vr_bridge_audio(

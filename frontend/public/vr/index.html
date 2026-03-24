@@ -54,6 +54,11 @@
     </div>
 
     <script>
+      // ── Global State for Unity Plugins ──
+      // Some versions of the WebGL Whisper plugin may expect these global objects.
+      window._whisperData = window._whisperData || {};
+      window.WebGLWhisperState = window.WebGLWhisperState || {};
+      
       const buildUrl = "Build";
       const loaderUrl = buildUrl + "/Build7.loader.js";
       const config = {
