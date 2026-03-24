@@ -4,181 +4,150 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity WebGL Player | Build5</title>
-    <meta name="description" content="">
+    <title>MockMate VR | Interview Terminal</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
-    <link rel="stylesheet" href="TemplateData/style.css">
+    <style>
+      :root {
+        --primary: #6366f1;
+        --primary-glow: rgba(99, 102, 241, 0.4);
+        --bg: #0f172a;
+        --surface: rgba(30, 41, 59, 0.7);
+        --text: #f8fafc;
+        --text-dim: #94a3b8;
+      }
+      body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: 'Inter', -apple-system, sans-serif; }
+      #unity-container { width: 100%; height: 100%; position: relative; }
+      #unity-canvas { width: 100%; height: 100%; background: #231f20; display: block; }
+      
+      /* Loading Overlay */
+      #unity-loading-bar { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); z-index: 10; gap: 24px; transition: opacity 0.5s ease; }
+      .loader-circle { width: 64px; height: 64px; border: 4px solid rgba(255,255,255,0.05); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; filter: drop-shadow(0 0 8px var(--primary-glow)); }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      #unity-progress-bar-empty { width: 240px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+      #unity-progress-bar-full { width: 0%; height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); transition: width 0.3s ease; box-shadow: 0 0 10px var(--primary-glow); }
+      .loading-text { color: var(--text-dim); font-size: 14px; font-weight: 500; letter-spacing: 0.5px; }
+
+      /* Footer / Controls */
+      #unity-footer { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; z-index: 5; background: var(--surface); padding: 8px 16px; border-radius: 99px; backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+      .control-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text); padding: 8px 16px; border-radius: 99px; cursor: pointer; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; }
+      .control-btn:hover:not(:disabled) { background: var(--primary); transform: translateY(-1px); border-color: transparent; }
+      .control-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+      
+      .status-indicator { width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 4px; display: inline-block; }
+    </style>
   </head>
   <body>
     <div id="unity-container">
-      <div id="unity-canvas-container" style="width: 100%; height: 100%;">
-        <canvas id="unity-canvas" style="width: 100%; height: 100%;"></canvas>
-      </div>
+      <canvas id="unity-canvas"></canvas>
+      
       <div id="unity-loading-bar">
-        <div id="unity-logo"></div>
-        <div id="unity-progress-bar-empty">
-          <div id="unity-progress-bar-full"></div>
-        </div>
+        <div class="loader-circle"></div>
+        <div id="unity-progress-bar-empty"><div id="unity-progress-bar-full"></div></div>
+        <div class="loading-text">INITIALIZING QUANTUM BRIDGE...</div>
       </div>
+
       <div id="unity-footer">
-        <div id="unity-webgl-logo"></div>
-        <button id="entervr" value="Enter VR" disabled>VR</button>
-        <button id="enterar" value="Enter AR" disabled>AR</button>
-        <div id="unity-webxr-link">Using <a href="https://github.com/De-Panther/unity-webxr-export" target="_blank" title="WebXR Export">WebXR Export</a></div>
-        <div id="unity-build-title">Build5</div>
+        <button id="entervr" class="control-btn" disabled><span>🥽</span> Enter VR</button>
+        <button id="enterar" class="control-btn" disabled><span>📱</span> Enter AR</button>
+        <button id="unity-fullscreen-button" class="control-btn"><span>⛶</span> Fullscreen</button>
       </div>
     </div>
+
     <script>
-      var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/Build7.loader.js";
-      var config = {
+      const buildUrl = "Build";
+      const loaderUrl = buildUrl + "/Build7.loader.js";
+      const config = {
         dataUrl: buildUrl + "/Build7.data",
         frameworkUrl: buildUrl + "/Build7.framework.js",
         codeUrl: buildUrl + "/Build7.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
-        productName: "Build5",
+        productName: "Build7",
         productVersion: "9.2.1",
       };
 
-      var container = document.querySelector("#unity-container");
-      var canvas = document.querySelector("#unity-canvas");
-      var canvasContainer = document.querySelector("#unity-canvas-container");
-      var loadingBar = document.querySelector("#unity-loading-bar");
-      var progressBarFull = document.querySelector("#unity-progress-bar-full");
-      var fullscreenButton = document.querySelector("#unity-fullscreen-button");
-      var unityInstance = null;
+      const canvas = document.querySelector("#unity-canvas");
+      const loadingBar = document.querySelector("#unity-loading-bar");
+      const progressBarFull = document.querySelector("#unity-progress-bar-full");
+      const fullscreenButton = document.querySelector("#unity-fullscreen-button");
+      const enterVRButton = document.getElementById('entervr');
+      const enterARButton = document.getElementById('enterar');
+      let unityInstance = null;
 
-      // ── Read VR Bridge parameters from URL ──
-      var urlParams = new URLSearchParams(window.location.search);
-      var bridgeToken = (urlParams.get("bridge_token") || "").trim();
-      var apiBase = (urlParams.get("api_base") || "").trim();
-      var sessionId = (urlParams.get("session_id") || "").trim();
+      // ── Enhanced URL Parameter Handling ──
+      const urlParams = new URLSearchParams(window.location.search);
+      const bridgeToken = (urlParams.get("bridge_token") || "").trim();
+      const apiBase = (urlParams.get("api_base") || "").trim();
+      const sessionId = (urlParams.get("session_id") || "").trim();
+      const customStreamingAssets = urlParams.get("streaming_assets_url");
 
-      console.log("[VR-Bridge] URL params parsed:");
-      console.log("[VR-Bridge]   bridge_token:", bridgeToken ? bridgeToken.substring(0, 8) + "..." : "(empty)");
-      console.log("[VR-Bridge]   api_base:", apiBase || "(empty)");
-
-      // Notify parent frame that we're loading
-      if (window.parent !== window) {
-        window.parent.postMessage({
-          source: "mockmate-vr",
-          status: "loading",
-          detail: "Loading Unity WebGL runtime..."
-        }, "*");
+      if (customStreamingAssets) {
+        config.streamingAssetsUrl = customStreamingAssets;
+        console.log("[VR-Bridge] Using custom StreamingAssets URL:", config.streamingAssetsUrl);
       }
 
-      loadingBar.style.display = "block";
+      console.log("[VR-Bridge] Bridge parameters initialized.");
 
-      var script = document.createElement("script");
+      // Post status to parent
+      const postStatus = (status, detail) => {
+        if (window.parent !== window) {
+          window.parent.postMessage({ source: "mockmate-vr", status, detail }, "*");
+        }
+      };
+
+      postStatus("loading", "Initializing Unity runtime...");
+
+      const script = document.createElement("script");
       script.src = loaderUrl;
       script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
-          
-          // Notify parent of loading progress
-          if (window.parent !== window && progress < 1) {
-            window.parent.postMessage({
-              source: "mockmate-vr",
-              status: "loading",
-              detail: "Loading VR assets... " + Math.round(progress * 100) + "%"
-            }, "*");
-          }
+          if (progress < 1) postStatus("loading", `Loading VR assets... ${Math.round(progress * 100)}%`);
         }).then((instance) => {
           unityInstance = instance;
-          loadingBar.style.display = "none";
+          loadingBar.style.opacity = "0";
+          setTimeout(() => loadingBar.style.display = "none", 500);
 
           if (fullscreenButton) {
-            fullscreenButton.onclick = () => {
-              unityInstance.SetFullscreen(1);
-            };
+            fullscreenButton.onclick = () => unityInstance.SetFullscreen(1);
           }
 
-          // ── VR Bridge Injection ──
+          // ── Bridge Data Injection ──
           if (bridgeToken || apiBase) {
-            var payload = {
-              bridge_token: bridgeToken,
-              api_base: apiBase,
-              session_id: sessionId
-            };
-            var jsonString = JSON.stringify(payload);
-            console.log("[VR-Bridge] Injecting JSON payload into Unity: MockmateVRBootstrap.SetBridgeToken");
-            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", jsonString);
+            const payload = { bridge_token: bridgeToken, api_base: apiBase, session_id: sessionId };
+            console.log("[VR-Bridge] Injecting payload into Unity...");
+            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", JSON.stringify(payload));
           }
 
-          // Notify parent frame that Unity is ready
-          if (window.parent !== window) {
-            window.parent.postMessage({
-              source: "mockmate-vr",
-              status: "ready",
-              detail: "Unity VR environment is ready."
-            }, "*");
-          }
+          postStatus("ready", "Virtual environment synchronized.");
 
-        }).catch((message) => {
-          console.error("[VR-Bridge] Unity failed to load:", message);
-          if (window.parent !== window) {
-            window.parent.postMessage({
-              source: "mockmate-vr",
-              status: "error",
-              detail: "Unity failed to load: " + message
-            }, "*");
-          }
-          alert(message);
+        }).catch((err) => {
+          console.error("[VR-Bridge] Load failure:", err);
+          postStatus("error", "Failed to launch VR: " + err);
+          alert("VR Load Error: " + err);
         });
       };
       
-      script.onerror = () => {
-        console.error("[VR-Bridge] Failed to load Unity loader script:", loaderUrl);
-      };
-
+      script.onerror = () => postStatus("error", "Failed to load Unity loader script.");
       document.body.appendChild(script);
 
-      let enterARButton = document.getElementById('enterar');
-      let enterVRButton = document.getElementById('entervr');
+      // ── WebXR Listeners ──
+      document.addEventListener('onARSupportedCheck', (e) => enterARButton.disabled = !e.detail.supported);
+      document.addEventListener('onVRSupportedCheck', (e) => enterVRButton.disabled = !e.detail.supported);
 
-      document.addEventListener('onARSupportedCheck', function (event) {
-        enterARButton.disabled = !event.detail.supported;
-      }, false);
-      document.addEventListener('onVRSupportedCheck', function (event) {
-        enterVRButton.disabled = !event.detail.supported;
-      }, false);
+      enterVRButton.onclick = () => unityInstance.Module.WebXR.toggleVR();
+      enterARButton.onclick = () => unityInstance.Module.WebXR.toggleAR();
 
-      enterARButton.addEventListener('click', function (event) {
-        unityInstance.Module.WebXR.toggleAR();
-      }, false);
-      enterVRButton.addEventListener('click', function (event) {
-        unityInstance.Module.WebXR.toggleVR();
-      }, false);
-
-      // ── AudioContext Resumption ──
-      // Many browsers block audio until a user gesture. 
-      // This listener ensures Unity's AudioContext is resumed.
+      // ── Audio Context Fix ──
       const resumeAudio = () => {
-        // Broadly attempt to resume any suspended AudioContexts
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (AudioContextClass) {
-          // If Unity or another script created a context, it might be suspended.
-          // We can't easily iterate all instances, but we can try to "poke" the system.
-          const tempCtx = new AudioContextClass();
-          if (tempCtx.state === 'suspended') {
-            tempCtx.resume().then(() => {
-              console.log("[VR-Bridge] AudioContext poke successful.");
-              tempCtx.close();
-            });
-          }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) {
+          const t = new Ctx();
+          if (t.state === 'suspended') t.resume().then(() => t.close());
         }
-        
-        // Browsers often allow audio after any user interaction.
-        // If Unity's internal context was suspended, it should now be resumable.
-        console.log("[VR-Bridge] User gesture detected. Audio should now be enabled.");
-
-        // Remove listener after first interaction
         document.removeEventListener('click', resumeAudio);
-        document.removeEventListener('touchstart', resumeAudio);
       };
       document.addEventListener('click', resumeAudio);
-      document.addEventListener('touchstart', resumeAudio);
     </script>
   </body>
 </html>
