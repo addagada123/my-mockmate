@@ -3896,51 +3896,43 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
     Uses the VR bridge token as authorization so browsers never call OpenAI directly.
     """
     try:
-        print(f"DEBUG: [/vr-bridge/tts] VR TTS requested. bridge_token={payload.bridge_token}")
-        raw_body = await request.body()
-        print(f"DEBUG: [/vr-bridge/tts] Raw body: {raw_body.decode('utf-8', errors='ignore')}")
+        # 1. Auth check
         db = get_db()
-        _get_session_by_bridge_token(db, payload.bridge_token)
+        try:
+            _get_session_by_bridge_token(db, payload.bridge_token)
+        except Exception as auth_exc:
+            logger.warning(f"VR TTS Auth failed: {auth_exc}")
+            if isinstance(auth_exc, HTTPException): raise
+            raise HTTPException(status_code=401, detail=f"Authentication failed: {auth_exc}")
 
+        # 2. Parameter validation
         text = (payload.text or "").strip()
         if not text:
-            b_token = str(payload.bridge_token or "unknown")
-            logger.warning(f"VR TTS request failed: text is empty for bridge_token={b_token[:8]}...") # type: ignore
             raise HTTPException(status_code=400, detail="text is required")
-
-        logger.info(f"VR TTS request received. Text length: {len(text)}. Voice: {payload.voice}")
 
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
+            logger.error("OPENAI_API_KEY is not configured on the server")
             raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
         if httpx is None:
             raise HTTPException(status_code=500, detail="httpx is not installed")
 
         response_format = str(payload.response_format or "wav").strip().lower()
-        
-        # Determine model: use requested model, but MUST use tts-1 or similar if instructions are provided
-        # Note: openai /audio/speech only supports tts-1 and tts-1-hd
         requested_model = str(payload.model or "tts-1").strip()
-        instructions = (payload.instructions or "").strip()
         
         tts_model = requested_model
         if tts_model not in ["tts-1", "tts-1-hd"]:
-            logger.info(f"Normalizing model {tts_model} to tts-1")
             tts_model = "tts-1"
 
-        if instructions:
-             logger.warning(f"Instructions provided for TTS, but /audio/speech does not support them. bridge_token={_safe_str_slice(payload.bridge_token, 8)}...")
-
-        upstream_payload: Dict[str, Any] = {
+        upstream_payload = {
             "model": tts_model,
             "voice": str(payload.voice or "alloy").strip() or "alloy",
             "input": text,
             "response_format": response_format,
         }
-        # instructions is NOT supported by OpenAI /audio/speech
-        # We process it only as a warning if present, which was already logged above
 
+        # 3. Call OpenAI
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 upstream = await client.post(
@@ -3951,11 +3943,10 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
                     },
                     json=upstream_payload,
                 )
-                logger.info(f"VR TTS upstream response: {upstream.status_code}, content_length={len(upstream.content)} bytes")
                 
                 if upstream.status_code >= 400:
                     detail = upstream.text.strip() or f"OpenAI TTS failed with HTTP {upstream.status_code}"
-                    logger.error("VR TTS upstream error %s: %s", upstream.status_code, detail)
+                    logger.error(f"VR TTS upstream error {upstream.status_code}: {detail}")
                     raise HTTPException(status_code=upstream.status_code, detail=detail)
 
                 return Response(
@@ -3969,20 +3960,14 @@ async def generate_vr_bridge_tts(payload: VRTTSRequest, request: Request):
                 )
         except HTTPException:
             raise
-        except HTTPException:
-            raise
         except Exception as exc:
             logger.exception("VR TTS upstream request failed")
-            raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"CRITICAL: Unhandled error in generate_vr_bridge_tts: {e}")
-        # Return a safer error message to the client
-        error_detail = str(e)
-        if "bridge_token" in error_detail.lower():
-             error_detail = "Authentication error or bridge session lookup failed"
-        raise HTTPException(status_code=500, detail=error_detail)
+        logger.exception(f"CRITICAL: Unhandled error in generate_vr_bridge_tts")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {type(e).__name__}: {str(e)}")
 
 @app.post("/vr-bridge/transcribe")
 async def transcribe_vr_bridge_audio(
