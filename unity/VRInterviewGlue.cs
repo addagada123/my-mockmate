@@ -106,8 +106,8 @@ public class VRInterviewGlue : MonoBehaviour
         bool canUseBackendTTS = backendTTS != null;
         bool canUseOpenAITTS = openAITTS != null && (allowOpenAITTSInWebGL || !isWebGL);
 
-        // Prioritize backend TTS in WebGL (to avoid CORS/Auth issues) or if OpenAI TTS is explicitly disabled
-        if (canUseBackendTTS && (isWebGL || !canUseOpenAITTS))
+        // Prioritize backend TTS if available (avoids exposing API keys in client)
+        if (canUseBackendTTS)
         {
             Debug.Log("[MockmateVR-Glue] Using Backend TTS.");
             if (animationBridge != null) animationBridge.StartTalking();

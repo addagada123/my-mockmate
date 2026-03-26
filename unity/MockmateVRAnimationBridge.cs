@@ -18,6 +18,9 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     public float talkSpeed = 10f;
     [Range(0f, 1f)] public float talkJitter = 0.15f;
 
+    [Header("Audio Sync (Optional)")]
+    public AudioSource lipSyncAudioSource;
+
     [Header("Blend Shape Lip Sync (Optional)")]
     public SkinnedMeshRenderer faceRenderer;
     [Tooltip("Common names include OpenMouth, MouthOpen, JawOpen, viseme_aa.")]
@@ -33,6 +36,9 @@ public class MockmateVRAnimationBridge : MonoBehaviour
 
     void Start()
     {
+        if (lipSyncAudioSource == null) lipSyncAudioSource = GetComponent<AudioSource>();
+        if (lipSyncAudioSource == null) lipSyncAudioSource = GetComponentInChildren<AudioSource>();
+
         if (animator == null) animator = GetComponent<Animator>();
         if (jawBone != null) _jawStartRot = jawBone.localRotation;
         CacheMouthBlendShapes();
@@ -78,7 +84,13 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     {
         bool updatedSpeakingPose = false;
 
-        if (_isSpeaking && jawBone != null)
+        bool isActuallySpeaking = _isSpeaking;
+        if (_isSpeaking && lipSyncAudioSource != null)
+        {
+            isActuallySpeaking = lipSyncAudioSource.isPlaying;
+        }
+
+        if (isActuallySpeaking && jawBone != null)
         {
             float noise = Mathf.PerlinNoise(Time.time * talkSpeed * 0.5f, 0f) * talkJitter;
             float angle = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed + noise)) * jawOpenAmount;
@@ -86,7 +98,7 @@ public class MockmateVRAnimationBridge : MonoBehaviour
             updatedSpeakingPose = true;
         }
 
-        if (_isSpeaking && HasMouthBlendShapes())
+        if (isActuallySpeaking && HasMouthBlendShapes())
         {
             float noise = Mathf.PerlinNoise(0f, Time.time * talkSpeed * 0.5f) * talkJitter;
             float targetWeight = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed + noise)) * mouthBlendShapeMaxWeight;
