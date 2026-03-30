@@ -397,7 +397,7 @@ function Test() {
             `${API_BASE}/vr-bridge/next?bridge_token=${encodeURIComponent(vrBridgeToken)}`
           )
         : await axios.get(
-            `${API_BASE}/vr-test/next?session_id=${encodeURIComponent(sessionId)}`,
+            `${API_BASE}/vr-test/web-next?session_id=${encodeURIComponent(sessionId)}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
       setVrCompleted(!!response.data.completed);
@@ -872,7 +872,7 @@ function Test() {
     const timeout = setTimeout(() => {
       if (vrCurrentQuestion || vrCompleted) return;
       setVrLaunching(false);
-      setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build4 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
+      setVrLoadError("VR launch timed out before Unity reported ready. Check that /vr/index.html loads, the Build7 files exist, and the browser console inside the VR frame does not show WebGL or asset errors.");
       setVrShowManual(true);
     }, 90000);
 

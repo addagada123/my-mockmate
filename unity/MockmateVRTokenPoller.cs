@@ -23,7 +23,7 @@ public class MockmateVRTokenPoller : MonoBehaviour
     [SerializeField] private string deviceId = "mockmate-vr-default";
 
     [Tooltip("API base URL of the Mockmate backend.")]
-    [SerializeField] private string apiBase = "https://mockmate-api-gna1.onrender.com";
+    [SerializeField] private string apiBase = "https://mockmate-api-6dvm.onrender.com";
 
     [Header("Local File Polling (optional)")]
     [Tooltip("Also poll a local JSON file for the bridge token (written by the web app).")]

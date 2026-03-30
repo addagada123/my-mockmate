@@ -110,7 +110,7 @@ function SignUp() {
 
             size: "large",
 
-            width: "100%",
+            width: 280,
 
             text: "signup_with",
 

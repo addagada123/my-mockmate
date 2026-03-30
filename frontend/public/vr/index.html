@@ -205,7 +205,7 @@
         rec.onresult = (event) => {
           const transcript = event.results[0][0].transcript;
           console.log("[WebSpeech] Result:", transcript);
-          if (window.unityInstance) window.unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', transcript);
+          if (unityInstance) unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', transcript);
         };
         rec.onerror = (event) => {
           console.error("[WebSpeech] Recognition error:", event.error);
@@ -252,6 +252,7 @@
           if (progress < 1) postStatus("loading", `Loading VR assets... ${Math.round(progress * 100)}%`);
         }).then((instance) => {
           unityInstance = instance;
+          window.unityInstance = instance;
           console.log("[VR-Bridge] Unity Instance loaded successfully.");
           
           loadingBar.style.opacity = "0";

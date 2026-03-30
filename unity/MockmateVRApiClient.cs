@@ -78,7 +78,7 @@ internal class VrCompleteRequest
 public class MockmateVRApiClient : MonoBehaviour
 {
     [Header("Backend")]
-    [SerializeField] private string apiBase = "https://mockmate-api-production.up.railway.app";
+    [SerializeField] private string apiBase = "https://mockmate-api-6dvm.onrender.com";
     [SerializeField] private string bridgeToken;
 
     public string ApiBase => apiBase;

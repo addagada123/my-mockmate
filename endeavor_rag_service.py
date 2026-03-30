@@ -38,7 +38,7 @@ def _create_llm_for_provider(provider: str, temperature: float = 0.8):
         )
     elif provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        model = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
+        model = os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         kwargs = {"model": model, "temperature": temperature}
         if api_key:

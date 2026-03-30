@@ -9,9 +9,9 @@ restartPolicyMaxRetries = 10
 [vars]
 PYTHON_VERSION = "3.11.9"
 LLM_PROVIDER = "google"
-GOOGLE_MODEL = "gemini-1.5-flash"
+GOOGLE_MODEL = "gemini-2.5-flash"
 OPENAI_MODEL = "gpt-4o-mini"
-CORS_ORIGINS = "https://my-mockmate.vercel.app"
+CORS_ORIGINS = "https://mockmate-2z5p.onrender.com"
 # SECRETS (Set these in Railway Dashboard):
 # OPENAI_API_KEY = "sk-..."
 # GOOGLE_API_KEY = "AIza..."

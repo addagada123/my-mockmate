@@ -237,7 +237,7 @@ async def _call_single_provider(
             raise ValueError("Gemini API key not configured")
         import google.generativeai as genai  # type: ignore  # pyright: ignore
         genai.configure(api_key=google_key)  # type: ignore  # pyright: ignore
-        model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.0-flash"))  # type: ignore  # pyright: ignore
+        model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.5-flash"))  # type: ignore  # pyright: ignore
         prompt_text = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
         try:
             resp = await run_in_threadpool(
@@ -1471,9 +1471,7 @@ cors_origins = [o.strip() for o in raw_origins if o.strip() and o.strip() != "*"
 
 # Always allow known frontend deployments and local development
 _known_frontends = [
-    "https://my-mockmate.vercel.app",
-    "https://mockmate-api-production.up.railway.app",
-    "https://mockmate-production.up.railway.app",
+    "https://mockmate-2z5p.onrender.com",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
     "http://localhost:3000",
@@ -3502,6 +3500,15 @@ async def get_vr_next_question(
         "total_questions": len(questions),
         "current_question": questions[idx],
     }
+
+
+@app.get("/vr-test/next")
+async def get_vr_next_question_legacy(
+    session_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Backward-compatible alias for older frontend clients."""
+    return await get_vr_next_question(session_id, current_user)
 
 
 @app.post("/vr-test/answer")

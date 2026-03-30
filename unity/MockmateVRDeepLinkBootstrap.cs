@@ -4,7 +4,7 @@ using UnityEngine;
 public class MockmateVRDeepLinkBootstrap : MonoBehaviour
 {
     [SerializeField] private MockmateVRFlowController flowController;
-    [SerializeField] private string defaultApiBase = "https://mockmate-api-gna1.onrender.com";
+    [SerializeField] private string defaultApiBase = "https://mockmate-api-6dvm.onrender.com";
     [SerializeField] private bool autoBeginOnDeepLink = true;
 
     private void Awake()

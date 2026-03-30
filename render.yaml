@@ -16,11 +16,11 @@ services:
       - key: LLM_PROVIDER
         value: google
       - key: GOOGLE_MODEL
-        value: gemini-1.5-flash
+        value: gemini-2.5-flash
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://mockmate.onrender.com,https://mockmate-frontend.onrender.com,https://my-mockmate.vercel.app
+        value: https://mockmate-2z5p.onrender.com
 
   # Frontend (React static site)
   - type: web
