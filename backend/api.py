@@ -1509,6 +1509,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Gzip Static Middleware for Unity WebGL
+@app.middleware("http")
+async def add_compression_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.endswith(".gz"):
+        response.headers["Content-Encoding"] = "gzip"
+        # Set proper Content-Type for Unity compressed assets
+        if path.endswith(".wasm.gz"):
+            response.headers["Content-Type"] = "application/wasm"
+        elif path.endswith(".js.gz"):
+            response.headers["Content-Type"] = "application/javascript"
+        elif path.endswith(".data.gz"):
+            response.headers["Content-Type"] = "application/octet-stream"
+    return response
+
 # Ensure uploads dir exists
 os.makedirs("uploads", exist_ok=True)
 
@@ -3507,6 +3523,12 @@ async def get_vr_next_question(
     if not questions:
         # Lazy initialization fallback: if vr_test is missing, try to build it from session["questions"]
         source_questions = session.get("questions", [])
+        if not source_questions:
+            # Try database fallback if session object is out of sync
+            cache = db.resume_question_cache.find_one({"session_id": session_id})
+            if cache:
+                source_questions = cache.get("questions", [])
+        
         if source_questions:
             logger.info(f"Lazy-initializing VR state for session {session_id}")
             vr_questions = []
