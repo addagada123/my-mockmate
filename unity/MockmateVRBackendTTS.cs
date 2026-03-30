@@ -14,6 +14,8 @@ public class MockmateVRBackendTTS : MonoBehaviour
     [Header("Dependencies")]
     [SerializeField] private MockmateVRApiClient apiClient;
     [SerializeField] private AudioSource audioSource;
+    [SerializeField] private MockmateVRAnimationBridge animationBridge;
+    [SerializeField] private MockmateVRFlowController flowController;
 
     [Header("Voice")]
     [SerializeField] private string voice = "alloy";
@@ -33,6 +35,10 @@ public class MockmateVRBackendTTS : MonoBehaviour
             apiClient = GetComponent<MockmateVRApiClient>();
         if (audioSource == null)
             audioSource = GetComponent<AudioSource>();
+        if (animationBridge == null)
+            animationBridge = GetComponent<MockmateVRAnimationBridge>() ?? GetComponentInParent<MockmateVRAnimationBridge>();
+        if (flowController == null)
+            flowController = GetComponent<MockmateVRFlowController>() ?? GetComponentInParent<MockmateVRFlowController>();
     }
     public IEnumerator Speak(string text)
     {
@@ -41,24 +47,28 @@ public class MockmateVRBackendTTS : MonoBehaviour
         if (string.IsNullOrWhiteSpace(text))
         {
             Debug.LogWarning("[MockmateVR-TTS] Speak text is null or whitespace.");
+            NotifyFlowOfCompletion();
             yield break;
         }
 
         if (apiClient == null)
         {
             Debug.LogWarning("[MockmateVR-TTS] API client missing.");
+            NotifyFlowOfCompletion();
             yield break;
         }
 
         if (audioSource == null)
         {
             Debug.LogWarning("[MockmateVR-TTS] AudioSource missing.");
+            NotifyFlowOfCompletion();
             yield break;
         }
 
         if (string.IsNullOrWhiteSpace(apiClient.ApiBase) || string.IsNullOrWhiteSpace(apiClient.BridgeToken))
         {
             Debug.LogWarning("[MockmateVR-TTS] API base or bridge token missing.");
+            NotifyFlowOfCompletion();
             yield break;
         }
 
@@ -93,6 +103,7 @@ public class MockmateVRBackendTTS : MonoBehaviour
             if (req.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogWarning($"[MockmateVR-TTS] Request failed: {req.responseCode} {req.error}. Response: {req.downloadHandler.text}");
+                NotifyFlowOfCompletion();
                 yield break;
             }
 
@@ -106,23 +117,38 @@ public class MockmateVRBackendTTS : MonoBehaviour
             catch (Exception ex)
             {
                 Debug.LogWarning($"[MockmateVR-TTS] Audio decode failed: {ex.Message}");
+                NotifyFlowOfCompletion();
                 yield break;
             }
 
             if (clip == null)
             {
                 Debug.LogWarning("[MockmateVR-TTS] Backend returned no audio clip.");
+                NotifyFlowOfCompletion();
                 yield break;
             }
 
             audioSource.clip = clip;
             Debug.Log("[MockmateVR-TTS] Starting audio playback.");
+            
+            // --- SYNC START ---
+            if (animationBridge != null) animationBridge.StartTalking();
             audioSource.Play();
             LastSpeakSucceeded = true;
 
             while (audioSource != null && audioSource.isPlaying)
                 yield return null;
+
+            // --- SYNC END ---
+            if (animationBridge != null) animationBridge.StopTalking();
+            NotifyFlowOfCompletion();
         }
+    }
+
+    private void NotifyFlowOfCompletion()
+    {
+        if (flowController != null)
+            flowController.NotifyQuestionSpeechCompleted();
     }
 
     private static AudioType ResolveAudioType(string format)
