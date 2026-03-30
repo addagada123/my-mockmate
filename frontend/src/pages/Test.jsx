@@ -4,7 +4,7 @@ import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
 import { API_BASE, VR_STREAMING_ASSETS_URL } from "../config/runtime";
-const VR_DEVICE_ID = "mockmate-vr-default";
+const VR_DEVICE_ID = `mm-vr-${Math.random().toString(36).substring(2, 9)}`;
 
 function isSqlTopic(topicText) {
   const t = (topicText || "").toLowerCase();
