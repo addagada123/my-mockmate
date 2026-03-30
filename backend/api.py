@@ -2347,9 +2347,14 @@ async def generate_test_questions(
             if not session:
                 raise HTTPException(status_code=404, detail="Session not found")
         else:
-            session = db.user_sessions.find_one(
-                {"user_id": current_user["id"]},
-                sort=[("created_at", -1)]
+            # FIX: find_one does not support sort= kwarg in MockCollection.
+            # Use cursor chaining: find().sort().limit(1)
+            session = next(
+                iter(db.user_sessions
+                    .find({"user_id": current_user["id"]})
+                    .sort("created_at", -1)
+                    .limit(1)),
+                None
             )
 
         if not session:
