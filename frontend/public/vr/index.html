@@ -32,13 +32,13 @@
       .control-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text); padding: 8px 16px; border-radius: 99px; cursor: pointer; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; }
       .control-btn:hover:not(:disabled) { background: var(--primary); transform: translateY(-1px); border-color: transparent; }
       .control-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-      
-      .status-indicator { width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 4px; display: inline-block; }
     </style>
   </head>
   <body>
     <div id="unity-container">
-      <canvas id="unity-canvas"></canvas>
+      <div id="unity-canvas-container" style="width: 100%; height: 100%;">
+        <canvas id="unity-canvas"></canvas>
+      </div>
       
       <div id="unity-loading-bar">
         <div class="loader-circle"></div>
@@ -55,84 +55,39 @@
 
     <script>
       // ── Global State for Unity Plugins ──
-      // Some versions of the WebGL Whisper plugin may expect these global objects.
-      window._whisperData = window._whisperData || {
-        chunks: [],
-        recorder: null,
-        apiBase: "",
-        bridgeToken: "",
-        language: "en",
-        unityObjectName: "",
-        unityMethodName: ""
-      };
+      window._whisperData = window._whisperData || { chunks: [], recorder: null, apiBase: "", bridgeToken: "", language: "en", unityObjectName: "", unityMethodName: "" };
       window.WebGLWhisperState = window.WebGLWhisperState || window._whisperData;
 
       const DEFAULT_API_BASE = "https://mockmate-api-6dvm.onrender.com";
-
-      // Handle URL parameters early for fallbacks
       const urlParams = new URLSearchParams(window.location.search);
-      const urlBridgeToken = (urlParams.get("bridge_token") || "").trim();
-      const urlApiBase = ((urlParams.get("api_base") || "").trim() || DEFAULT_API_BASE).replace(/\/$/, "");
 
-      // Patch for older .jslib versions that call _InitWhisperSTT
+      // Handle fallback token mapping for older plugins
       window._InitWhisperSTT = function(apiKey, language, objectName, methodName) {
-        console.log("[VR-Bridge] _InitWhisperSTT patch called.");
         const state = window._whisperData;
-        state.apiKey = UTF8ToString ? UTF8ToString(apiKey) : apiKey;
-        state.language = UTF8ToString ? UTF8ToString(language) : language;
-        state.unityObjectName = UTF8ToString ? UTF8ToString(objectName) : objectName;
-        state.unityMethodName = UTF8ToString ? UTF8ToString(methodName) : methodName;
-        
-        // If apiBase or bridgeToken is missing in the call, use URL params as fallback
-        if (!state.apiBase) state.apiBase = urlApiBase;
-        if (!state.bridgeToken) state.bridgeToken = urlBridgeToken || state.apiKey;
-        
-        console.log("[VR-Bridge] _whisperData populated:", state);
+        state.apiKey = apiKey;
+        state.language = language;
+        state.unityObjectName = objectName;
+        state.unityMethodName = methodName;
+        if (!state.apiBase) state.apiBase = (urlParams.get("api_base") || DEFAULT_API_BASE);
+        if (!state.bridgeToken) state.bridgeToken = (urlParams.get("bridge_token") || apiKey);
       };
 
-      // Patch for older .jslib versions that call _SendToWhisper
       window._SendToWhisper = function(blob) {
-        console.log("[VR-Bridge] _SendToWhisper called with blob:", blob);
         const state = window._whisperData;
-        
-        // Handle both naming styles and prioritize URL params if state is empty
-        const token = state.bridgeToken || state.apiKey || urlBridgeToken;
-        const apiBase = state.apiBase || urlApiBase || window.apiBase || DEFAULT_API_BASE;
-
-        if (!token) {
-          console.error("[VR-Bridge] Cannot send to Whisper: Bridge Token (or apiKey) missing.");
-          return;
-        }
+        const token = state.bridgeToken || (urlParams.get("bridge_token"));
+        const apiBase = (state.apiBase || urlParams.get("api_base") || DEFAULT_API_BASE).replace(/\/$/, "");
 
         const formData = new FormData();
         formData.append("file", blob, "recording.wav");
-        
-        const base = apiBase ? apiBase.replace(/\/$/, "") : "";
-        let url = `${base}/vr-bridge/transcribe?bridge_token=${encodeURIComponent(token)}`;
+        let url = `${apiBase}/vr-bridge/transcribe?bridge_token=${encodeURIComponent(token)}`;
         if (state.language) url += `&language=${encodeURIComponent(state.language)}`;
 
-        console.log("[VR-Bridge] Transcribing at:", url);
-
         fetch(url, { method: "POST", body: formData })
-          .then(res => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-          })
+          .then(res => res.json())
           .then(data => {
-            console.log("[VR-Bridge] Transcription success:", data);
-            const objName = state.unityObjectName || "WebGLWhisperSTT";
-            const methodName = state.unityMethodName || "OnTranscriptionReceived";
-            if (unityInstance) {
-              unityInstance.SendMessage(objName, methodName, data.text || "");
-            }
-          })
-          .catch(err => {
-            console.error("[VR-Bridge] Transcription error:", err);
-            const objName = state.unityObjectName || "WebGLWhisperSTT";
-            const methodName = state.unityMethodName || "OnTranscriptionReceived";
-            if (unityInstance) {
-              unityInstance.SendMessage(objName, methodName, "ERROR: " + err.message);
-            }
+            if (window.unityInstance) window.unityInstance.SendMessage(state.unityObjectName || "WebGLWhisperSTT", state.unityMethodName || "OnTranscriptionReceived", data.text || "");
+          }).catch(err => {
+            if (window.unityInstance) window.unityInstance.SendMessage(state.unityObjectName || "WebGLWhisperSTT", state.unityMethodName || "OnTranscriptionReceived", "ERROR: " + err.message);
           });
       };
       
@@ -157,176 +112,64 @@
       let unityInstance = null;
 
       // ── Native Web Speech Fallback ──
-      window._nativeSpeech = {
-        synth: window.speechSynthesis,
-        recognition: null,
-        isSpeaking: false
-      };
-
+      window._nativeSpeech = { synth: window.speechSynthesis, isSpeaking: false };
       window.speakNative = function(text, objectName) {
-        if (!window._nativeSpeech.synth) {
-          console.error("[WebSpeech] Speech Synthesis not supported.");
-          return;
-        }
+        if (!window._nativeSpeech.synth) return;
         window._nativeSpeech.synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        
-        utterance.onstart = () => {
-          window._nativeSpeech.isSpeaking = true;
-          console.log("[WebSpeech] Speaking started.");
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart");
-        };
-        
-        utterance.onend = () => {
-          window._nativeSpeech.isSpeaking = false;
-          console.log("[WebSpeech] Speaking finished.");
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
-        };
-
+        utterance.onstart = () => { window._nativeSpeech.isSpeaking = true; if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart"); };
+        utterance.onend = () => { window._nativeSpeech.isSpeaking = false; if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd"); };
         window._nativeSpeech.synth.speak(utterance);
       };
 
       window.startNativeSTT = function(objectName) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          console.error("[WebSpeech] Speech Recognition not supported.");
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", "ERROR: Speech Recognition not supported in this browser.");
-          return;
-        }
-
-        if (window._nativeSpeech.recognition) window._nativeSpeech.recognition.stop();
-        
+        if (!SpeechRecognition) return;
         const rec = new SpeechRecognition();
-        rec.lang = 'en-US';
-        rec.interimResults = false;
-        rec.maxAlternatives = 1;
-
-        rec.onstart = () => console.log("[WebSpeech] Recognition started.");
-        rec.onresult = (event) => {
-          const transcript = event.results[0][0].transcript;
-          console.log("[WebSpeech] Result:", transcript);
-          if (unityInstance) unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', transcript);
-        };
-        rec.onerror = (event) => {
-          console.error("[WebSpeech] Recognition error:", event.error);
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", "ERROR: " + event.error);
-        };
-        rec.onend = () => console.log("[WebSpeech] Recognition ended.");
-
-        window._nativeSpeech.recognition = rec;
+        rec.onresult = (e) => { if (unityInstance) unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', e.results[0][0].transcript); };
         rec.start();
       };
 
-      // ── Enhanced URL Parameter Handling ──
-      const bridgeToken = (urlParams.get("bridge_token") || "").trim();
-      const apiBase = ((urlParams.get("api_base") || "").trim() || DEFAULT_API_BASE).replace(/\/$/, "");
-      const sessionId = (urlParams.get("session_id") || "").trim();
-      const customStreamingAssets = urlParams.get("streaming_assets_url");
-
-      if (customStreamingAssets) {
-        config.streamingAssetsUrl = customStreamingAssets;
-        console.log("[VR-Bridge] Using custom StreamingAssets URL:", config.streamingAssetsUrl);
-      }
-
-      console.log("[VR-Bridge] Bridge parameters initialized.");
-
-      // Post status to parent
-      const postStatus = (status, detail) => {
-        if (window.parent !== window) {
-          window.parent.postMessage({ source: "mockmate-vr", status, detail }, "*");
-        }
-      };
-
-      postStatus("loading", "Initializing Unity runtime...");
+      const postStatus = (status, detail) => { if (window.parent !== window) window.parent.postMessage({ source: "mockmate-vr", status, detail }, "*"); };
 
       const script = document.createElement("script");
       script.src = loaderUrl;
       script.onload = () => {
-        // --- Added for Unity 6 + WebXR consistency ---
-        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-          config.devicePixelRatio = 1;
-        }
-
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) config.devicePixelRatio = 1;
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
-          if (progress < 1) postStatus("loading", `Loading VR assets... ${Math.round(progress * 100)}%`);
         }).then((instance) => {
           unityInstance = instance;
           window.unityInstance = instance;
-          console.log("[VR-Bridge] Unity Instance loaded successfully.");
-          
           loadingBar.style.opacity = "0";
           setTimeout(() => loadingBar.style.display = "none", 500);
 
-          if (fullscreenButton) {
-            fullscreenButton.onclick = () => {
-              if (unityInstance) unityInstance.SetFullscreen(1);
-              else console.error("[VR-Bridge] Cannot toggle fullscreen: unityInstance not found.");
-            };
-          }
+          if (fullscreenButton) fullscreenButton.onclick = () => unityInstance.SetFullscreen(1);
 
-          // ── Bridge Data Injection ──
-          if (bridgeToken || apiBase) {
-            const payload = { bridge_token: bridgeToken, api_base: apiBase, session_id: sessionId };
-            console.log("[VR-Bridge] Injecting payload into Unity...");
-            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", JSON.stringify(payload));
-          } else {
-            console.warn("[VR-Bridge] No bridge parameters to inject.");
-          }
-
+          // Inject bridge data
+          const payload = { 
+            bridge_token: urlParams.get("bridge_token"), 
+            api_base: urlParams.get("api_base") || DEFAULT_API_BASE, 
+            session_id: urlParams.get("session_id") 
+          };
+          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", JSON.stringify(payload));
           postStatus("ready", "Virtual environment synchronized.");
-
         }).catch((err) => {
-          console.error("[VR-Bridge] Load failure:", err);
           postStatus("error", "Failed to launch VR: " + err);
-          alert("VR Load Error: " + err);
         });
       };
-      
-      script.onerror = () => postStatus("error", "Failed to load Unity loader script.");
       document.body.appendChild(script);
 
-      // ── WebXR Listeners ──
-      // Some templates use events, others use direct Module access
-      document.addEventListener('onARSupportedCheck', (e) => {
-        console.log("[VR-Bridge] AR Support Check:", e.detail.supported);
-        if (enterARButton) enterARButton.disabled = !e.detail.supported;
-      });
-      document.addEventListener('onVRSupportedCheck', (e) => {
-        console.log("[VR-Bridge] VR Support Check:", e.detail.supported);
-        if (enterVRButton) enterVRButton.disabled = !e.detail.supported;
-      });
+      // WebXR
+      document.addEventListener('onARSupportedCheck', (e) => { if (enterARButton) enterARButton.disabled = !e.detail.supported; }, false);
+      document.addEventListener('onVRSupportedCheck', (e) => { if (enterVRButton) enterVRButton.disabled = !e.detail.supported; }, false);
 
-      if (enterVRButton) {
-        enterVRButton.onclick = () => {
-          if (unityInstance && unityInstance.Module && unityInstance.Module.WebXR) {
-            unityInstance.Module.WebXR.toggleVR();
-          } else {
-            console.warn("[VR-Bridge] WebXR module not ready.");
-            alert("VR initialization in progress, please wait...");
-          }
-        };
-      }
-      
-      if (enterARButton) {
-        enterARButton.onclick = () => {
-          if (unityInstance && unityInstance.Module && unityInstance.Module.WebXR) {
-            unityInstance.Module.WebXR.toggleAR();
-          } else {
-            console.warn("[VR-Bridge] WebXR module not ready.");
-          }
-        };
-      }
+      if (enterVRButton) enterVRButton.onclick = () => { if (unityInstance?.Module?.WebXR) unityInstance.Module.WebXR.toggleVR(); };
+      if (enterARButton) enterARButton.onclick = () => { if (unityInstance?.Module?.WebXR) unityInstance.Module.WebXR.toggleAR(); };
 
-      // ── Audio Context Fix ──
       const resumeAudio = () => {
         const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (Ctx) {
-          const t = new Ctx();
-          if (t.state === 'suspended') t.resume().then(() => t.close());
-        }
+        if (Ctx) { const t = new Ctx(); if (t.state === 'suspended') t.resume().then(() => t.close()); }
         document.removeEventListener('click', resumeAudio);
       };
       document.addEventListener('click', resumeAudio);
