@@ -235,15 +235,31 @@ async def _call_single_provider(
         google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not google_key:
             raise ValueError("Gemini API key not configured")
-        import google.generativeai as genai  # type: ignore  # pyright: ignore
-        genai.configure(api_key=google_key)  # type: ignore  # pyright: ignore
-        model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.5-flash"))  # type: ignore  # pyright: ignore
         prompt_text = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
         try:
-            resp = await run_in_threadpool(
-                lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
-            )
-            return resp.text or ""  # type: ignore  # pyright: ignore
+            # FIX: Migrate to new google.genai package (google.generativeai is deprecated)
+            # Falls back to old package if new one not installed yet.
+            try:
+                from google import genai as new_genai  # type: ignore  # pyright: ignore
+                client = new_genai.Client(api_key=google_key)  # type: ignore
+                model_name = os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
+                resp = await run_in_threadpool(
+                    lambda: client.models.generate_content(  # type: ignore
+                        model=model_name,
+                        contents=prompt_text,
+                    )
+                )
+                return resp.text or ""  # type: ignore
+            except ImportError:
+                # Fallback to legacy package if new one not installed
+                import google.generativeai as genai  # type: ignore  # pyright: ignore
+                genai.configure(api_key=google_key)  # type: ignore
+                model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.5-flash"))  # type: ignore
+                resp = await run_in_threadpool(
+                    lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
+                )
+                return resp.text or ""  # type: ignore  # pyright: ignore
+
         except Exception as e:
             # Check for Gemini quota/429 error and raise special exception
             if "quota" in str(e).lower() or "429" in str(e):
@@ -903,11 +919,14 @@ def _collect_user_seen_questions(db, user_id: str, max_sessions: int = 30) -> se
     """
     seen: set = set()
     try:
-        cursor = db.user_sessions.find(
-            {"user_id": user_id},
-            {"questions": 1, "all_questions": 1},
-            sort=[("created_at", -1)],
-            limit=max_sessions,
+        # FIX: Use method chaining for sort/limit instead of keyword args.
+        # MockCollection.find() only accepts (filter, projection) as args.
+        # Passing sort= or limit= as kwargs causes TypeError in development.
+        cursor = (
+            db.user_sessions
+            .find({"user_id": user_id}, {"questions": 1, "all_questions": 1})
+            .sort("created_at", -1)
+            .limit(max_sessions)
         )
         for session in cursor:
             q_list = session.get("questions") or session.get("all_questions") or []
