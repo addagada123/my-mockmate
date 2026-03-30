@@ -61,7 +61,16 @@
       const DEFAULT_API_BASE = "https://mockmate-api-6dvm.onrender.com";
       const urlParams = new URLSearchParams(window.location.search);
 
-      // Handle fallback token mapping for older plugins
+      // ── FIX 1: Notify parent React frame immediately that loading has started ──
+      // Without this, the React loading spinner never activates.
+      const postStatus = (status, detail) => {
+        if (window.parent !== window) {
+          window.parent.postMessage({ source: "mockmate-vr", status, detail }, "*");
+        }
+      };
+      postStatus("loading", "Initializing VR environment...");
+
+      // ── Handle fallback token mapping for older plugins ──
       window._InitWhisperSTT = function(apiKey, language, objectName, methodName) {
         const state = window._whisperData;
         state.apiKey = apiKey;
@@ -72,10 +81,15 @@
         if (!state.bridgeToken) state.bridgeToken = (urlParams.get("bridge_token") || apiKey);
       };
 
+      // ── FIX 2: Check res.ok before parsing JSON to prevent sending error bodies as transcripts ──
+      // Previously, a 429 response body {"detail":"..."} was parsed and data.text was undefined,
+      // sending an empty string or causing the error branch to fire with confusing messages.
       window._SendToWhisper = function(blob) {
         const state = window._whisperData;
-        const token = state.bridgeToken || (urlParams.get("bridge_token"));
+        const token = state.bridgeToken || urlParams.get("bridge_token");
         const apiBase = (state.apiBase || urlParams.get("api_base") || DEFAULT_API_BASE).replace(/\/$/, "");
+        const objectName = state.unityObjectName || "WebGLWhisperSTT";
+        const methodName = state.unityMethodName || "OnTranscriptionReceived";
 
         const formData = new FormData();
         formData.append("file", blob, "recording.wav");
@@ -83,11 +97,24 @@
         if (state.language) url += `&language=${encodeURIComponent(state.language)}`;
 
         fetch(url, { method: "POST", body: formData })
-          .then(res => res.json())
+          .then(res => {
+            // FIX: check HTTP status before parsing body
+            if (!res.ok) {
+              throw new Error(`Proxy error: ${res.status}`);
+            }
+            return res.json();
+          })
           .then(data => {
-            if (window.unityInstance) window.unityInstance.SendMessage(state.unityObjectName || "WebGLWhisperSTT", state.unityMethodName || "OnTranscriptionReceived", data.text || "");
-          }).catch(err => {
-            if (window.unityInstance) window.unityInstance.SendMessage(state.unityObjectName || "WebGLWhisperSTT", state.unityMethodName || "OnTranscriptionReceived", "ERROR: " + err.message);
+            const text = (data.text || "").trim();
+            // Only send to Unity if we got actual transcribed text
+            if (window.unityInstance && text) {
+              window.unityInstance.SendMessage(objectName, methodName, text);
+            }
+          })
+          .catch(err => {
+            // Log the error but do NOT send "ERROR:..." to Unity as it
+            // would be treated as a transcript answer, causing 409 conflicts.
+            console.warn("[VR-STT] Transcription failed (will retry on next speech):", err.message);
           });
       };
       
@@ -114,28 +141,56 @@
       // ── Native Web Speech Fallback ──
       window._nativeSpeech = { synth: window.speechSynthesis, isSpeaking: false };
       window.speakNative = function(text, objectName) {
-        if (!window._nativeSpeech.synth) return;
-        window._nativeSpeech.synth.cancel();
+        const synth = window._nativeSpeech.synth;
+        if (!synth) {
+          // No speech synthesis support — notify Unity immediately so it doesn't hang
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
+          return;
+        }
+        synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.onstart = () => { window._nativeSpeech.isSpeaking = true; if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart"); };
-        utterance.onend = () => { window._nativeSpeech.isSpeaking = false; if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd"); };
-        window._nativeSpeech.synth.speak(utterance);
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        utterance.onstart = () => {
+          window._nativeSpeech.isSpeaking = true;
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart");
+        };
+        utterance.onend = () => {
+          window._nativeSpeech.isSpeaking = false;
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
+        };
+        // ── FIX 3: Add onerror handler so Unity is never left hanging ──
+        // Without this, if the browser cancels speech (e.g. no voices loaded),
+        // Unity's BrowserTTS coroutine hangs forever waiting for OnSpeakEnd.
+        utterance.onerror = (e) => {
+          console.warn("[VR-TTS] SpeechSynthesis error:", e.error);
+          window._nativeSpeech.isSpeaking = false;
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
+        };
+        synth.speak(utterance);
       };
 
       window.startNativeSTT = function(objectName) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) return;
         const rec = new SpeechRecognition();
-        rec.onresult = (e) => { if (unityInstance) unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', e.results[0][0].transcript); };
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.onresult = (e) => {
+          if (unityInstance) {
+            unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', e.results[0][0].transcript);
+          }
+        };
+        rec.onerror = (e) => console.warn("[VR-NativeSTT] Error:", e.error);
         rec.start();
       };
 
-      const postStatus = (status, detail) => { if (window.parent !== window) window.parent.postMessage({ source: "mockmate-vr", status, detail }, "*"); };
-
       const script = document.createElement("script");
       script.src = loaderUrl;
+
       script.onload = () => {
         if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) config.devicePixelRatio = 1;
+        postStatus("loading", "Unity runtime is loading, please wait...");
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
         }).then((instance) => {
@@ -146,33 +201,54 @@
 
           if (fullscreenButton) fullscreenButton.onclick = () => unityInstance.SetFullscreen(1);
 
-          // Inject bridge data
+          // Inject bridge data into Unity
           const payload = { 
-            bridge_token: urlParams.get("bridge_token"), 
+            bridge_token: urlParams.get("bridge_token") || "", 
             api_base: urlParams.get("api_base") || DEFAULT_API_BASE, 
-            session_id: urlParams.get("session_id") 
+            session_id: urlParams.get("session_id") || ""
           };
           unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", JSON.stringify(payload));
           postStatus("ready", "Virtual environment synchronized.");
         }).catch((err) => {
-          postStatus("error", "Failed to launch VR: " + err);
+          postStatus("error", "Failed to launch VR runtime: " + err);
         });
       };
+
+      // ── FIX 4: Add script.onerror so React is notified if Build7.loader.js is missing ──
+      // Without this, a 404 on the loader file shows a blank screen with no user feedback.
+      script.onerror = () => {
+        postStatus("error", "Failed to load VR assets (Build7.loader.js not found). Please check that the Build folder is deployed correctly.");
+      };
+
       document.body.appendChild(script);
 
-      // WebXR
+      // WebXR button wiring
       document.addEventListener('onARSupportedCheck', (e) => { if (enterARButton) enterARButton.disabled = !e.detail.supported; }, false);
       document.addEventListener('onVRSupportedCheck', (e) => { if (enterVRButton) enterVRButton.disabled = !e.detail.supported; }, false);
-
       if (enterVRButton) enterVRButton.onclick = () => { if (unityInstance?.Module?.WebXR) unityInstance.Module.WebXR.toggleVR(); };
       if (enterARButton) enterARButton.onclick = () => { if (unityInstance?.Module?.WebXR) unityInstance.Module.WebXR.toggleAR(); };
 
+      // ── FIX 5: Resume AudioContext correctly ──
+      // Old code created & immediately closed a NEW AudioContext which did nothing useful.
+      // Unity's AudioContext is created internally — we just need to trigger resumption
+      // on the first user interaction (required by browser autoplay policy).
       const resumeAudio = () => {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (Ctx) { const t = new Ctx(); if (t.state === 'suspended') t.resume().then(() => t.close()); }
-        document.removeEventListener('click', resumeAudio);
+        // Attempt to resume any suspended AudioContext instances
+        if (window.AudioContext || window.webkitAudioContext) {
+          // Unity manages its own AudioContext; a user gesture is all that's needed.
+          // We also try to resume any globally accessible context.
+          if (unityInstance && unityInstance.Module && unityInstance.Module.ctx) {
+            const ctx = unityInstance.Module.ctx;
+            if (ctx.state === "suspended") ctx.resume();
+          }
+        }
+        document.removeEventListener("click", resumeAudio);
+        document.removeEventListener("keydown", resumeAudio);
+        document.removeEventListener("touchstart", resumeAudio);
       };
-      document.addEventListener('click', resumeAudio);
+      document.addEventListener("click", resumeAudio);
+      document.addEventListener("keydown", resumeAudio);
+      document.addEventListener("touchstart", resumeAudio, { passive: true });
     </script>
   </body>
 </html>
