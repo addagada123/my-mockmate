@@ -980,23 +980,28 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
             behavioral: List[QAItem] = Field(min_length=2, max_length=5)
 
         def extract_json_from_text(s: str):
+            if not s:
+                return None
+            cleaned = str(s).strip()
+            # Gemini occasionally prefixes prose or emits control characters that break raw json.loads.
+            cleaned = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", cleaned)
             try:
-                return json.loads(s)
+                return json.loads(cleaned)
             except Exception:
                 pass
-            m = re.search(r"```json\s*(\{.*?\})\s*```", s, flags=re.S)
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.S)
             if m:
                 try:
                     return json.loads(m.group(1))
                 except Exception:
                     pass
-            start = s.find('{')
+            start = cleaned.find('{')
             if start == -1:
                 return None
-            end = s.rfind('}')
+            end = cleaned.rfind('}')
             if end == -1 or end <= start:
                 return None
-            candidate = s[start:end+1] # type: ignore
+            candidate = cleaned[start:end+1] # type: ignore
             try:
                 return json.loads(candidate)
             except Exception:
@@ -1168,6 +1173,11 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
                     questions.append(qobj)
                     qid += 1
                 final_sections.append({"title": title, "questions": questions})
+
+        total_generated_questions = sum(len(section.get("questions", [])) for section in final_sections)
+        if total_generated_questions == 0:
+            print("[parallel-merge] No usable questions after parsing/merge. Falling back to deterministic resume-only questions.")
+            final_sections = build_resume_only_questions(resume_text, skills, focus_analysis, session)
 
         final_response = {
             "status": "success",
