@@ -37,3 +37,16 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /vr/Build/*.gz
+        name: Content-Encoding
+        value: gzip
+      - path: /vr/Build/*.wasm.gz
+        name: Content-Type
+        value: application/wasm
+      - path: /vr/Build/*.js.gz
+        name: Content-Type
+        value: application/javascript
+      - path: /vr/Build/*.data.gz
+        name: Content-Type
+        value: application/octet-stream

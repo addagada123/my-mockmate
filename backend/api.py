@@ -3525,7 +3525,15 @@ async def get_vr_next_question(
         source_questions = session.get("questions", [])
         if not source_questions:
             # Try database fallback if session object is out of sync
-            cache = db.resume_question_cache.find_one({"session_id": session_id})
+            # Harden lookup to handle both String and ObjectId formats
+            query_filter = {"session_id": session_id}
+            if ObjectId:
+                try:
+                    query_filter = {"$or": [{"session_id": session_id}, {"session_id": ObjectId(session_id)}]}
+                except:
+                    pass
+            
+            cache = db.resume_question_cache.find_one(query_filter)
             if cache:
                 source_questions = cache.get("questions", [])
         
