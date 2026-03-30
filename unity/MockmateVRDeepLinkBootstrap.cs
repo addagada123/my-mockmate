@@ -1,6 +1,10 @@
 using System;
 using UnityEngine;
 
+/// <summary>
+/// Handles both WebGL SendMessage (SetBridgeToken) and Native Deep Linking (mockmate://)
+/// to synchronize the VR interview session.
+/// </summary>
 public class MockmateVRDeepLinkBootstrap : MonoBehaviour
 {
     [SerializeField] private MockmateVRFlowController flowController;
@@ -33,7 +37,6 @@ public class MockmateVRDeepLinkBootstrap : MonoBehaviour
         }
 
         // 2. Fallback for Windows: Check Environment command line args 
-        // (Sometimes absoluteURL is empty if the app was launched by the protocol)
         string[] args = System.Environment.GetCommandLineArgs();
         foreach (string arg in args)
         {
@@ -45,15 +48,14 @@ public class MockmateVRDeepLinkBootstrap : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Handles native deep links (mockmate://?bridge_token=...&api_base=...)
+    /// </summary>
     private void OnDeepLinkActivated(string url)
     {
         if (flowController == null)
             flowController = FindFirstObjectByType<MockmateVRFlowController>();
-        if (flowController == null)
-        {
-            Debug.LogError("[MockmateVR] Flow controller missing for deep-link bootstrap");
-            return;
-        }
+        if (flowController == null) return;
 
         string token = GetQueryParam(url, "bridge_token");
         string apiBase = GetQueryParam(url, "api_base");
@@ -66,6 +68,38 @@ public class MockmateVRDeepLinkBootstrap : MonoBehaviour
 
         if (autoBeginOnDeepLink && !string.IsNullOrWhiteSpace(token))
             flowController.BeginFlow();
+    }
+
+    /// <summary>
+    /// Called via SendMessage from index.html in WebGL builds.
+    /// Expects a JSON string: { "bridge_token": "...", "api_base": "...", "session_id": "..." }
+    /// </summary>
+    public void SetBridgeToken(string jsonPayload)
+    {
+        Debug.Log($"[MockmateVR] Received bridge token from browser: {jsonPayload}");
+        try
+        {
+            var data = JsonUtility.FromJson<BridgeData>(jsonPayload);
+            if (data == null || string.IsNullOrWhiteSpace(data.bridge_token)) return;
+
+            if (flowController == null)
+                flowController = FindFirstObjectByType<MockmateVRFlowController>();
+
+            if (flowController != null)
+            {
+                if (!string.IsNullOrWhiteSpace(data.api_base))
+                    flowController.SetApiBase(data.api_base);
+
+                flowController.SetBridgeToken(data.bridge_token);
+                
+                if (autoBeginOnDeepLink)
+                    flowController.BeginFlow();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[MockmateVR] Error parsing bridge token: {ex.Message}");
+        }
     }
 
     private static string GetQueryParam(string url, string key)
@@ -84,5 +118,13 @@ public class MockmateVRDeepLinkBootstrap : MonoBehaviour
             return p.Substring(eq + 1);
         }
         return string.Empty;
+    }
+
+    [Serializable]
+    private class BridgeData
+    {
+        public string bridge_token;
+        public string api_base;
+        public string session_id;
     }
 }
