@@ -139,7 +139,6 @@ public class MockmateVRBackendTTS : MonoBehaviour
             while (audioSource != null && audioSource.isPlaying)
                 yield return null;
 
-            // --- SYNC END ---
             if (animationBridge != null) animationBridge.StopTalking();
             NotifyFlowOfCompletion();
         }
