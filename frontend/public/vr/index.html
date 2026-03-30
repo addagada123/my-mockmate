@@ -149,6 +149,7 @@
         }
         synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
+        window._nativeSpeech.currentUtterance = utterance; // Prevent garbage collection bug
         utterance.rate = 0.95;
         utterance.pitch = 1.0;
         utterance.onstart = () => {

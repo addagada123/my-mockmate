@@ -60,6 +60,16 @@ except ImportError:
     httpx = None
 
 try:
+    import edge_tts # type: ignore
+except ImportError:
+    edge_tts = None
+
+try:
+    import google.generativeai as genai # type: ignore
+except ImportError:
+    genai = None
+
+try:
     from bson import ObjectId # type: ignore
 except ImportError:
     ObjectId = None
@@ -3966,6 +3976,65 @@ async def poll_bridge_token(device_id: str):
     }
 
 
+async def _generate_edge_tts(text: str, voice: Optional[str] = "en-US-AndrewNeural") -> bytes:
+    """Free alternative to OpenAI TTS using Edge TTS."""
+    if edge_tts is None:
+        raise HTTPException(status_code=500, detail="edge-tts not installed")
+    
+    # Map common OpenAI voices to high-quality Edge voices
+    # alloy -> en-US-AndrewNeural, echo -> en-US-BrianNeural, etc.
+    voice_map = {
+        "alloy": "en-US-AndrewNeural",
+        "echo": "en-US-BrianNeural",
+        "fable": "en-GB-ThomasNeural",
+        "onyx": "en-US-ChristopherNeural",
+        "nova": "en-US-EmmaNeural",
+        "shimmer": "en-US-AvaNeural"
+    }
+    target_voice = voice_map.get(str(voice).lower(), "en-US-AndrewNeural")
+    
+    try:
+        communicate = edge_tts.Communicate(text, target_voice)
+        audio_stream = []
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_stream.append(chunk["data"])
+        return b"".join(audio_stream)
+    except Exception as e:
+        logger.error(f"Edge TTS failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Edge TTS fallback failed: {e}")
+
+
+async def _transcribe_with_gemini(audio_content: bytes, language: Optional[str] = "en") -> Dict[str, Any]:
+    """Fallback STT using Gemini 1.5 Flash."""
+    if genai is None:
+        raise HTTPException(status_code=500, detail="google-generativeai not installed")
+    
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GOOGLE_API_KEY not configured for Gemini fallback")
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        
+        # Audio input for Gemini needs a bit of metadata
+        # We wrap it in a content block
+        response = await run_in_threadpool(
+            model.generate_content,
+            [
+                f"Transcribe this audio exactly into {language or 'English'}. Return ONLY the text, no conversational filler or markup.",
+                {"mime_type": "audio/wav", "data": audio_content}
+            ]
+        )
+        
+        transcript = response.text.strip()
+        return {"text": transcript, "provider": "gemini"}
+    except Exception as e:
+        logger.error(f"Gemini transcription fallback failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Gemini fallback failed: {e}")
+
+
 @app.post("/vr-bridge/tts")
 async def generate_vr_bridge_tts(payload: VRBridgeTTSRequest, request: Request):
     """
@@ -4023,22 +4092,41 @@ async def generate_vr_bridge_tts(payload: VRBridgeTTSRequest, request: Request):
             )
             
             if upstream.status_code == 429:
-                logger.warning("OpenAI TTS Rate Limit (429) hit. Advancing with fallback.")
-                raise HTTPException(status_code=429, detail="Upstream Rate Limit. Switching to browser fallback.")
+                logger.warning("OpenAI TTS Rate Limit (429) hit. Advancing with Edge-TTS fallback.")
+                fallback_audio = await _generate_edge_tts(text, voice)
+                return Response(
+                    content=fallback_audio,
+                    media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-store", "X-TTS-Provider": "edge-tts"}
+                )
 
             if upstream.status_code >= 400:
                 detail = upstream.text.strip() or f"OpenAI TTS failed with {upstream.status_code}"
-                raise HTTPException(status_code=upstream.status_code, detail=detail)
+                logger.warning(f"OpenAI TTS failed ({upstream.status_code}). Trying Edge-TTS fallback.")
+                fallback_audio = await _generate_edge_tts(text, voice)
+                return Response(
+                    content=fallback_audio,
+                    media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-store", "X-TTS-Provider": "edge-tts"}
+                )
 
             return Response(
                 content=upstream.content,
                 media_type=_tts_media_type(response_format),
-                headers={"Cache-Control": "no-store"}
+                headers={"Cache-Control": "no-store", "X-TTS-Provider": "openai"}
             )
     except Exception as exc:
         if isinstance(exc, HTTPException): raise
-        logger.exception("VR TTS upstream request failed")
-        raise HTTPException(status_code=502, detail=f"TTS upstream request failed: {exc}")
+        logger.exception("VR TTS upstream request failed, attempting Edge-TTS fallback")
+        try:
+            fallback_audio = await _generate_edge_tts(text, voice)
+            return Response(
+                content=fallback_audio,
+                media_type="audio/mpeg",
+                headers={"Cache-Control": "no-store", "X-TTS-Provider": "edge-tts"}
+            )
+        except Exception:
+            raise HTTPException(status_code=502, detail=f"TTS failover also failed: {exc}")
 
 @app.post("/vr-bridge/transcribe")
 async def transcribe_vr_bridge_audio(
@@ -4092,17 +4180,38 @@ async def transcribe_vr_bridge_audio(
                     files=files
                 )
                 
+                # STT Quota Fallback (Try Groq if API Key exists)
+                if upstream.status_code == 429 or upstream.status_code >= 500:
+                    groq_key = os.getenv("GROQ_API_KEY")
+                    if groq_key:
+                        logger.warning("OpenAI STT failed (Quota/429). Attempting Groq Whisper Fallback.")
+                        groq_files = {
+                            "file": (file.filename or "recording.wav", audio_content, file.content_type or "audio/wav"),
+                            "model": (None, "whisper-large-v3"),
+                        }
+                        groq_upstream = await client.post(
+                            "https://api.groq.com/openai/v1/audio/transcriptions",
+                            headers={"Authorization": f"Bearer {groq_key}"},
+                            files=groq_files
+                        )
+                        if groq_upstream.status_code < 400:
+                            return groq_upstream.json()
+                            
+                if upstream.status_code == 429:
+                    logger.warning("OpenAI Whisper Rate Limit (429) hit. Trying Gemini 1.5 Flash fallback.")
+                    return await _transcribe_with_gemini(audio_content, language)
+                
                 if upstream.status_code >= 400:
                     detail = upstream.text.strip() or f"OpenAI STT failed with HTTP {upstream.status_code}"
-                    logger.error(f"VR STT upstream error {upstream.status_code}: {detail}")
-                    raise HTTPException(status_code=upstream.status_code, detail=detail)
+                    logger.error(f"VR STT upstream error {upstream.status_code}: {detail}. Trying Gemini fallback.")
+                    return await _transcribe_with_gemini(audio_content, language)
 
                 return upstream.json()
         except HTTPException:
             raise
         except Exception as exc:
-            logger.exception("VR STT upstream request failed")
-            raise HTTPException(status_code=502, detail=f"STT upstream request failed: {exc}")
+            logger.exception("VR STT upstream request failed, attempting Gemini fallback")
+            return await _transcribe_with_gemini(audio_content, language)
 
     except HTTPException:
         raise

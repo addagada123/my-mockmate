@@ -22,3 +22,4 @@ email-validator
 python-jose[cryptography]
 bcrypt>=4.0
 httpx
+edge-tts
