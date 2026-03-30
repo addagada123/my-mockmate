@@ -3,14 +3,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 
 import { useNavigate } from "react-router-dom";
+import { API_BASE } from "../config/runtime";
 
 import "./SignIn.css";
 
 import mockmateLogoVideo from "../assets/mockmate-logo.mp4";
-
-
-
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "406943845792-1dqmvsqci74o91frrqflqnp0701e4r4v.apps.googleusercontent.com";
 

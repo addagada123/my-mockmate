@@ -67,10 +67,12 @@
       };
       window.WebGLWhisperState = window.WebGLWhisperState || window._whisperData;
 
+      const DEFAULT_API_BASE = "https://mockmate-api-6dvm.onrender.com";
+
       // Handle URL parameters early for fallbacks
       const urlParams = new URLSearchParams(window.location.search);
       const urlBridgeToken = (urlParams.get("bridge_token") || "").trim();
-      const urlApiBase = (urlParams.get("api_base") || "").trim();
+      const urlApiBase = ((urlParams.get("api_base") || "").trim() || DEFAULT_API_BASE).replace(/\/$/, "");
 
       // Patch for older .jslib versions that call _InitWhisperSTT
       window._InitWhisperSTT = function(apiKey, language, objectName, methodName) {
@@ -95,7 +97,7 @@
         
         // Handle both naming styles and prioritize URL params if state is empty
         const token = state.bridgeToken || state.apiKey || urlBridgeToken;
-        const apiBase = state.apiBase || urlApiBase || window.apiBase || "";
+        const apiBase = state.apiBase || urlApiBase || window.apiBase || DEFAULT_API_BASE;
 
         if (!token) {
           console.error("[VR-Bridge] Cannot send to Whisper: Bridge Token (or apiKey) missing.");
@@ -219,7 +221,7 @@
 
       // ── Enhanced URL Parameter Handling ──
       const bridgeToken = (urlParams.get("bridge_token") || "").trim();
-      const apiBase = (urlParams.get("api_base") || "").trim();
+      const apiBase = ((urlParams.get("api_base") || "").trim() || DEFAULT_API_BASE).replace(/\/$/, "");
       const sessionId = (urlParams.get("session_id") || "").trim();
       const customStreamingAssets = urlParams.get("streaming_assets_url");
 

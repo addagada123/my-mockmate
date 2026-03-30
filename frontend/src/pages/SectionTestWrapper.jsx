@@ -3,8 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import LoadingPage from "./LoadingPage";
 import CodingQuestion from "./CodingQuestion";
-
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+import { API_BASE } from "../config/runtime";
 
 function SectionTestWrapper() {
   const { sessionId, topic, difficulty } = useParams();

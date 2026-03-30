@@ -138,26 +138,38 @@ public class VRInterviewGlue : MonoBehaviour
         // Fallback to direct OpenAI TTS if available and permitted
         if (canUseOpenAITTS)
         {
+            if (animationBridge != null) animationBridge.StartTalking();
             IEnumerator openAiSpeak = InvokeEnumeratorIfPresent(openAITTS, "Speak", _currentQuestionText);
             if (openAiSpeak != null)
             {
                 yield return openAiSpeak;
+                if (animationBridge != null) animationBridge.StopTalking();
                 if (ReadBoolMember(openAITTS, "LastSpeakSucceeded"))
                 {
                     flowController?.NotifyQuestionSpeechCompleted();
                     yield break;
                 }
             }
+            else if (animationBridge != null)
+            {
+                animationBridge.StopTalking();
+            }
         }
 
         if (avatarTTS != null)
         {
+            if (animationBridge != null) animationBridge.StartTalking();
             IEnumerator avatarSpeak = InvokeEnumeratorIfPresent(avatarTTS, "Speak", _currentQuestionText);
             if (avatarSpeak != null)
             {
                 yield return avatarSpeak;
+                if (animationBridge != null) animationBridge.StopTalking();
                 flowController?.NotifyQuestionSpeechCompleted();
                 yield break;
+            }
+            else if (animationBridge != null)
+            {
+                animationBridge.StopTalking();
             }
         }
 

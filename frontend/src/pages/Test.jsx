@@ -3,9 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
-
-const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === "localhost" ? "http://127.0.0.1:8000" : `http://${window.location.hostname}:8000`);
-const VR_STREAMING_ASSETS_URL = (import.meta.env.VITE_VR_STREAMING_ASSETS_URL || "").trim();
+import { API_BASE, VR_STREAMING_ASSETS_URL } from "../config/runtime";
 const VR_DEVICE_ID = "mockmate-vr-default";
 
 function isSqlTopic(topicText) {

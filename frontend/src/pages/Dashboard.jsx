@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import mockmateLogoVideo from "../assets/mockmate-logo.mp4";
-
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+import { API_BASE } from "../config/runtime";
 
 function Dashboard() {
   const navigate = useNavigate();
