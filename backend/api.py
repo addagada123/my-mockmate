@@ -3921,25 +3921,28 @@ async def generate_vr_bridge_tts(payload: VRBridgeTTSRequest, request: Request):
         raise HTTPException(status_code=500, detail="httpx is not installed")
 
     response_format = str(payload.response_format or "wav").strip().lower()
-    tts_model = str(payload.model or "tts-1").strip()
-    if tts_model not in ["tts-1", "tts-1-hd"]: tts_model = "tts-1"
-
+    model = str(payload.model or "tts-1").strip()
+    voice = str(payload.voice or "alloy").strip() or "alloy"
+    # Normalize model to tts-1 for reliability in VR
+    effective_model = "tts-1" if model in ["tts-1", "tts-1-hd", "gpt-4o-mini-tts"] else "tts-1"
+    
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             upstream = await client.post(
                 "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {openai_key}",
-                    "Content-Type": "application/json",
-                },
+                headers={"Authorization": f"Bearer {openai_key}"},
                 json={
-                    "model": tts_model,
-                    "voice": str(payload.voice or "alloy").strip() or "alloy",
+                    "model": effective_model,
                     "input": text,
+                    "voice": voice,
                     "response_format": response_format,
                 },
             )
             
+            if upstream.status_code == 429:
+                logger.warning("OpenAI TTS Rate Limit (429) hit. Advancing with fallback.")
+                raise HTTPException(status_code=429, detail="Upstream Rate Limit. Switching to browser fallback.")
+
             if upstream.status_code >= 400:
                 detail = upstream.text.strip() or f"OpenAI TTS failed with {upstream.status_code}"
                 raise HTTPException(status_code=upstream.status_code, detail=detail)

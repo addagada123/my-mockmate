@@ -234,6 +234,8 @@ public class VRInterviewGlue : MonoBehaviour
             }
         }
 
+        // Final fallback: just notify and finish if everything else failed
+        Debug.LogWarning("[MockmateVR-Glue] All TTS attempts failed. Advancing manually.");
         flowController?.NotifyQuestionSpeechCompleted();
     }
 
