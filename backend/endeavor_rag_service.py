@@ -38,7 +38,7 @@ def _create_llm_for_provider(provider: str, temperature: float = 0.8):
         )
     elif provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        model = os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
+        model = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         kwargs = {"model": model, "temperature": temperature}
         if api_key:
@@ -1007,9 +1007,12 @@ def interview_rag_pipeline(resume_pdf_path: str, collection):
             except Exception:
                 return None
 
-        # --- PARALLEL: Call all providers simultaneously ---
-        parallel_results = call_llm_parallel(prompt)
-        llm_text = parallel_results[0]["text"] if parallel_results else None
+        # --- FAST-PATH: Call primary provider directly (sequential fallback handles others) ---
+        raw_text = call_llm_with_fallback(prompt)
+        
+        # Mock the parallel_results structure for compatibility with existing merge logic
+        parallel_results = [{ "provider": os.getenv("LLM_PROVIDER", "google"), "text": raw_text, "error": None }]
+        llm_text = raw_text
 
         # Parse each provider's response and collect all questions
         all_parsed_sections = {

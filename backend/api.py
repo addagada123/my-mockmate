@@ -3503,10 +3503,39 @@ async def get_vr_next_question(
 
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
-    idx = int(vr_state.get("current_question_index", 0))
-
+    
     if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+        # Lazy initialization fallback: if vr_test is missing, try to build it from session["questions"]
+        source_questions = session.get("questions", [])
+        if source_questions:
+            logger.info(f"Lazy-initializing VR state for session {session_id}")
+            vr_questions = []
+            for i, q in enumerate(source_questions):
+                vr_questions.append({
+                    "index": i,
+                    "id": q.get("id") or f"vr_q_{i+1}",
+                    "question": q.get("question") or "",
+                    "answer": q.get("answer") or "",
+                    "topic": q.get("topic") or "General",
+                    "difficulty": str(q.get("difficulty") or "medium").lower(),
+                    "type": q.get("type") or "open",
+                })
+            
+            vr_state = {
+                "status": "in_progress",
+                "current_question_index": 0,
+                "questions": vr_questions,
+                "answers": [],
+            }
+            db.user_sessions.update_one({"_id": _}, {"$set": {"vr_test": vr_state}})
+            questions = vr_questions
+            
+    if not questions:
+        logger.warning(f"VR test requested but no questions found for session {session_id}")
+        raise HTTPException(status_code=404, detail="VR test not initialized and no raw questions found")
+
+    # Define idx AFTER potential lazy-init to ensure we have the correct index
+    idx = int(vr_state.get("current_question_index", 0))
 
     if idx >= len(questions):
         return {
