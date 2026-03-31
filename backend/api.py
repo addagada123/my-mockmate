@@ -4061,7 +4061,9 @@ async def _transcribe_with_gemini(audio_content: bytes, language: Optional[str] 
         return {"text": transcript, "provider": "gemini"}
     except Exception as e:
         logger.error(f"Gemini transcription fallback failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Gemini fallback failed: {e}")
+        # Return empty transcript instead of 502 so the VR interview flow doesn't hang.
+        # The FlowController will advance (with an empty answer) rather than getting stuck.
+        return {"text": "", "provider": "fallback-empty", "error": str(e)}
 
 
 @app.post("/vr-bridge/tts")

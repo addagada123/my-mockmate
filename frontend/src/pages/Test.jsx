@@ -1101,7 +1101,7 @@ function Test() {
               </div>
             )}
             <iframe
-              key={vrBridgeToken}
+              key="vr-unity-iframe"
               src={unityUrl}
               title="MockMate VR"
               onLoad={() => {
