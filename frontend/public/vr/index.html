@@ -150,7 +150,7 @@
         synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         window._nativeSpeech.currentUtterance = utterance; // Prevent garbage collection bug
-        utterance.rate = 0.95;
+        utterance.rate = 1.1; // Restored to match original JSLib preference
         utterance.pitch = 1.0;
         utterance.onstart = () => {
           window._nativeSpeech.isSpeaking = true;
@@ -161,8 +161,6 @@
           if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
         };
         // ── FIX 3: Add onerror handler so Unity is never left hanging ──
-        // Without this, if the browser cancels speech (e.g. no voices loaded),
-        // Unity's BrowserTTS coroutine hangs forever waiting for OnSpeakEnd.
         utterance.onerror = (e) => {
           console.warn("[VR-TTS] SpeechSynthesis error:", e.error);
           window._nativeSpeech.isSpeaking = false;
@@ -175,8 +173,10 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) return;
         const rec = new SpeechRecognition();
+        rec.lang = 'en-US'; // Restored to match original JSLib
         rec.continuous = false;
         rec.interimResults = false;
+        rec.maxAlternatives = 1; // Restored to match original JSLib
         rec.onresult = (e) => {
           if (unityInstance) {
             unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', e.results[0][0].transcript);
