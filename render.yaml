@@ -65,9 +65,3 @@ services:
       - path: /vr/Build/*.js
         name: Content-Type
         value: application/javascript
-      - path: /vr/Build/*.wasm.gz
-        name: Content-Encoding
-        value: gzip
-      - path: /vr/Build/*.wasm.br
-        name: Content-Encoding
-        value: br

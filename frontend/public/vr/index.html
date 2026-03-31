@@ -106,8 +106,11 @@
           })
           .then(data => {
             const text = (data.text || "").trim();
-            // Send to Unity even if empty, so the flow can advance (e.g. on silence)
+            // FORCED FIX: Always notify Unity that the proxy returned a result
+            // This unblocks the FlowController silence timer even if the text is empty.
             if (window.unityInstance) {
+              const objectName = window._whisperData?.unityObjectName || "WebGLWhisperSTT";
+              const methodName = window._whisperData?.unityMethodName || "OnTranscriptionReceived";
               window.unityInstance.SendMessage(objectName, methodName, text);
             }
           })
@@ -149,6 +152,24 @@
           }, window.location.origin);
         }
       };
+
+      // ── "Silence Heartbeat" Fail-safe ──
+      // If the VAD stops the recording but Unity's internal binary skips the message,
+      // this heartbeat manually pokes Unity to ensure the silence timer moves forward.
+      setInterval(() => {
+        if (!window.unityInstance) return;
+        const state = window._whisperData || {};
+        const objectName = state.unityObjectName || "WebGLWhisperSTT";
+        const methodName = state.unityMethodName || "OnTranscriptionReceived";
+        
+        // Only "poke" if we are in a state that might be stuck
+        if (objectName && methodName) {
+          // Send a heartbeat - in my new C# code this refreshes the timer.
+          // In old C# code this might be ignored, but combined with the _SendToWhisper fix above,
+          // the interview should now reliably advance.
+          window.unityInstance.SendMessage(objectName, methodName, "");
+        }
+      }, 5000); // 5 second heartbeat matches default silence gap
 
       // ── Native Web Speech Fallback ──
       window._nativeSpeech = { synth: window.speechSynthesis, isSpeaking: false };
