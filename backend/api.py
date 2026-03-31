@@ -1519,20 +1519,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Gzip Static Middleware for Unity WebGL
+# Security and Static Assets Middleware (for Unity WebGL & Cross-Origin Isolation)
 @app.middleware("http")
-async def add_compression_headers(request: Request, call_next):
+async def add_security_and_static_headers(request: Request, call_next):
     response = await call_next(request)
+    
+    # Enable Cross-Origin Isolation (required for SharedArrayBuffer / Unity)
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    
     path = request.url.path
+    # Handle Gzip compressed files
     if path.endswith(".gz"):
         response.headers["Content-Encoding"] = "gzip"
-        # Set proper Content-Type for Unity compressed assets
         if path.endswith(".wasm.gz"):
             response.headers["Content-Type"] = "application/wasm"
         elif path.endswith(".js.gz"):
             response.headers["Content-Type"] = "application/javascript"
         elif path.endswith(".data.gz"):
             response.headers["Content-Type"] = "application/octet-stream"
+    # Handle uncompressed Unity files
+    elif path.endswith(".wasm"):
+        response.headers["Content-Type"] = "application/wasm"
+    elif path.endswith(".data"):
+        response.headers["Content-Type"] = "application/octet-stream"
+        
     return response
 
 # Ensure uploads dir exists
