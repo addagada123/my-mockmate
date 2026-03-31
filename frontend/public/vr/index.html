@@ -169,7 +169,7 @@
           // the interview should now reliably advance.
           window.unityInstance.SendMessage(objectName, methodName, "");
         }
-      }, 5000); // 5 second heartbeat matches default silence gap
+      }, 15000); // 15 second heartbeat - prevents interference with 3s-5s silence gap while still acting as last-resort fail-safe.
 
       // ── Native Web Speech Fallback ──
       window._nativeSpeech = { synth: window.speechSynthesis, isSpeaking: false };

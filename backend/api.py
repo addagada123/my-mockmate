@@ -3563,7 +3563,7 @@ async def get_vr_next_question(
     
     if not questions:
         # Lazy initialization fallback: if vr_test is missing, try to build it from session["questions"]
-        source_questions = session.get("questions", [])
+        source_questions = session.get("questions") or session.get("all_questions", [])
         if not source_questions:
             # Try database fallback if session object is out of sync
             # Harden lookup to handle both String and ObjectId formats
@@ -3575,8 +3575,11 @@ async def get_vr_next_question(
                     pass
             
             cache = db.resume_question_cache.find_one(query_filter)
+            if not cache and session.get("resume_hash"):
+                cache = db.resume_question_cache.find_one({"resume_hash": session["resume_hash"], "user_id": session["user_id"]})
+                
             if cache:
-                source_questions = cache.get("questions", [])
+                source_questions = cache.get("questions") or cache.get("all_questions", [])
         
         if source_questions:
             logger.info(f"Lazy-initializing VR state for session {session_id}")
@@ -3789,16 +3792,38 @@ async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, sessio
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
     
-    if not questions and session.get("_id") == "direct-pass":
-        questions = [
-            {"question": "Tell me about yourself and your professional background.", "answer": ""},
-            {"question": "Why are you interested in this position and our company?", "answer": ""},
-            {"question": "Describe a difficult situation you've faced at work and how you handled it.", "answer": ""},
-            {"question": "What are your greatest professional strengths and weaknesses?", "answer": ""},
-            {"question": "Where do you see yourself professionally in five years?", "answer": ""}
-        ]
+    if not questions:
+        # Lazy initialization fallback
+        source_questions = session.get("questions") or session.get("all_questions", [])
+        if not source_questions and session_id:
+            cache = db.resume_question_cache.find_one({"session_id": session_id})
+            if not cache and session.get("resume_hash"):
+                cache = db.resume_question_cache.find_one({"resume_hash": session["resume_hash"], "user_id": session["user_id"]})
+            if cache:
+                source_questions = cache.get("questions") or cache.get("all_questions", [])
+        
+        if source_questions:
+            vr_questions = []
+            for i, q in enumerate(source_questions):
+                vr_questions.append({
+                    "index": i,
+                    "id": q.get("id") or f"vr_q_{i+1}",
+                    "question": q.get("question") or "",
+                    "answer": q.get("answer") or "",
+                    "topic": q.get("topic") or "General",
+                    "difficulty": str(q.get("difficulty") or "medium").lower(),
+                    "type": q.get("type") or "open"
+                })
+            vr_state = {
+                "status": "in_progress",
+                "current_question_index": 0,
+                "questions": vr_questions,
+                "answers": [],
+            }
+            if session.get("_id") != "direct-pass":
+                db.user_sessions.update_one({"_id": session["_id"]}, {"$set": {"vr_test": vr_state}})
+            questions = vr_questions
 
-    idx = int(vr_state.get("current_question_index", 0))
     if not questions:
         raise HTTPException(status_code=404, detail="VR test not initialized")
 

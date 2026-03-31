@@ -13,12 +13,12 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private bool autoSpeakWhenQuestionArrives = true;
     [SerializeField] private float simulatedSpeakCharsPerSecond = 18f;
     [SerializeField] private float prepTimeSeconds = 10f;
-    [SerializeField] private float silenceGapSeconds = 5f;
+    [SerializeField] private float silenceGapSeconds = 3f;
     [SerializeField] private float minListenSeconds = 1f;
     [SerializeField] private int initialFetchRetryCount = 8;
-    [SerializeField] private float initialFetchRetryDelaySeconds = 1f;
+    [SerializeField] private float initialFetchRetryDelaySeconds = 1.2f;
     [SerializeField] private float speechCompletionFallbackSeconds = 20f;
-    [SerializeField] private float nextQuestionDelaySeconds = 2.5f;
+    [SerializeField] private float nextQuestionDelaySeconds = 0.5f;
     [SerializeField] private float listenTimeoutSeconds = 60f;
     [SerializeField] private float speechGracePeriodSeconds = 0.5f;
 
@@ -473,8 +473,10 @@ public class MockmateVRFlowController : MonoBehaviour
                 yield break;
             }
 
+            // During initial sync, we use status instead of RaiseError to avoid scary red error logs 
+            // if the backend is just lazily initializing the VR state (common race condition).
             PublishStatus($"VR session still syncing, retrying question fetch ({attempt}/{maxAttempts - 1})...");
-            yield return new WaitForSeconds(Mathf.Max(0.1f, initialFetchRetryDelaySeconds));
+            yield return new WaitForSeconds(Mathf.Max(0.5f, initialFetchRetryDelaySeconds));
         }
     }
 }
