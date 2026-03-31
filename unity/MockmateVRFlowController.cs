@@ -241,9 +241,6 @@ public class MockmateVRFlowController : MonoBehaviour
     {
         if (!_isListening) return;
         
-        // Refresh silence timer even if empty (heartbeat from STT)
-        _lastTranscriptUpdateAt = Time.time;
-
         if (string.IsNullOrWhiteSpace(textChunk)) return;
 
         string normalizedChunk = textChunk.Trim();
@@ -259,6 +256,8 @@ public class MockmateVRFlowController : MonoBehaviour
 
         if (_transcript.Length > 0) _transcript += " ";
         _transcript += normalizedChunk;
+        
+        // ONLY refresh silence timer if we actually got NEW content.
         _lastTranscriptUpdateAt = Time.time;
     }
 

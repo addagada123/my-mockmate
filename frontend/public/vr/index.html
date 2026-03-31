@@ -106,8 +106,8 @@
           })
           .then(data => {
             const text = (data.text || "").trim();
-            // FORCED FIX: Always notify Unity that the proxy returned a result
-            // This unblocks the FlowController silence timer even if the text is empty.
+            if (text.length === 0) return; // Skip empty transcripts to allow Unity's 3s silence detection to work.
+
             if (window.unityInstance) {
               const objectName = window._whisperData?.unityObjectName || "WebGLWhisperSTT";
               const methodName = window._whisperData?.unityMethodName || "OnTranscriptionReceived";

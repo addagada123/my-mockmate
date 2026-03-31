@@ -39,8 +39,9 @@ public class MockmateVRBrowserSTT : MonoBehaviour
     /// </summary>
     public void OnTranscriptChunkReceived(string text)
     {
-        // Don't return early on empty text - we need those signals to tick the FlowController silence timer
         string processedText = (text ?? "").Trim();
+        if (string.IsNullOrEmpty(processedText))
+            return;
         
         Debug.Log($"[BrowserSTT] Signal received: \"{processedText}\"");
         OnTranscriptChunk?.Invoke(processedText);
@@ -50,7 +51,7 @@ public class MockmateVRBrowserSTT : MonoBehaviour
         {
             var flow = FindFirstObjectByType<MockmateVRFlowController>();
             if (flow != null)
-                flow.AppendTranscriptChunk(text.Trim());
+                flow.AppendTranscriptChunk(processedText);
         }
     }
 
