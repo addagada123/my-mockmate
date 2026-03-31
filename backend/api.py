@@ -1524,9 +1524,10 @@ app.add_middleware(
 async def add_security_and_static_headers(request: Request, call_next):
     response = await call_next(request)
     
-    # Enable Cross-Origin Isolation (required for SharedArrayBuffer / Unity)
-    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    # Enable Cross-Origin Isolation ONLY for Unity VR paths
+    if request.url.path.startswith("/vr/"):
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     
     path = request.url.path
     # Handle Gzip compressed files

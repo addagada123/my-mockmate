@@ -38,10 +38,10 @@ services:
         source: /*
         destination: /index.html
     headers:
-      - path: /*
+      - path: /vr/*
         name: Cross-Origin-Embedder-Policy
         value: require-corp
-      - path: /*
+      - path: /vr/*
         name: Cross-Origin-Opener-Policy
         value: same-origin
       - path: /vr/Build/Build7.wasm
