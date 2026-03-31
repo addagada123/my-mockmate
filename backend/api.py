@@ -2022,8 +2022,96 @@ async def get_latest_user_session(
             detail=f"Failed to fetch latest session: {str(e)}"
         )
 
+async def _background_interview_pipeline(session_id: str, file_path: str, resume_hash: str, user_id: str, rag_collection):
+    """Generates the heavy AI questions in the background so the user is not blocked."""
+    logger.info(f"Background interview generation started for session {session_id}")
+    try:
+        from backend.endeavor_rag_service import interview_rag_pipeline, _semantic_resume_hash
+        db = get_db()
+        
+        # Run the heavy pipeline
+        result = await run_in_threadpool(interview_rag_pipeline, file_path, rag_collection)
+        
+        if not result:
+            logger.error(f"Background generation failed: empty result for {session_id}")
+            return
+            
+        questions = result.get("questions")
+        if not questions and result.get("sections"):
+            questions = []
+            for section in result.get("sections", []):
+                section_topic = section.get("title", "Misc")
+                for q in section.get("questions", []):
+                    question_topic = q.get("topic") or section_topic
+                    questions.append({
+                        "id": q.get("id"),
+                        "question": q.get("q") or q.get("question"),
+                        "answer": q.get("a") or q.get("answer"),
+                        "topic": question_topic,
+                        "difficulty": q.get("difficulty"),
+                        "code": q.get("code"),
+                        "complexity": q.get("complexity"),
+                        "examples": q.get("examples"),
+                        "constraints": q.get("constraints"),
+                        "type": q.get("type"),
+                        "language": q.get("language"),
+                        "starter_code": q.get("starter_code"),
+                        "test_cases": q.get("test_cases"),
+                    })
+
+        if not questions:
+            logger.error(f"Background generation failed: no questions parsed for {session_id}")
+            return
+            
+        detected_languages = _detect_programming_languages(questions, result.get("skills", []))
+        
+        try:
+            from bson import ObjectId # type: ignore
+            session_id_obj = ObjectId(session_id)
+        except:
+            from backend.db.mock_mongo import MockObjectId # type: ignore
+            session_id_obj = MockObjectId(session_id)
+
+        # Update user session
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {"$set": {
+                "questions": questions,
+                "all_questions": questions,
+                "detected_languages": detected_languages
+            }}
+        )
+        
+        # Cache for future
+        try:
+            semantic_hash = _semantic_resume_hash(result.get("skills", []), result.get("focus_analysis", {}).get("experience_level", ""))
+        except Exception:
+            semantic_hash = resume_hash
+            
+        db.resume_question_cache.update_one(
+            {"resume_hash": resume_hash, "user_id": user_id},
+            {"$set": {
+                "resume_hash": resume_hash,
+                "semantic_hash": semantic_hash,
+                "user_id": user_id,
+                "skills": result.get("skills", []),
+                "all_skills": result.get("skills", []),
+                "experience": result.get("focus_analysis", {}).get("experience_level", ""),
+                "detected_languages": detected_languages,
+                "questions": questions,
+                "all_questions": questions,
+                "created_at": datetime.now(),
+            }},
+            upsert=True
+        )
+        logger.info(f"Background generation successfully completed for {session_id}")
+        
+    except Exception as e:
+        logger.exception(f"Background interview pipeline failed: {e}")
+
 @app.post("/upload-resume")
 async def upload_resume(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     force_regenerate: bool = False,
     current_user: Dict = Depends(get_current_user)
@@ -2138,134 +2226,73 @@ async def upload_resume(
                 "message": f"Resume processed! Found {len(limited_topics)} topics. Click a topic to generate questions."
             }
 
-        # --- Cache MISS: generate questions via AI pipeline ---
+        # --- Cache MISS: Extract skills instantly and move heavy generation to background ---
         res_h_str = str(resume_hash)
         h_short = ""
         for i in range(min(len(res_h_str), 12)):
             h_short += res_h_str[i] # type: ignore
-        logger.info(f"Resume cache MISS for hash={h_short}..., generating via AI pipeline")
+        logger.info(f"Resume cache MISS for hash={h_short}..., extracting skills...")
         
-        # Generate questions using interview_rag_pipeline off the main thread
         try:
-            # Run the blocking pipeline in a separate thread to keep server responsive
-            result = await run_in_threadpool(interview_rag_pipeline, file_path, get_rag_collection())
-            
-            if not result:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to generate questions from resume"
-                )
-
-            # Normalize questions from either `questions` or `sections`
-            questions = result.get("questions")
-            if not questions and result.get("sections"):
-                questions = []
-                for section in result.get("sections", []):
-                    section_topic = section.get("title", "Misc")
-                    for q in section.get("questions", []):
-                        question_topic = q.get("topic") or section_topic
-                        questions.append({
-                            "id": q.get("id"),
-                            "question": q.get("q") or q.get("question"),
-                            "answer": q.get("a") or q.get("answer"),
-                            "topic": question_topic,
-                            "difficulty": q.get("difficulty"),
-                            "code": q.get("code"),
-                            "complexity": q.get("complexity"),
-                            "examples": q.get("examples"),
-                            "constraints": q.get("constraints"),
-                            "type": q.get("type"),  # "coding" or "analytical"
-                            "language": q.get("language"),  # "python", "java", etc.
-                            "starter_code": q.get("starter_code"),
-                            "test_cases": q.get("test_cases"),  # [{input, expected_output}]
-                        })
-
-            if not questions:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to generate questions from resume"
-                )
-            
-            # Limit topics to top 4-5 for focused practice
-            limited_topics = _get_top_topics(questions, result.get("skills", []), limit=5)
-            
-            # Auto-detect programming languages from resume
-            detected_languages = _detect_programming_languages(questions, result.get("skills", []))
-
-            # --- Store in resume question cache for future reuse (Approach 3A+3C) ---
-            try:
-                experience_text = result.get("experience", "")
-                all_skills = result.get("skills", [])
-                semantic_hash = _semantic_resume_hash(all_skills, experience_text)
-                
-                db.resume_question_cache.insert_one({
-                    "user_id": current_user["id"],
-                    "resume_hash": resume_hash,  # Exact byte match
-                    "semantic_hash": semantic_hash,  # Semantic content match (Approach 3A)
-                    "skills": limited_topics,
-                    "all_skills": all_skills,
-                    "experience": experience_text,
-                    "questions": questions,
-                    "detected_languages": detected_languages,
-                    "questionVersion": result.get("questionVersion", 3),
-                    "questionsSource": result.get("questionsSource", "resume-ai"),
-                    "created_at": datetime.now(),  # For TTL expiration check (Approach 3C)
-                    "expires_at": datetime.now() + timedelta(days=90),  # Explicit TTL
-                    "times_served": 0,
-                })
-                logger.info(f"Resume cached (90-day TTL). Languages: {detected_languages}")
-            except Exception as cache_err:
-                logger.warning(f"Failed to cache resume questions: {cache_err}")
-
-            # Ensure this user gets a fresh set versus prior sessions.
-            session_questions = await _freshen_questions_for_user(
-                db=db,
-                user_id=current_user["id"],
-                questions=questions,
-                session_id=f"{current_user['id']}_new",
-            )
-
-            # Create session in MongoDB (topics only, questions on-demand)
-            session_data = {
-                "user_id": current_user["id"],
-                "username": current_user["username"],
-                "resume_file": file.filename,
-                "resume_path": file_path,
-                "resume_hash": resume_hash,
-                "skills": limited_topics,
-                "all_skills": result.get("skills", []),
-                "experience": result.get("experience", ""),
-                "detected_languages": detected_languages,
-                "questions": session_questions,
-                "all_questions": session_questions,  # Store all questions for section-based generation
-                "created_at": datetime.now(),
-                "status": "in_progress",
-                "session_type": "resume-guided"
-            }
-            
-            session_result = db.user_sessions.insert_one(session_data)
-            session_id = str(session_result.inserted_id)
-            
-            logger.info(f"Session created: {session_id} with {len(limited_topics)} topics, {len(detected_languages)} programming languages")
-            
-            return {
-                "success": True,
-                "session_id": session_id,
-                "skills": limited_topics,
-                "topicsDetected": limited_topics,
-                "all_skills": result.get("skills", []),
-                "experience": result.get("experience", ""),
-                "detected_languages": detected_languages,
-                "has_coding_topics": len(detected_languages) > 0,
-                "message": f"Resume processed! Found {len(limited_topics)} topics. Click a topic to generate questions."
-            }
-            
+            # 1. Very fast skill extraction (takes < 1 second locally)
+            from backend.endeavor_rag_service import extract_skills_from_resume, analyze_resume_focus
+            skills, resume_text = await run_in_threadpool(extract_skills_from_resume, file_path)
+            focus_analysis = analyze_resume_focus(resume_text, skills)
         except Exception as e:
-            logger.error(f"Error in interview_rag_pipeline: {str(e)}")
+            logger.error(f"Failed to read resume PDF: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to process resume: {str(e)}"
+                detail="Failed to read the uploaded resume. Ensure it is a valid PDF that contains text."
             )
+            
+        experience_text = focus_analysis.get("experience_level", "Experienced")
+
+        # 2. Immediately create a lightweight session (without blocking on the heavy LLM questions)
+        session_data = {
+            "user_id": current_user["id"],
+            "username": current_user["username"],
+            "resume_file": file.filename,
+            "resume_path": file_path,
+            "resume_hash": resume_hash,
+            "skills": skills,
+            "all_skills": skills,
+            "experience": experience_text,
+            "detected_languages": [],
+            "questions": [],  # Will be populated by background task, or generated dynamically in /resume-questions
+            "all_questions": [],
+            "created_at": datetime.now(),
+            "status": "in_progress",
+            "session_type": "resume-guided"
+        }
+        session_result = db.user_sessions.insert_one(session_data)
+        session_id = str(session_result.inserted_id)
+        
+        # 3. Queue the heavy multi-LLM question generation task in the background
+        background_tasks.add_task(
+            _background_interview_pipeline,
+            session_id=session_id,
+            file_path=file_path,
+            resume_hash=resume_hash,
+            user_id=current_user["id"],
+            rag_collection=get_rag_collection()
+        )
+
+        # Limit topics to top 4-5 for focused practice
+        limited_topics = skills[:5] if skills else ["General Architecture"]
+        
+        logger.info(f"Session {session_id} created instantly. Background queue started.")
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "skills": limited_topics,
+            "topicsDetected": limited_topics,
+            "all_skills": skills,
+            "experience": experience_text,
+            "detected_languages": [],  # Provided eventually by background
+            "has_coding_topics": any(s.lower() in ["python", "java", "c++", "javascript", "c#", "go"] for s in skills),
+            "message": f"Resume processed! Found {len(limited_topics)} topics. Ready to start."
+        }
             
     except HTTPException:
         raise
