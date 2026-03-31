@@ -65,7 +65,7 @@ except ImportError:
     edge_tts = None
 
 try:
-    import google.generativeai as genai # type: ignore
+    from google import genai # type: ignore
 except ImportError:
     genai = None
 
@@ -247,29 +247,16 @@ async def _call_single_provider(
             raise ValueError("Gemini API key not configured")
         prompt_text = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
         try:
-            # FIX: Migrate to new google.genai package (google.generativeai is deprecated)
-            # Falls back to old package if new one not installed yet.
-            try:
-                from google import genai as new_genai  # type: ignore  # pyright: ignore
-                client = new_genai.Client(api_key=google_key)  # type: ignore
-                model_name = os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
-                resp = await run_in_threadpool(
-                    lambda: client.models.generate_content(  # type: ignore
-                        model=model_name,
-                        contents=prompt_text,
-                    )
+            # Replaced google.generativeai with google.genai
+            client = genai.Client(api_key=google_key)  # type: ignore
+            model_name = os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
+            resp = await run_in_threadpool(
+                lambda: client.models.generate_content(  # type: ignore
+                    model=model_name,
+                    contents=prompt_text,
                 )
-                return resp.text or ""  # type: ignore
-            except ImportError:
-                # Fallback to legacy package if new one not installed
-                import google.generativeai as genai  # type: ignore  # pyright: ignore
-                genai.configure(api_key=google_key)  # type: ignore
-                model = genai.GenerativeModel(os.getenv("GOOGLE_MODEL", "gemini-2.5-flash"))  # type: ignore
-                resp = await run_in_threadpool(
-                    lambda: model.generate_content(prompt_text, generation_config={"temperature": temperature, "max_output_tokens": max_tokens})
-                )
-                return resp.text or ""  # type: ignore  # pyright: ignore
-
+            )
+            return resp.text or ""  # type: ignore
         except Exception as e:
             # Check for Gemini quota/429 error and raise special exception
             if "quota" in str(e).lower() or "429" in str(e):
@@ -4064,24 +4051,28 @@ async def _generate_edge_tts(text: str, voice: Optional[str] = "en-US-AndrewNeur
 async def _transcribe_with_gemini(audio_content: bytes, language: Optional[str] = "en") -> Dict[str, Any]:
     """Fallback STT using Gemini 1.5 Flash."""
     if genai is None:
-        raise HTTPException(status_code=500, detail="google-generativeai not installed")
+        raise HTTPException(status_code=500, detail="google-genai not installed")
     
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="GOOGLE_API_KEY not configured for Gemini fallback")
     
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        client = genai.Client(api_key=api_key)  # type: ignore
+        model_name = "gemini-2.5-flash"
         
         # Audio input for Gemini needs a bit of metadata
-        # We wrap it in a content block
+        # We wrap it in a content block with the new Part standard
+        audio_part = genai.types.Part.from_bytes(data=audio_content, mime_type="audio/wav")  # type: ignore
+        
         response = await run_in_threadpool(
-            model.generate_content,
-            [
-                f"Transcribe this audio exactly into {language or 'English'}. Return ONLY the text, no conversational filler or markup.",
-                {"mime_type": "audio/wav", "data": audio_content}
-            ]
+            lambda: client.models.generate_content(  # type: ignore
+                model=model_name,
+                contents=[
+                    f"Transcribe this audio exactly into {language or 'English'}. Return ONLY the text, no conversational filler or markup.",
+                    audio_part
+                ]
+            )
         )
         
         transcript = response.text.strip()

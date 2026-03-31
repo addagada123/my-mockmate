@@ -11,7 +11,7 @@ langchain_google_genai
 langchain_community
 langchain-openai
 openai
-google-generativeai
+google-genai
 anthropic
 langchain-anthropic
 python-dotenv
