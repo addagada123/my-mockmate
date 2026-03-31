@@ -310,6 +310,10 @@ function Test() {
   }
 
   async function startVRTest(mode) {
+    if (vrBusy || vrLaunching || vrBridgeToken) {
+      console.log("[VR-Parent] Bridge initialization already in progress or completed. Skipping duplicate start.");
+      return;
+    }
     if (!sessionId) {
       showWarning("No session available for VR mode");
       return;

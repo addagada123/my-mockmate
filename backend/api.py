@@ -3486,6 +3486,11 @@ async def start_vr_test(
     db = get_db()
     session_id_obj, session = _get_owned_session(db, payload.session_id, current_user)
 
+    if session.get("vr_test"):
+        logger.warning(f"Re-initializing VR test for session {payload.session_id}. Previous token was {session['vr_test'].get('bridge_token')}")
+    else:
+        logger.info(f"Initializing new VR test for session {payload.session_id}")
+
     source_questions = payload.questions or session.get("questions", [])
     vr_questions: List[Dict[str, Any]] = []
     default_topic = payload.topic or session.get("topic") or "General"
