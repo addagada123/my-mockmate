@@ -1513,7 +1513,7 @@ for origin in _known_frontends:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https://frontend-.*-addagada123s-projects\.vercel\.app",
+    allow_origin_regex=r"https://(frontend-.*-addagada123s-projects\.vercel\.app|mockmate-.*\.onrender\.com)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

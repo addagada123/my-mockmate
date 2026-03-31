@@ -38,7 +38,7 @@ public class MockmateVRWebGLBootstrap : MonoBehaviour
             {
                 flowController.SetBridgeToken(Uri.UnescapeDataString(payload.bridge_token));
                 flowController.BeginFlow();
-                Debug.Log("[MockmateVR-WebGL] Bridge token received. Flow started.");
+                Debug.Log($"[MockmateVR-WebGL] Bridge token received. Session: {payload.session_id}. Flow started.");
             }
             else
             {

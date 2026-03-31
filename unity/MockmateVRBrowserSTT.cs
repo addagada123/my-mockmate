@@ -35,9 +35,9 @@ public class MockmateVRBrowserSTT : MonoBehaviour
     }
 
     /// <summary>
-    /// Callback from JavaScript: SendMessage("MySTTObject", "OnTranscriptionReceived", text)
+    /// Callback from JavaScript: SendMessage("MySTTObject", "OnTranscriptChunkReceived", text)
     /// </summary>
-    public void OnTranscriptionReceived(string text)
+    public void OnTranscriptChunkReceived(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         
