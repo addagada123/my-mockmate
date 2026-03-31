@@ -106,8 +106,8 @@
           })
           .then(data => {
             const text = (data.text || "").trim();
-            // Only send to Unity if we got actual transcribed text
-            if (window.unityInstance && text) {
+            // Send to Unity even if empty, so the flow can advance (e.g. on silence)
+            if (window.unityInstance) {
               window.unityInstance.SendMessage(objectName, methodName, text);
             }
           })
@@ -138,6 +138,17 @@
       const enterVRButton = document.getElementById('entervr');
       const enterARButton = document.getElementById('enterar');
       let unityInstance = null;
+
+      // Called by Unity via NotifyInterviewComplete() in MockmateVR.jslib
+      window.onInterviewComplete = function() {
+        console.log("[VR-Index] Interview complete received from Unity.");
+        if (window.parent) {
+          window.parent.postMessage({ 
+            source: 'mockmate-vr', 
+            status: 'complete' 
+          }, window.location.origin);
+        }
+      };
 
       // ── Native Web Speech Fallback ──
       window._nativeSpeech = { synth: window.speechSynthesis, isSpeaking: false };

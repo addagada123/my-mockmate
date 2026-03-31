@@ -857,6 +857,11 @@ function Test() {
         setVrLaunching(false);
         setVrLoadError(payload.detail || "VR environment failed to load.");
         setVrShowManual(true);
+      } else if (payload.status === "complete") {
+        console.log("[VR-Parent] Interview complete signaled. Exiting VR...");
+        setVrCompleted(true);
+        setVrLaunched(false);
+        setVrLaunching(false);
       }
     }
 

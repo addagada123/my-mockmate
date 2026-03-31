@@ -13,6 +13,26 @@ public class MockmateVRWebGLBootstrap : MonoBehaviour
     {
         if (flowController == null)
             flowController = FindFirstObjectByType<MockmateVRFlowController>();
+            
+        if (flowController != null)
+        {
+            flowController.OnCompleted.AddListener(OnInterviewEnded);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("__Internal")]
+    private static extern void NotifyInterviewComplete();
+
+    private void OnInterviewEnded(float score)
+    {
+        Debug.Log("[MockmateVR-WebGL] Interview Completed. Notifying browser...");
+#if UNITY_WEBGL && !UNITY_EDITOR
+        try {
+            NotifyInterviewComplete();
+        } catch (Exception e) {
+            Debug.LogError("Failed to call NotifyInterviewComplete: " + e.Message);
+        }
+#endif
     }
 
     /// <summary>

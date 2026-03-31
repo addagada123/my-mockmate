@@ -13,5 +13,13 @@ mergeInto(LibraryManager.library, {
     } else {
       console.error("[JSLib] window.startNativeSTT not found in host index.html!");
     }
+  },
+
+  NotifyInterviewComplete: function () {
+    if (typeof window.onInterviewComplete === 'function') {
+      window.onInterviewComplete();
+    } else {
+      console.warn("[JSLib] window.onInterviewComplete not found in host index.html!");
+    }
   }
 });
