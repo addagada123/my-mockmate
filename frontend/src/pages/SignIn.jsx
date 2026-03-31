@@ -319,23 +319,29 @@ function SignIn() {
         <p className="signin-subtitle">Sign in to continue your preparation</p>
 
         <form className="signin-form" onSubmit={handleSignin}>
-          <label className="signin-label">Email</label>
+          <label className="signin-label" htmlFor="signin-email">Email</label>
           <input
+            id="signin-email"
+            name="email"
             type="email"
             className="signin-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
+            autoComplete="email"
             required
           />
 
-          <label className="signin-label">Password</label>
+          <label className="signin-label" htmlFor="signin-password">Password</label>
           <input
+            id="signin-password"
+            name="password"
             type="password"
             className="signin-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Minimum 8 characters"
+            autoComplete="current-password"
             required
           />
 

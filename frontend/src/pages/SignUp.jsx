@@ -327,23 +327,29 @@ function SignUp() {
         </p>
 
         <form className="signup-form" onSubmit={handleSignup} noValidate>
-          <label className="signup-label">Email</label>
+          <label className="signup-label" htmlFor="signup-email">Email</label>
           <input
+            id="signup-email"
+            name="email"
             type="email"
             className="signup-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
+            autoComplete="email"
             required
           />
 
-          <label className="signup-label">Password</label>
+          <label className="signup-label" htmlFor="signup-password">Password</label>
           <input
+            id="signup-password"
+            name="password"
             type="password"
             className="signup-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Minimum 8 characters"
+            autoComplete="new-password"
             required
           />
 
