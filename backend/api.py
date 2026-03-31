@@ -3785,9 +3785,21 @@ async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, sessio
     if idx >= len(questions):
         return {"success": True, "completed": True, "current_question": None, "current_question_index": idx, "total_questions": len(questions)}
 
+    # Standardize question object for Unity JsonUtility compliance
+    raw_q = questions[idx]
+    clean_q = {
+        "index": raw_q.get("index", idx),
+        "id": str(raw_q.get("id") or raw_q.get("_id") or f"q_{idx}"),
+        "question": raw_q.get("question", ""),
+        "answer": raw_q.get("answer", raw_q.get("correct_answer", "")),
+        "topic": raw_q.get("topic") or session.get("topic") or "General",
+        "difficulty": raw_q.get("difficulty") or session.get("difficulty") or "Medium",
+        "type": raw_q.get("type", "behavioral")
+    }
+
     return {
         "success": True, "completed": False, "current_question_index": idx,
-        "total_questions": len(questions), "current_question": questions[idx]
+        "total_questions": len(questions), "current_question": clean_q
     }
 
 

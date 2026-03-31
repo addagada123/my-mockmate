@@ -13,13 +13,13 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private bool autoSpeakWhenQuestionArrives = true;
     [SerializeField] private float simulatedSpeakCharsPerSecond = 18f;
     [SerializeField] private float prepTimeSeconds = 10f;
-    [SerializeField] private float silenceGapSeconds = 3f;
+    [SerializeField] private float silenceGapSeconds = 5f;
     [SerializeField] private float minListenSeconds = 1f;
     [SerializeField] private int initialFetchRetryCount = 8;
     [SerializeField] private float initialFetchRetryDelaySeconds = 1f;
     [SerializeField] private float speechCompletionFallbackSeconds = 20f;
     [SerializeField] private float nextQuestionDelaySeconds = 2.5f;
-    [SerializeField] private float listenTimeoutSeconds = 3.5f;
+    [SerializeField] private float listenTimeoutSeconds = 60f;
     [SerializeField] private float speechGracePeriodSeconds = 0.5f;
 
     [Header("Editor Preview")]
@@ -149,6 +149,9 @@ public class MockmateVRFlowController : MonoBehaviour
         _busy = true;
         _manualSubmitRequested = false;
 
+        // Tiny delay to ensure listeners (like VRInterviewGlue) have time to buffer the question text
+        yield return new WaitForSeconds(0.1f);
+
         if (autoSpeakWhenQuestionArrives)
         {
             OnQuestionSpeakingStart?.Invoke();
@@ -254,6 +257,9 @@ public class MockmateVRFlowController : MonoBehaviour
         _transcript += normalizedChunk;
         _lastTranscriptUpdateAt = Time.time;
     }
+
+    /// <summary>Alias for AppendTranscriptChunk to maintain compatibility with legacy Inspector events.</summary>
+    public void OnTranscriptionReceived(string text) => AppendTranscriptChunk(text);
 
     public void ForceSubmitCurrentAnswer()
     {

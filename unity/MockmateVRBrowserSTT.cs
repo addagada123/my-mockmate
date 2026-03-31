@@ -52,4 +52,7 @@ public class MockmateVRBrowserSTT : MonoBehaviour
                 flow.AppendTranscriptChunk(text.Trim());
         }
     }
+
+    /// <summary>Compatibility alias for legacy Inspector events and older JS versions.</summary>
+    public void OnTranscriptionReceived(string text) => OnTranscriptChunkReceived(text);
 }
