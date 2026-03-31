@@ -3795,8 +3795,12 @@ async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, sessio
     if not questions:
         # Lazy initialization fallback
         source_questions = session.get("questions") or session.get("all_questions", [])
-        if not source_questions and session_id:
-            cache = db.resume_question_cache.find_one({"session_id": session_id})
+        
+        # Extract session_id for cache lookup if not provided directly
+        current_sid = session_id or (str(session.get("_id")) if session.get("_id") != "direct-pass" else None)
+        
+        if not source_questions and current_sid:
+            cache = db.resume_question_cache.find_one({"session_id": current_sid})
             if not cache and session.get("resume_hash"):
                 cache = db.resume_question_cache.find_one({"resume_hash": session["resume_hash"], "user_id": session["user_id"]})
             if cache:
@@ -3826,6 +3830,9 @@ async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, sessio
 
     if not questions:
         raise HTTPException(status_code=404, detail="VR test not initialized")
+
+    # Define idx AFTER potential lazy-init to ensure we have the correct index
+    idx = int(vr_state.get("current_question_index", 0))
 
     if idx >= len(questions):
         return {"success": True, "completed": True, "current_question": None, "current_question_index": idx, "total_questions": len(questions)}
