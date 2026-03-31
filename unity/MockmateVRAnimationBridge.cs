@@ -24,7 +24,7 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     [Header("Blend Shape Lip Sync (Optional)")]
     public SkinnedMeshRenderer faceRenderer;
     [Tooltip("Common names include OpenMouth, MouthOpen, JawOpen, viseme_aa.")]
-    public string[] mouthBlendShapeNames = { "OpenMouth", "MouthOpen", "JawOpen", "viseme_aa" };
+    public string[] mouthBlendShapeNames = { "OpenMouth", "MouthOpen", "Mouth_Open", "mouthOpen", "JawOpen", "Jaw_Open", "viseme_aa" };
     [Range(0f, 100f)] public float mouthBlendShapeMaxWeight = 100f;
     [Range(0f, 100f)] public float mouthBlendShapeRestWeight = 0f;
     [Range(0f, 1f)] public float mouthBlendShapeSmoothing = 0.2f;
@@ -84,28 +84,44 @@ public class MockmateVRAnimationBridge : MonoBehaviour
     {
         bool updatedSpeakingPose = false;
 
+        // Use the isSpeaking flag, but sync with real audio if available
         bool isActuallySpeaking = _isSpeaking;
         if (_isSpeaking && lipSyncAudioSource != null)
         {
             isActuallySpeaking = lipSyncAudioSource.isPlaying;
         }
 
-        if (isActuallySpeaking && jawBone != null)
+        if (isActuallySpeaking)
         {
-            float noise = Mathf.PerlinNoise(Time.time * talkSpeed * 0.5f, 0f) * talkJitter;
-            float angle = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed + noise)) * jawOpenAmount;
-            jawBone.localRotation = _jawStartRot * Quaternion.Euler(angle, 0, 0);
-            updatedSpeakingPose = true;
+            // Organic multi-layered noise for more "human" movement
+            float time = Time.time * talkSpeed;
+            
+            // Layer 1: Base speech frequency (low)
+            float baseNoise = Mathf.PerlinNoise(time * 0.5f, 0f);
+            // Layer 2: Fast phoneme-like jitter (high)
+            float jitterNoise = Mathf.PerlinNoise(0f, time * 2.0f);
+            
+            float combinedNoise = (baseNoise * 0.7f) + (jitterNoise * 0.3f);
+            // Modulated sine wave for clear "mouth opening" phases
+            float modulation = Mathf.Abs(Mathf.Sin(time + (combinedNoise * talkJitter * 8f)));
+            
+            float targetWeight = modulation * mouthBlendShapeMaxWeight;
+
+            if (jawBone != null)
+            {
+                float angle = modulation * jawOpenAmount;
+                jawBone.localRotation = _jawStartRot * Quaternion.Euler(angle, 0, 0);
+                updatedSpeakingPose = true;
+            }
+
+            if (HasMouthBlendShapes())
+            {
+                ApplyMouthWeight(targetWeight, false);
+                updatedSpeakingPose = true;
+            }
         }
 
-        if (isActuallySpeaking && HasMouthBlendShapes())
-        {
-            float noise = Mathf.PerlinNoise(0f, Time.time * talkSpeed * 0.5f) * talkJitter;
-            float targetWeight = Mathf.Abs(Mathf.Sin(Time.time * talkSpeed + noise)) * mouthBlendShapeMaxWeight;
-            ApplyMouthWeight(targetWeight, false);
-            updatedSpeakingPose = true;
-        }
-
+        // If not speaking, smoothly return to rest weight
         if (!updatedSpeakingPose && HasMouthBlendShapes())
         {
             ApplyMouthWeight(mouthBlendShapeRestWeight, false);

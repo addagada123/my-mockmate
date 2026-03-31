@@ -64,7 +64,12 @@ public class MockmateVRTokenPoller : MonoBehaviour
             flowController = GetComponent<MockmateVRFlowController>();
         if (apiClient == null)
             apiClient = GetComponent<MockmateVRApiClient>();
+        // If device ID is still the default or empty, use the unique hardware ID
+        if (string.IsNullOrWhiteSpace(deviceId) || deviceId == "mockmate-vr-default")
+            deviceId = SystemInfo.deviceUniqueIdentifier;
+
         apiBase = SanitizeApiBase(apiBase);
+
     }
 
     private void OnEnable()

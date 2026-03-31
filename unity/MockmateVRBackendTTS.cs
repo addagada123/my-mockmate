@@ -32,7 +32,11 @@ public class MockmateVRBackendTTS : MonoBehaviour
     private void Awake()
     {
         if (apiClient == null) apiClient = GetComponent<MockmateVRApiClient>();
+        if (apiClient == null) apiClient = FindFirstObjectByType<MockmateVRApiClient>();
+
         if (audioSource == null) audioSource = GetComponent<AudioSource>();
+        if (audioSource == null) audioSource = FindFirstObjectByType<AudioSource>();
+
         if (animationBridge == null) animationBridge = FindFirstObjectByType<MockmateVRAnimationBridge>();
         if (flowController == null) flowController = FindFirstObjectByType<MockmateVRFlowController>();
     }
@@ -99,14 +103,21 @@ public class MockmateVRBackendTTS : MonoBehaviour
             }
 
             audioSource.clip = clip;
-            if (animationBridge != null) animationBridge.StartTalking();
+            
+            // Sync animation StartTalking EXACTLY with Play()
+            if (animationBridge != null) 
+                animationBridge.StartTalking();
+                
             audioSource.Play();
             LastSpeakSucceeded = true;
 
+            // Wait for playback to finish
             while (audioSource != null && audioSource.isPlaying)
                 yield return null;
 
-            if (animationBridge != null) animationBridge.StopTalking();
+            // Sync animation StopTalking with playback completion
+            if (animationBridge != null) 
+                animationBridge.StopTalking();
         }
     }
 

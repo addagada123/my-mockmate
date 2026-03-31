@@ -20,6 +20,7 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private float speechCompletionFallbackSeconds = 20f;
     [SerializeField] private float nextQuestionDelaySeconds = 2.5f;
     [SerializeField] private float listenTimeoutSeconds = 3.5f;
+    [SerializeField] private float speechGracePeriodSeconds = 0.5f;
 
     [Header("Editor Preview")]
     [SerializeField] private bool correctEditorPreviewHeight = true;
@@ -175,6 +176,10 @@ public class MockmateVRFlowController : MonoBehaviour
                 yield return new WaitForSeconds(speakDuration);
             }
             OnQuestionSpeakingEnd?.Invoke();
+            
+            // Safety grace period so the transition to the user's turn isn't instant
+            if (speechGracePeriodSeconds > 0)
+                yield return new WaitForSeconds(speechGracePeriodSeconds);
         }
 
         yield return PrepCountdownCoroutine();
