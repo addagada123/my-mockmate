@@ -182,6 +182,19 @@
         }
         synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
+        
+        // --- PREFER MALE VOICE --- 
+        const voices = synth.getVoices();
+        if (voices && voices.length > 0) {
+          // Try to find a male voice first
+          let preferredVoice = voices.find(v => v.name.toLowerCase().includes("male") && v.lang.startsWith("en"));
+          if (!preferredVoice) {
+            // Fallback: common male-sounding system voices
+            preferredVoice = voices.find(v => (v.name.includes("Google US English") || v.name.includes("Microsoft David")) && v.lang.startsWith("en"));
+          }
+          if (preferredVoice) utterance.voice = preferredVoice;
+        }
+
         window._nativeSpeech.currentUtterance = utterance; // Prevent garbage collection bug
         utterance.rate = 1.1; // Restored to match original JSLib preference
         utterance.pitch = 1.0;

@@ -1608,7 +1608,7 @@ class VRCompleteRequest(BaseModel):
 class VRBridgeTTSRequest(BaseModel):
     text: str
     bridge_token: Optional[str] = None
-    voice: Optional[str] = "alloy"
+    voice: Optional[str] = "echo"
     model: Optional[str] = "tts-1"
     instructions: Optional[str] = None
     response_format: Optional[str] = "wav"
