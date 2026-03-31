@@ -38,12 +38,24 @@ services:
         source: /*
         destination: /index.html
     headers:
+      # --- Global safe defaults (restores Google Sign-In, third-party embeds) ---
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /*
+        name: Cross-Origin-Embedder-Policy
+        value: unsafe-none
+      - path: /*
+        name: Cross-Origin-Resource-Policy
+        value: cross-origin
+      # --- Unity VR path: override with strict isolation (required for SharedArrayBuffer) ---
       - path: /vr/*
         name: Cross-Origin-Embedder-Policy
         value: require-corp
       - path: /vr/*
         name: Cross-Origin-Opener-Policy
         value: same-origin
+      # --- Correct MIME types for Unity build assets ---
       - path: /vr/Build/Build7.wasm
         name: Content-Type
         value: application/wasm

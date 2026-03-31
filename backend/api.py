@@ -1524,7 +1524,12 @@ app.add_middleware(
 async def add_security_and_static_headers(request: Request, call_next):
     response = await call_next(request)
     
-    # Enable Cross-Origin Isolation ONLY for Unity VR paths
+    # Safe permissive defaults for all pages (restores Google Sign-In, third-party embeds)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+
+    # Override with strict isolation ONLY for the Unity VR path (required for SharedArrayBuffer)
     if request.url.path.startswith("/vr/"):
         response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
