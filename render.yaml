@@ -56,9 +56,18 @@ services:
         name: Cross-Origin-Opener-Policy
         value: same-origin
       # --- Correct MIME types for Unity build assets ---
-      - path: /vr/Build/Build7.wasm
+      - path: /vr/Build/*.wasm
         name: Content-Type
         value: application/wasm
-      - path: /vr/Build/Build7.data
+      - path: /vr/Build/*.data
         name: Content-Type
         value: application/octet-stream
+      - path: /vr/Build/*.js
+        name: Content-Type
+        value: application/javascript
+      - path: /vr/Build/*.wasm.gz
+        name: Content-Encoding
+        value: gzip
+      - path: /vr/Build/*.wasm.br
+        name: Content-Encoding
+        value: br

@@ -204,9 +204,9 @@ public class MockmateVRFlowController : MonoBehaviour
             bool hasTranscript = !string.IsNullOrWhiteSpace(_transcript);
             bool timeoutReached = (now - listenStart) >= listenTimeoutSeconds;
 
-            if (minListenDone && ((hasTranscript && silenceExceeded) || timeoutReached))
+            if (minListenDone && (silenceExceeded || timeoutReached))
             {
-                if (timeoutReached && !hasTranscript)
+                if (!hasTranscript)
                     PublishStatus("No speech detected. Advancing question...");
                 _isListening = false;
                 break;
@@ -240,6 +240,10 @@ public class MockmateVRFlowController : MonoBehaviour
     public void AppendTranscriptChunk(string textChunk)
     {
         if (!_isListening) return;
+        
+        // Refresh silence timer even if empty (heartbeat from STT)
+        _lastTranscriptUpdateAt = Time.time;
+
         if (string.IsNullOrWhiteSpace(textChunk)) return;
 
         string normalizedChunk = textChunk.Trim();

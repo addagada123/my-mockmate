@@ -39,10 +39,11 @@ public class MockmateVRBrowserSTT : MonoBehaviour
     /// </summary>
     public void OnTranscriptChunkReceived(string text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return;
+        // Don't return early on empty text - we need those signals to tick the FlowController silence timer
+        string processedText = (text ?? "").Trim();
         
-        Debug.Log($"[BrowserSTT] Recognized: {text}");
-        OnTranscriptChunk?.Invoke(text.Trim());
+        Debug.Log($"[BrowserSTT] Signal received: \"{processedText}\"");
+        OnTranscriptChunk?.Invoke(processedText);
         
         // Manual fallback if not wired in Inspector
         if (OnTranscriptChunk.GetPersistentEventCount() == 0)
