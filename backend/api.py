@@ -1,37 +1,6 @@
 import os
 import sys
-from dotenv import load_dotenv # type: ignore
-
-# Inject .venv path and current directory to help IDE find dependencies
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-# Explicitly load .env from the backend directory
-load_dotenv(os.path.join(current_dir, ".env"))
-
-# Quick verification log
-if os.getenv("OPENAI_API_KEY"):
-    print("✅ OpenAI API Key loaded from backend/.env")
-else:
-    print("❌ WARNING: No OpenAI API Key found in backend/.env!")
-
-# Support both global and local imports
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks, Request, Query # type: ignore
-from fastapi.concurrency import run_in_threadpool # type: ignore
-from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from fastapi.responses import JSONResponse, StreamingResponse # type: ignore
-from pydantic import BaseModel # type: ignore
-from typing import List, Optional, Dict, Any, Tuple, cast
-import os
 import re
-from datetime import datetime, timedelta
-import json as json_mod
-import hashlib
 import math
 import random
 import shutil
@@ -39,11 +8,21 @@ import secrets
 import asyncio
 import logging
 import time
-import sys
 import sqlite3
 import tempfile
 import subprocess
+import hashlib
+from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any, Tuple, cast
 from collections import Counter, defaultdict
+import json as json_mod
+
+from dotenv import load_dotenv # type: ignore
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Response, BackgroundTasks, Request, Query # type: ignore
+from fastapi.concurrency import run_in_threadpool # type: ignore
+from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi.responses import JSONResponse, StreamingResponse # type: ignore
+from pydantic import BaseModel # type: ignore
 
 from backend.auth.utils import get_current_user # type: ignore
 from backend.db.mongo import get_db # type: ignore
@@ -1594,32 +1573,24 @@ class VRStartRequest(BaseModel):
     difficulty: Optional[str] = None
     questions: Optional[List[Dict[str, Any]]] = None
 
-
 class VRAnswerRequest(BaseModel):
     question_index: int
     user_answer: str
-
+    bridge_token: Optional[str] = None  # Compatible with both web and bridge
 
 class VRCompleteRequest(BaseModel):
-    session_id: str
-    time_spent: Optional[int] = None
-
+    session_id: Optional[str] = None
+    bridge_token: Optional[str] = None
+    time_spent: Optional[int] = 0
 
 class VRBridgeTTSRequest(BaseModel):
     text: str
     bridge_token: Optional[str] = None
-    voice: Optional[str] = "echo"
+    voice: Optional[str] = "alloy"
     model: Optional[str] = "tts-1"
     instructions: Optional[str] = None
-    response_format: Optional[str] = "wav"
+    response_format: Optional[str] = "mp3"  # Preferred for VR WebGL
 
-class VRBridgeAnswerRequest(BaseModel):
-    question_index: int
-    user_answer: str
-
-
-class VRBridgeCompleteRequest(BaseModel):
-    time_spent: Optional[int] = None
 class VRRegisterTokenRequest(BaseModel):
     device_id: str
     bridge_token: str
@@ -3426,6 +3397,148 @@ def _get_session_by_bridge_token(db, bridge_token: str) -> Dict[str, Any]:
     return session
 
 
+async def _process_vr_answer(
+    db: Any,
+    session: Dict[str, Any],
+    payload: VRAnswerRequest,
+) -> Dict[str, Any]:
+    """Shared logic for submitting VR answers (bridge and web)."""
+    session_id_obj = session["_id"]
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
+    idx = int(vr_state.get("current_question_index", 0))
+
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+    if idx >= len(questions):
+        raise HTTPException(status_code=400, detail="VR test already completed")
+    if payload.question_index != idx:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Expected answer for question_index={idx}, got {payload.question_index}"
+        )
+
+    q = questions[idx]
+    # Standardize on AI evaluation for better quality
+    evaluation = await ai_evaluate_answer(
+        q.get("question", ""),
+        payload.user_answer,
+        q.get("answer", ""),
+    )
+
+    answer_record = {
+        "question_index": idx,
+        "question": q.get("question", ""),
+        "user_answer": payload.user_answer,
+        "correct_answer": q.get("answer", ""),
+        "score": evaluation.get("score", 0),
+        "feedback": evaluation.get("feedback", ""),
+        "is_correct": evaluation.get("is_correct", False),
+        "submitted_at": datetime.now(),
+    }
+    answers.append(answer_record)
+    next_idx = idx + 1
+
+    # Update DB ONLY if not a direct-pass session
+    if session_id_obj != "direct-pass":
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {
+                "$set": {
+                    "vr_test.answers": answers,
+                    "vr_test.current_question_index": next_idx,
+                }
+            }
+        )
+
+    running_avg = _safe_round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0
+    done = next_idx >= len(questions)
+    next_question = None if done else questions[next_idx]
+
+    return {
+        "success": True,
+        "completed": done,
+        "saved_answer": answer_record,
+        "running_percentage": running_avg,
+        "next_question_index": next_idx,
+        "next_question": next_question,
+        "total_questions": len(questions),
+    }
+
+
+async def _process_vr_complete(
+    db: Any,
+    session: Dict[str, Any],
+    time_spent: int = 0
+) -> Dict[str, Any]:
+    """Shared logic for completing VR interviews (bridge and web)."""
+    session_id_obj = session["_id"]
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+    
+    # SHADOW SESSION FALLBACK
+    if not questions and session_id_obj == "direct-pass":
+        questions = [{"question": "End of Shadow Session", "answer": ""}]
+
+    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
+    if not questions:
+        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
+
+    total_score = sum(a.get("score", 0) for a in answers)
+    max_score = len(questions) * 100
+    percentage = (total_score / max_score * 100) if max_score > 0 else 0
+    completed_at = datetime.now()
+    difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
+    derived_topic = vr_state.get("topic") or session.get("topic") or "General"
+
+    # Update DB ONLY if not a direct-pass session
+    if session_id_obj != "direct-pass":
+        db.user_sessions.update_one(
+            {"_id": session_id_obj},
+            {
+                "$set": {
+                    "status": "completed",
+                    "mode": "vr",
+                    "completed_at": completed_at,
+                    "total_score": total_score,
+                    "max_score": max_score,
+                    "percentage": percentage,
+                    "evaluated_answers": answers,
+                    "topic": derived_topic,
+                    "difficulty": difficulty_label,
+                    "time_spent": time_spent,
+                    "tab_switches": 0,
+                    "vr_test.status": "completed",
+                    "vr_test.completed_at": completed_at,
+                },
+                "$push": {
+                    "test_attempts": {
+                        "completed_at": completed_at,
+                        "percentage": percentage,
+                        "topic": derived_topic,
+                        "difficulty": difficulty_label,
+                        "time_spent": time_spent,
+                        "tab_switches": 0,
+                        "mode": "vr",
+                    }
+                }
+            }
+        )
+
+    return {
+        "success": True,
+        "session_id": str(session_id_obj) if session_id_obj != "direct-pass" else "shadow",
+        "mode": "vr",
+        "answered": len(answers),
+        "total_questions": len(questions),
+        "total_score": total_score,
+        "max_score": max_score,
+        "percentage": _safe_round(percentage, 2),
+        "evaluated_answers": answers,
+    }
+
+
 def _tts_media_type(response_format: str) -> str:
     format_key = str(response_format or "wav").strip().lower()
     if format_key == "mp3":
@@ -3550,34 +3663,50 @@ async def get_vr_next_question(
     session_id: str,
     current_user: Dict = Depends(get_current_user)
 ):
+    """Next question for web-based VR (iframe)."""
     db = get_db()
     _, session = _get_owned_session(db, session_id, current_user)
+    return await _process_vr_get_next(db, session, session_id)
 
+
+@app.get("/vr-bridge/next")
+async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, session_id: Optional[str] = None):
+    """ Standardized endpoint for fetching the next VR question for Unity. """
+    db = get_db()
+    session = None
+    if bridge_token:
+        session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
+    elif session_id:
+        try:
+            if not ObjectId: raise HTTPException(status_code=500, detail="bson/ObjectId not available")
+            session = cast(Dict[str, Any], db.user_sessions.find_one({"_id": ObjectId(session_id)}))
+            if not session: raise HTTPException(status_code=404, detail="Session not found")
+        except Exception:
+             raise HTTPException(status_code=400, detail="Invalid session_id format")
+    
+    if not session:
+        raise HTTPException(status_code=400, detail="Either bridge_token or session_id is required")
+
+    return await _process_vr_get_next(db, session, session_id)
+
+
+async def _process_vr_get_next(db: Any, session: Dict[str, Any], session_id_str: Optional[str]) -> Dict[str, Any]:
+    """Internal helper to fetch next question and handle lazy init."""
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
     
     if not questions:
-        # Lazy initialization fallback: if vr_test is missing, try to build it from session["questions"]
         source_questions = session.get("questions") or session.get("all_questions", [])
-        if not source_questions:
-            # Try database fallback if session object is out of sync
-            # Harden lookup to handle both String and ObjectId formats
-            query_filter = {"session_id": session_id}
-            if ObjectId:
-                try:
-                    query_filter = {"$or": [{"session_id": session_id}, {"session_id": ObjectId(session_id)}]}
-                except:
-                    pass
-            
-            cache = db.resume_question_cache.find_one(query_filter)
+        current_sid = session_id_str or (str(session.get("_id")) if session.get("_id") != "direct-pass" else None)
+        
+        if not source_questions and current_sid:
+            cache = db.resume_question_cache.find_one({"session_id": current_sid})
             if not cache and session.get("resume_hash"):
                 cache = db.resume_question_cache.find_one({"resume_hash": session["resume_hash"], "user_id": session["user_id"]})
-                
             if cache:
                 source_questions = cache.get("questions") or cache.get("all_questions", [])
         
         if source_questions:
-            logger.info(f"Lazy-initializing VR state for session {session_id}")
             vr_questions = []
             for i, q in enumerate(source_questions):
                 vr_questions.append({
@@ -3587,50 +3716,40 @@ async def get_vr_next_question(
                     "answer": q.get("answer") or "",
                     "topic": q.get("topic") or "General",
                     "difficulty": str(q.get("difficulty") or "medium").lower(),
-                    "type": q.get("type") or "open",
+                    "type": q.get("type") or "open"
                 })
-            
             vr_state = {
                 "status": "in_progress",
                 "current_question_index": 0,
                 "questions": vr_questions,
                 "answers": [],
             }
-            db.user_sessions.update_one({"_id": _}, {"$set": {"vr_test": vr_state}})
+            if session.get("_id") != "direct-pass":
+                db.user_sessions.update_one({"_id": session["_id"]}, {"$set": {"vr_test": vr_state}})
             questions = vr_questions
-            
+
     if not questions:
-        logger.warning(f"VR test requested but no questions found for session {session_id}")
-        raise HTTPException(status_code=404, detail="VR test not initialized and no raw questions found")
+        raise HTTPException(status_code=404, detail="VR test not initialized")
 
-    # Define idx AFTER potential lazy-init to ensure we have the correct index
     idx = int(vr_state.get("current_question_index", 0))
-
     if idx >= len(questions):
-        return {
-            "success": True,
-            "completed": True,
-            "current_question": None,
-            "current_question_index": idx,
-            "total_questions": len(questions),
-        }
+        return {"success": True, "completed": True, "current_question": None, "current_question_index": idx, "total_questions": len(questions)}
 
-    return {
-        "success": True,
-        "completed": False,
-        "current_question_index": idx,
-        "total_questions": len(questions),
-        "current_question": questions[idx],
+    raw_q = questions[idx]
+    clean_q = {
+        "index": raw_q.get("index", idx),
+        "id": str(raw_q.get("id") or raw_q.get("_id") or f"q_{idx}"),
+        "question": raw_q.get("question", ""),
+        "answer": raw_q.get("answer", raw_q.get("correct_answer", "")),
+        "topic": raw_q.get("topic") or session.get("topic") or "General",
+        "difficulty": raw_q.get("difficulty") or session.get("difficulty") or "Medium",
+        "type": raw_q.get("type", "behavioral")
     }
 
-
-@app.get("/vr-test/next")
-async def get_vr_next_question_legacy(
-    session_id: str,
-    current_user: Dict = Depends(get_current_user)
-):
-    """Backward-compatible alias for older frontend clients."""
-    return await get_vr_next_question(session_id, current_user)
+    return {
+        "success": True, "completed": False, "current_question_index": idx,
+        "total_questions": len(questions), "current_question": clean_q
+    }
 
 
 @app.post("/vr-test/answer")
@@ -3640,66 +3759,8 @@ async def submit_vr_answer(
     current_user: Dict = Depends(get_current_user)
 ):
     db = get_db()
-    session_id_obj, session = _get_owned_session(db, session_id, current_user)
-
-    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
-    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
-    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
-    idx = int(vr_state.get("current_question_index", 0))
-
-    if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
-    if idx >= len(questions):
-        raise HTTPException(status_code=400, detail="VR test already completed")
-    if payload.question_index != idx:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Expected answer for question_index={idx}, got {payload.question_index}"
-        )
-
-    q = questions[idx]
-    evaluation = simple_evaluate_answer(
-        q.get("question", ""),
-        payload.user_answer,
-        q.get("answer", ""),
-    )
-
-    answer_record = {
-        "question_index": idx,
-        "question": q.get("question", ""),
-        "user_answer": payload.user_answer,
-        "correct_answer": q.get("answer", ""),
-        "score": evaluation.get("score", 0),
-        "feedback": evaluation.get("feedback", ""),
-        "is_correct": evaluation.get("is_correct", False),
-        "submitted_at": datetime.now(),
-    }
-    answers.append(answer_record)
-    next_idx = idx + 1
-
-    db.user_sessions.update_one(
-        {"_id": session_id_obj},
-        {
-            "$set": {
-                "vr_test.answers": answers,
-                "vr_test.current_question_index": next_idx,
-            }
-        }
-    )
-
-    running_avg = _safe_round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0 # type: ignore
-    done = next_idx >= len(questions)
-    next_question = None if done else questions[next_idx]
-
-    return {
-        "success": True,
-        "completed": done,
-        "saved_answer": answer_record,
-        "running_percentage": running_avg,
-        "next_question_index": next_idx,
-        "next_question": next_question,
-        "total_questions": len(questions),
-    }
+    _, session = _get_owned_session(db, session_id, current_user)
+    return await _process_vr_answer(db, session, payload)
 
 
 @app.post("/vr-test/complete")
@@ -3708,58 +3769,8 @@ async def complete_vr_test(
     current_user: Dict = Depends(get_current_user)
 ):
     db = get_db()
-    session_id_obj, session = _get_owned_session(db, payload.session_id, current_user)
-
-    vr_state = session.get("vr_test") or {}
-    questions = vr_state.get("questions") or []
-    answers = vr_state.get("answers") or []
-    if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
-
-    total_score = sum(a.get("score", 0) for a in answers)
-    max_score = len(questions) * 100
-    percentage = (total_score / max_score * 100) if max_score > 0 else 0
-    completed_at = datetime.now()
-    difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
-    derived_topic = vr_state.get("topic") or session.get("topic") or "General"
-
-    db.user_sessions.update_one(
-        {"_id": session_id_obj},
-        {
-            "$set": {
-                "status": "completed",
-                "mode": "vr",
-                "completed_at": completed_at,
-                "total_score": total_score,
-                "max_score": max_score,
-                "percentage": percentage,
-                "evaluated_answers": answers,
-                "topic": derived_topic,
-                "difficulty": difficulty_label,
-                "time_spent": payload.time_spent,
-                "tab_switches": 0,
-                "vr_test.status": "completed",
-                "vr_test.completed_at": completed_at,
-            },
-            "$push": {
-                "test_attempts": {
-                    "completed_at": completed_at,
-                    "percentage": percentage,
-                    "topic": derived_topic,
-                    "difficulty": difficulty_label,
-                    "time_spent": payload.time_spent,
-                    "tab_switches": 0,
-                    "mode": "vr",
-                }
-            }
-        }
-    )
-    return {
-        "success": True, "session_id": payload.session_id, "mode": "vr",
-        "answered": len(answers), "total_questions": len(questions),
-        "total_score": total_score, "max_score": max_score,
-        "percentage": _safe_round(percentage, 2), "evaluated_answers": answers,
-    }
+    _, session = _get_owned_session(db, payload.session_id, current_user)  # type: ignore
+    return await _process_vr_complete(db, session, payload.time_spent or 0)
 
 # --- Standardized VR Bridge Endpoints ---
 
@@ -3852,145 +3863,28 @@ async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, sessio
 
 @app.post("/vr-bridge/answer")
 async def submit_vr_bridge_answer(
-    payload: VRBridgeAnswerRequest,
-    bridge_token: str,
+    payload: VRAnswerRequest,
+    bridge_token: Optional[str] = None,
 ):
+    token = bridge_token or payload.bridge_token
+    if not token:
+        raise HTTPException(status_code=400, detail="bridge_token is required")
     db = get_db()
-    session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
-    session_id_obj = session["_id"]
-
-    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
-    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
-    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
-    idx = int(vr_state.get("current_question_index", 0))
-
-    if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
-    if idx >= len(questions):
-        raise HTTPException(status_code=400, detail="VR test already completed")
-    if payload.question_index != idx:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Expected answer for question_index={idx}, got {payload.question_index}"
-        )
-
-    q = questions[idx]
-    evaluation = await ai_evaluate_answer(
-        q.get("question", ""),
-        payload.user_answer,
-        q.get("answer", ""),
-    )
-    answer_record = {
-        "question_index": idx,
-        "question": q.get("question", ""),
-        "user_answer": payload.user_answer,
-        "correct_answer": q.get("answer", ""),
-        "score": evaluation.get("score", 0),
-        "feedback": evaluation.get("feedback", ""),
-        "is_correct": evaluation.get("is_correct", False),
-        "submitted_at": datetime.now(),
-    }
-    answers.append(answer_record)
-    next_idx = idx + 1
-
-    # Update DB ONLY if not a direct-pass session
-    if session_id_obj != "direct-pass":
-        db.user_sessions.update_one(
-            {"_id": session_id_obj},
-            {
-                "$set": {
-                    "vr_test.answers": answers,
-                    "vr_test.current_question_index": next_idx,
-                }
-            }
-        )
-
-    running_avg = _safe_round(sum(a.get("score", 0) for a in answers) / len(answers), 2) if answers else 0 # type: ignore
-    done = next_idx >= len(questions)
-    next_question = None if done else questions[next_idx]
-
-    return {
-        "success": True,
-        "completed": done,
-        "saved_answer": answer_record,
-        "running_percentage": running_avg,
-        "next_question_index": next_idx,
-        "next_question": next_question,
-        "total_questions": len(questions),
-    }
+    session = cast(Dict[str, Any], _get_session_by_bridge_token(db, token))
+    return await _process_vr_answer(db, session, payload)
 
 
 @app.post("/vr-bridge/complete")
 async def complete_vr_bridge_test(
-    payload: VRBridgeCompleteRequest,
-    bridge_token: str,
+    payload: VRCompleteRequest,
+    bridge_token: Optional[str] = None,
 ):
+    token = bridge_token or payload.bridge_token
+    if not token:
+        raise HTTPException(status_code=400, detail="bridge_token is required")
     db = get_db()
-    session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
-    session_id_obj = session["_id"]
-
-    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
-    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
-    
-    # SHADOW SESSION FALLBACK
-    if not questions and session_id_obj == "direct-pass":
-        questions = [{"question": "End of Shadow Session", "answer": ""}]
-
-    answers = cast(List[Dict[str, Any]], vr_state.get("answers") or [])
-    if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized for this session")
-
-    total_score = sum(a.get("score", 0) for a in answers)
-    max_score = len(questions) * 100
-    percentage = (total_score / max_score * 100) if max_score > 0 else 0
-    completed_at = datetime.now()
-    difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
-    derived_topic = vr_state.get("topic") or session.get("topic") or "General"
-
-    # Update DB ONLY if not a direct-pass session
-    if session_id_obj != "direct-pass":
-        db.user_sessions.update_one(
-            {"_id": session_id_obj},
-            {
-                "$set": {
-                    "status": "completed",
-                    "mode": "vr",
-                    "completed_at": completed_at,
-                    "total_score": total_score,
-                    "max_score": max_score,
-                    "percentage": percentage,
-                    "evaluated_answers": answers,
-                    "topic": derived_topic,
-                    "difficulty": difficulty_label,
-                    "time_spent": payload.time_spent,
-                    "tab_switches": 0,
-                    "vr_test.status": "completed",
-                    "vr_test.completed_at": completed_at,
-                },
-                "$push": {
-                    "test_attempts": {
-                        "completed_at": completed_at,
-                        "percentage": percentage,
-                        "topic": derived_topic,
-                        "difficulty": difficulty_label,
-                        "time_spent": payload.time_spent,
-                        "tab_switches": 0,
-                        "mode": "vr",
-                    }
-                }
-            }
-        )
-
-    return {
-        "success": True,
-        "mode": "vr",
-        "answered": len(answers),
-        "total_questions": len(questions),
-        "total_score": total_score,
-        "max_score": max_score,
-        "percentage": _safe_round(percentage, 2),
-        "evaluated_answers": answers,
-    }
+    session = cast(Dict[str, Any], _get_session_by_bridge_token(db, token))
+    return await _process_vr_complete(db, session, payload.time_spent or 0)
 
 
 @app.post("/vr-bridge/register-token")

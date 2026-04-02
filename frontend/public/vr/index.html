@@ -4,126 +4,34 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>MockMate VR | Interview Terminal</title>
+    <title>Unity WebGL Player | Build7</title>
+    <meta name="description" content="">
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
-    <style>
-      :root {
-        --primary: #6366f1;
-        --primary-glow: rgba(99, 102, 241, 0.4);
-        --bg: #0f172a;
-        --surface: rgba(30, 41, 59, 0.7);
-        --text: #f8fafc;
-        --text-dim: #94a3b8;
-      }
-      body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: 'Inter', -apple-system, sans-serif; }
-      #unity-container { width: 100%; height: 100%; position: relative; }
-      #unity-canvas { width: 100%; height: 100%; background: #231f20; display: block; }
-      
-      /* Loading Overlay */
-      #unity-loading-bar { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); z-index: 10; gap: 24px; transition: opacity 0.5s ease; }
-      .loader-circle { width: 64px; height: 64px; border: 4px solid rgba(255,255,255,0.05); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; filter: drop-shadow(0 0 8px var(--primary-glow)); }
-      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      #unity-progress-bar-empty { width: 240px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-      #unity-progress-bar-full { width: 0%; height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); transition: width 0.3s ease; box-shadow: 0 0 10px var(--primary-glow); }
-      .loading-text { color: var(--text-dim); font-size: 14px; font-weight: 500; letter-spacing: 0.5px; }
-
-      /* Footer / Controls */
-      #unity-footer { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; z-index: 5; background: var(--surface); padding: 8px 16px; border-radius: 99px; backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
-      .control-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text); padding: 8px 16px; border-radius: 99px; cursor: pointer; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; }
-      .control-btn:hover:not(:disabled) { background: var(--primary); transform: translateY(-1px); border-color: transparent; }
-      .control-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-    </style>
+    <link rel="stylesheet" href="TemplateData/style.css">
   </head>
   <body>
     <div id="unity-container">
       <div id="unity-canvas-container" style="width: 100%; height: 100%;">
-        <canvas id="unity-canvas"></canvas>
+        <canvas id="unity-canvas" style="width: 100%; height: 100%;"></canvas>
       </div>
-      
       <div id="unity-loading-bar">
-        <div class="loader-circle"></div>
-        <div id="unity-progress-bar-empty"><div id="unity-progress-bar-full"></div></div>
-        <div class="loading-text">INITIALIZING QUANTUM BRIDGE...</div>
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
       </div>
-
       <div id="unity-footer">
-        <button id="entervr" class="control-btn" disabled><span>🥽</span> Enter VR</button>
-        <button id="enterar" class="control-btn" disabled><span>📱</span> Enter AR</button>
-        <button id="unity-fullscreen-button" class="control-btn"><span>⛶</span> Fullscreen</button>
+        <div id="unity-webgl-logo"></div>
+        <button id="entervr" value="Enter VR" disabled>VR</button>
+        <button id="enterar" value="Enter AR" disabled>AR</button>
+        <div id="unity-webxr-link">Using <a href="https://github.com/De-Panther/unity-webxr-export" target="_blank" title="WebXR Export">WebXR Export</a></div>
+        <div id="unity-build-title">Build7</div>
       </div>
     </div>
-
     <script>
-      // ── Global State for Unity Plugins ──
-      window._whisperData = window._whisperData || { chunks: [], recorder: null, apiBase: "", bridgeToken: "", language: "en", unityObjectName: "", unityMethodName: "" };
-      window.WebGLWhisperState = window.WebGLWhisperState || window._whisperData;
-
-      const DEFAULT_API_BASE = "https://mockmate-api-6dvm.onrender.com";
-      const urlParams = new URLSearchParams(window.location.search);
-
-      // ── FIX 1: Notify parent React frame immediately that loading has started ──
-      // Without this, the React loading spinner never activates.
-      const postStatus = (status, detail) => {
-        if (window.parent !== window) {
-          window.parent.postMessage({ source: "mockmate-vr", status, detail }, "*");
-        }
-      };
-      postStatus("loading", "Initializing VR environment...");
-
-      // ── Handle fallback token mapping for older plugins ──
-      window._InitWhisperSTT = function(apiKey, language, objectName, methodName) {
-        const state = window._whisperData;
-        state.apiKey = apiKey;
-        state.language = language;
-        state.unityObjectName = objectName;
-        state.unityMethodName = methodName;
-        if (!state.apiBase) state.apiBase = (urlParams.get("api_base") || DEFAULT_API_BASE);
-        if (!state.bridgeToken) state.bridgeToken = (urlParams.get("bridge_token") || apiKey);
-      };
-
-      // ── FIX 2: Check res.ok before parsing JSON to prevent sending error bodies as transcripts ──
-      // Previously, a 429 response body {"detail":"..."} was parsed and data.text was undefined,
-      // sending an empty string or causing the error branch to fire with confusing messages.
-      window._SendToWhisper = function(blob) {
-        const state = window._whisperData;
-        const token = state.bridgeToken || urlParams.get("bridge_token");
-        const apiBase = (state.apiBase || urlParams.get("api_base") || DEFAULT_API_BASE).replace(/\/$/, "");
-        const objectName = state.unityObjectName || "WebGLWhisperSTT";
-        const methodName = state.unityMethodName || "OnTranscriptionReceived";
-
-        const formData = new FormData();
-        formData.append("file", blob, "recording.wav");
-        let url = `${apiBase}/vr-bridge/transcribe?bridge_token=${encodeURIComponent(token)}`;
-        if (state.language) url += `&language=${encodeURIComponent(state.language)}`;
-
-        fetch(url, { method: "POST", body: formData })
-          .then(res => {
-            // FIX: check HTTP status before parsing body
-            if (!res.ok) {
-              throw new Error(`Proxy error: ${res.status}`);
-            }
-            return res.json();
-          })
-          .then(data => {
-            const text = (data.text || "").trim();
-            if (text.length === 0) return; // Skip empty transcripts to allow Unity's 3s silence detection to work.
-
-            if (window.unityInstance) {
-              const objectName = window._whisperData?.unityObjectName || "WebGLWhisperSTT";
-              const methodName = window._whisperData?.unityMethodName || "OnTranscriptionReceived";
-              window.unityInstance.SendMessage(objectName, methodName, text);
-            }
-          })
-          .catch(err => {
-            // Log the error but do NOT send "ERROR:..." to Unity as it
-            // would be treated as a transcript answer, causing 409 conflicts.
-            console.warn("[VR-STT] Transcription failed (will retry on next speech):", err.message);
-          });
-      };
-      
-      const buildUrl = "Build";
-      const loaderUrl = buildUrl + "/Build7.loader.js";
-      const config = {
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/Build7.loader.js";
+      var config = {
         dataUrl: buildUrl + "/Build7.data",
         frameworkUrl: buildUrl + "/Build7.framework.js",
         codeUrl: buildUrl + "/Build7.wasm",
@@ -131,171 +39,119 @@
         companyName: "DefaultCompany",
         productName: "Build7",
         productVersion: "9.2.1",
-        autoSyncPersistentDataPath: true,
       };
 
-      const canvas = document.querySelector("#unity-canvas");
-      const loadingBar = document.querySelector("#unity-loading-bar");
-      const progressBarFull = document.querySelector("#unity-progress-bar-full");
-      const fullscreenButton = document.querySelector("#unity-fullscreen-button");
-      const enterVRButton = document.getElementById('entervr');
-      const enterARButton = document.getElementById('enterar');
-      let unityInstance = null;
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var canvasContainer = document.querySelector("#unity-canvas-container");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var fullscreenButton = document.querySelector("#unity-fullscreen-button");
+      var unityInstance = null;
+      
 
-      // Called by Unity via NotifyInterviewComplete() in MockmateVR.jslib
-      window.onInterviewComplete = function() {
-        console.log("[VR-Index] Interview complete received from Unity.");
-        if (window.parent) {
-          window.parent.postMessage({ 
-            source: 'mockmate-vr', 
-            status: 'complete' 
-          }, window.location.origin);
-        }
-      };
+      loadingBar.style.display = "block";
 
-      // ── "Silence Heartbeat" Fail-safe ──
-      // If the VAD stops the recording but Unity's internal binary skips the message,
-      // this heartbeat manually pokes Unity to ensure the silence timer moves forward.
-      setInterval(() => {
-        if (!window.unityInstance) return;
-        const state = window._whisperData || {};
-        const objectName = state.unityObjectName || "WebGLWhisperSTT";
-        const methodName = state.unityMethodName || "OnTranscriptionReceived";
-        
-        // Only "poke" if we are in a state that might be stuck
-        if (objectName && methodName) {
-          // Send a heartbeat - in my new C# code this refreshes the timer.
-          // In old C# code this might be ignored, but combined with the _SendToWhisper fix above,
-          // the interview should now reliably advance.
-          window.unityInstance.SendMessage(objectName, methodName, "");
-        }
-      }, 15000); // 15 second heartbeat - prevents interference with 3s-5s silence gap while still acting as last-resort fail-safe.
-
-      // ── Native Web Speech Fallback ──
-      window._nativeSpeech = { synth: window.speechSynthesis, isSpeaking: false };
-      window.speakNative = function(text, objectName) {
-        const synth = window._nativeSpeech.synth;
-        if (!synth) {
-          // No speech synthesis support — notify Unity immediately so it doesn't hang
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
-          return;
-        }
-        synth.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        // --- PREFER MALE VOICE --- 
-        const voices = synth.getVoices();
-        if (voices && voices.length > 0) {
-          // Try to find a male voice first
-          let preferredVoice = voices.find(v => v.name.toLowerCase().includes("male") && v.lang.startsWith("en"));
-          if (!preferredVoice) {
-            // Fallback: common male-sounding system voices
-            preferredVoice = voices.find(v => (v.name.includes("Google US English") || v.name.includes("Microsoft David")) && v.lang.startsWith("en"));
-          }
-          if (preferredVoice) utterance.voice = preferredVoice;
-        }
-
-        window._nativeSpeech.currentUtterance = utterance; // Prevent garbage collection bug
-        utterance.rate = 1.1; // Restored to match original JSLib preference
-        utterance.pitch = 1.0;
-        utterance.onstart = () => {
-          window._nativeSpeech.isSpeaking = true;
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart");
-        };
-        utterance.onend = () => {
-          window._nativeSpeech.isSpeaking = false;
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
-        };
-        // ── FIX 3: Add onerror handler so Unity is never left hanging ──
-        utterance.onerror = (e) => {
-          console.warn("[VR-TTS] SpeechSynthesis error:", e.error);
-          window._nativeSpeech.isSpeaking = false;
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
-        };
-        synth.speak(utterance);
-      };
-
-      window.startNativeSTT = function(objectName) {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) return;
-        const rec = new SpeechRecognition();
-        rec.lang = 'en-US'; // Restored to match original JSLib
-        rec.continuous = false;
-        rec.interimResults = false;
-        rec.maxAlternatives = 1; // Restored to match original JSLib
-        rec.onresult = (e) => {
-          if (unityInstance) {
-            unityInstance.SendMessage(objectName, 'OnTranscriptChunkReceived', e.results[0][0].transcript);
-          }
-        };
-        rec.onerror = (e) => console.warn("[VR-NativeSTT] Error:", e.error);
-        rec.start();
-      };
-
-      const script = document.createElement("script");
+      var script = document.createElement("script");
       script.src = loaderUrl;
-
       script.onload = () => {
-        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) config.devicePixelRatio = 1;
-        postStatus("loading", "Unity runtime is loading, please wait...");
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
         }).then((instance) => {
           unityInstance = instance;
-          window.unityInstance = instance;
-          loadingBar.style.opacity = "0";
-          setTimeout(() => loadingBar.style.display = "none", 500);
-
-          if (fullscreenButton) fullscreenButton.onclick = () => unityInstance.SetFullscreen(1);
-
-          // Inject bridge data into Unity
-          const payload = { 
-            bridge_token: urlParams.get("bridge_token") || "", 
-            api_base: urlParams.get("api_base") || DEFAULT_API_BASE, 
-            session_id: urlParams.get("session_id") || ""
-          };
-          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", JSON.stringify(payload));
-          postStatus("ready", "Virtual environment synchronized.");
-        }).catch((err) => {
-          postStatus("error", "Failed to launch VR runtime: " + err);
+          loadingBar.style.display = "none";
+          if (fullscreenButton)
+          {
+            fullscreenButton.onclick = () => {
+              unityInstance.SetFullscreen(1);
+            };
+          }
+        }).catch((message) => {
+          alert(message);
         });
       };
-
-      // ── FIX 4: Add script.onerror so React is notified if Build7.loader.js is missing ──
-      // Without this, a 404 on the loader file shows a blank screen with no user feedback.
-      script.onerror = () => {
-        postStatus("error", "Failed to load VR assets (Build7.loader.js not found). Please check that the Build folder is deployed correctly.");
-      };
-
       document.body.appendChild(script);
 
-      // WebXR button wiring
-      document.addEventListener('onARSupportedCheck', (e) => { if (enterARButton) enterARButton.disabled = !e.detail.supported; }, false);
-      document.addEventListener('onVRSupportedCheck', (e) => { if (enterVRButton) enterVRButton.disabled = !e.detail.supported; }, false);
-      if (enterVRButton) enterVRButton.onclick = () => { if (unityInstance?.Module?.WebXR) unityInstance.Module.WebXR.toggleVR(); };
-      if (enterARButton) enterARButton.onclick = () => { if (unityInstance?.Module?.WebXR) unityInstance.Module.WebXR.toggleAR(); };
+      let enterARButton = document.getElementById('enterar');
+      let enterVRButton = document.getElementById('entervr');
 
-      // ── FIX 5: Resume AudioContext correctly ──
-      // Old code created & immediately closed a NEW AudioContext which did nothing useful.
-      // Unity's AudioContext is created internally — we just need to trigger resumption
-      // on the first user interaction (required by browser autoplay policy).
-      const resumeAudio = () => {
-        // Attempt to resume any suspended AudioContext instances
-        if (window.AudioContext || window.webkitAudioContext) {
-          // Unity manages its own AudioContext; a user gesture is all that's needed.
-          // We also try to resume any globally accessible context.
-          if (unityInstance && unityInstance.Module && unityInstance.Module.ctx) {
-            const ctx = unityInstance.Module.ctx;
-            if (ctx.state === "suspended") ctx.resume();
-          }
+      document.addEventListener('onARSupportedCheck', function (event) {
+        enterARButton.disabled = !event.detail.supported;
+      }, false);
+      document.addEventListener('onVRSupportedCheck', function (event) {
+        enterVRButton.disabled = !event.detail.supported;
+      }, false);
+
+      enterARButton.addEventListener('click', function (event) {
+        unityInstance.Module.WebXR.toggleAR();
+      }, false);
+      enterVRButton.addEventListener('click', function (event) {
+        unityInstance.Module.WebXR.toggleVR();
+      }, false);
+
+      // --- Mockmate VR Bridge Logic (Re-implemented after Unity Build Overwrite) ---
+
+      window.SpeakNative = function(text, objectName) {
+        console.log("[Mockmate-Bridge] SpeakNative called:", text);
+        if (!window.speechSynthesis) {
+          console.warn("[Mockmate-Bridge] SpeechSynthesis not supported.");
+          return;
         }
-        document.removeEventListener("click", resumeAudio);
-        document.removeEventListener("keydown", resumeAudio);
-        document.removeEventListener("touchstart", resumeAudio);
+        window.speechSynthesis.cancel(); 
+        var utterance = new SpeechSynthesisUtterance(text);
+        utterance.onstart = function() {
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakStart");
+        };
+        utterance.onend = function() {
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
+        };
+        utterance.onerror = function(e) {
+          console.error("[Mockmate-Bridge] TTS Error:", e);
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
+        };
+        window.speechSynthesis.speak(utterance);
       };
-      document.addEventListener("click", resumeAudio);
-      document.addEventListener("keydown", resumeAudio);
-      document.addEventListener("touchstart", resumeAudio, { passive: true });
+
+      window.StopNativeSpeech = function() {
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+      };
+
+      var recognition = null;
+      window.StartSpeechToText = function(objectName) {
+        console.log("[Mockmate-Bridge] StartSpeechToText called");
+        var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          console.warn("[Mockmate-Bridge] SpeechRecognition not supported.");
+          return;
+        }
+        if (recognition) recognition.stop();
+        
+        recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = function() {
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnListeningStart");
+        };
+        recognition.onresult = function(event) {
+          var transcript = event.results[0][0].transcript;
+          console.log("[Mockmate-Bridge] STT Result:", transcript);
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", transcript);
+        };
+        recognition.onerror = function(event) {
+          console.error("[Mockmate-Bridge] STT Error:", event.error);
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnListeningEnd");
+        };
+        recognition.onend = function() {
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnListeningEnd");
+        };
+        recognition.start();
+      };
+
+      window.StopSpeechToText = function() {
+        if (recognition) recognition.stop();
+      };
     </script>
   </body>
 </html>

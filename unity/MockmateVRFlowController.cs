@@ -1,5 +1,5 @@
-using System;
 using System.Collections;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -12,14 +12,15 @@ public class MockmateVRFlowController : MonoBehaviour
     [SerializeField] private bool autoStartWhenTokenPresent = true;
     [SerializeField] private bool autoSpeakWhenQuestionArrives = true;
     [SerializeField] private float simulatedSpeakCharsPerSecond = 18f;
-    [SerializeField] private float prepTimeSeconds = 10f;
+    [SerializeField] private float prepTimeSeconds = 5f;
     [SerializeField] private float silenceGapSeconds = 3f;
     [SerializeField] private float minListenSeconds = 1f;
     [SerializeField] private int initialFetchRetryCount = 8;
     [SerializeField] private float initialFetchRetryDelaySeconds = 1.2f;
     [SerializeField] private float speechCompletionFallbackSeconds = 20f;
     [SerializeField] private float nextQuestionDelaySeconds = 0.5f;
-    [SerializeField] private float listenTimeoutSeconds = 60f;
+    [SerializeField] private float listenTimeoutSeconds = 25f;
+    [SerializeField] private float speechReadyDelaySeconds = 1.5f;
     [SerializeField] private float speechGracePeriodSeconds = 0.5f;
 
     [Header("Editor Preview")]
@@ -57,6 +58,9 @@ public class MockmateVRFlowController : MonoBehaviour
     private int _activeQuestionIndex = 0;
     private bool _editorCameraAdjusted;
     private Vector3 _editorOriginalCameraLocalPosition;
+
+    [DllImport("__Internal")]
+    private static extern void NotifyInterviewComplete();
 
     private void Awake()
     {
@@ -149,8 +153,8 @@ public class MockmateVRFlowController : MonoBehaviour
         _busy = true;
         _manualSubmitRequested = false;
 
-        // Tiny delay to ensure listeners (like VRInterviewGlue) have time to buffer the question text
-        yield return new WaitForSeconds(0.1f);
+        // Delay to ensure the UI displays the question text before the interviewer starts speaking
+        yield return new WaitForSeconds(speechReadyDelaySeconds);
 
         if (autoSpeakWhenQuestionArrives)
         {
@@ -379,6 +383,10 @@ public class MockmateVRFlowController : MonoBehaviour
         PublishStatus(msg);
         OnCompletedMessage?.Invoke(msg);
         OnCompleted?.Invoke(response.percentage);
+
+#if !UNITY_EDITOR && UNITY_WEBGL
+        try { NotifyInterviewComplete(); } catch (System.Exception e) { Debug.LogWarning("Bridge NotifyInterviewComplete failed: " + e.Message); }
+#endif
     }
 
     private void PublishStatus(string message)

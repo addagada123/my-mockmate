@@ -83,6 +83,11 @@ function Test() {
   }
 
   function speakQuestion(text) {
+    // Audit: Disable browser-side speech in VR mode to prevent 'double audio' echo
+    if (testMode === "vr") {
+      console.log("Skipping browser TTS: VR mode active (Unity handles speech)");
+      return;
+    }
     if ("speechSynthesis" in window) {
       stopSpeech(); // Stop previous speech
       const utterance = new SpeechSynthesisUtterance(text);
@@ -460,9 +465,8 @@ function Test() {
       setVrCompleted(!!response.data.completed);
       showWarning("VR answer saved.");
     } catch (error) {
-      showWarning(
-        `VR answer save failed: ${error.response?.data?.detail || error.message}`
-      );
+      console.error("VR answer save failed:", error);
+      showWarning(`VR answer save failed: ${error.response?.data?.detail || error.message}`);
     } finally {
       setVrBusy(false);
     }
@@ -619,6 +623,17 @@ function Test() {
       speakQuestion(vrCurrentQuestion.question);
     }
   }, [currentQuestionIndex, questions, testStarted, testMode, vrCurrentQuestion?.id, vrBusy]);
+
+  useEffect(() => {
+    const handleVRMessage = (event) => {
+      if (event.data && event.data.type === "vr_interview_complete") {
+        console.log("[VR-Parent] Received completion signal from VR frame.");
+        completeVRTest();
+      }
+    };
+    window.addEventListener("message", handleVRMessage);
+    return () => window.removeEventListener("message", handleVRMessage);
+  }, [sessionId, vrBridgeToken]);
 
   useEffect(() => {
     return () => {
