@@ -1620,21 +1620,11 @@ class VRBridgeAnswerRequest(BaseModel):
 
 class VRBridgeCompleteRequest(BaseModel):
     time_spent: Optional[int] = None
-
-
 class VRRegisterTokenRequest(BaseModel):
     device_id: str
     bridge_token: str
     api_base: Optional[str] = None
 
-
-class VRTTSRequest(BaseModel):
-    bridge_token: str
-    text: str
-    voice: Optional[str] = "alloy"
-    model: Optional[str] = "tts-1"
-    instructions: Optional[str] = None
-    response_format: Optional[str] = "wav"
 
 # Upload directory
 UPLOAD_DIR = "uploads"
@@ -3777,7 +3767,7 @@ async def complete_vr_test(
 async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, session_id: Optional[str] = None):
     """ Standardized endpoint for fetching the next VR question. """
     token_pref = _safe_str_slice(str(bridge_token or ""), 8)
-    print(f"DEBUG: [/vr-bridge/next] VR Next Question requested. Token: {token_pref}")
+    logger.debug(f"[/vr-bridge/next] VR Next Question requested. Token: {token_pref}")
     db = get_db()
     
     session = None
@@ -4129,7 +4119,7 @@ async def generate_vr_bridge_tts(payload: VRBridgeTTSRequest, request: Request):
     """
     actual_token = str(payload.bridge_token or "")
     token_preview = _safe_str_slice(actual_token, 8)
-    print(f"DEBUG: [/vr-bridge/tts] VR TTS requested for token: {token_preview}...")
+    logger.debug(f"[/vr-bridge/tts] VR TTS requested for token: {token_preview}...")
     
     db = get_db()
     if not actual_token:
@@ -5470,7 +5460,7 @@ async def communication_feedback(
         for oa in all_open_answers[:12]: # type: ignore
             open_answers_text = str(open_answers_text) + (
             f"\n- Section: {oa.get('section', 'N/A')}, Q: {str(oa.get('question', ''))[:100]}, " # type: ignore
-            f"Answer: {str(oa.get('user_answer', ''))[:200]}, Score: {oa.get('score', 0)}/100, " # type: ignore
+            f"Answer: {str(oa.get('answer', ''))[:200]}, Score: {oa.get('score', 0)}/100, " # type: ignore
             f"Feedback: {str(oa.get('feedback', ''))}"
         )
 

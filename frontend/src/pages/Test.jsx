@@ -371,9 +371,11 @@ function Test() {
       }
 
       if (vrLaunchMode === "desktop" || mode === "desktop") {
-        const desktopUrl = `mockmate://start-vr?bridge_token=${encodeURIComponent(response.data.bridge_token)}&api_base=${encodeURIComponent(API_BASE)}`;
+        const desktopUrl = `mockmate://start?bridge_token=${response.data.bridge_token}&api_base=${encodeURIComponent(API_BASE)}&session_id=${sessionId}`;
         window.location.href = desktopUrl;
-        showWarning("Attempting to launch Desktop VR App. If it doesn't open, ensure you've registered the handle or use Browser VR.");
+        setVrLaunching(false);
+        setVrLoadMessage("Redirecting to Desktop App...");
+        return;
       }
       
       if (!response.data.bridge_token) {
@@ -612,7 +614,11 @@ function Test() {
         stopSpeech();
       };
     }
-  }, [currentQuestionIndex, questions, testStarted, testMode]);
+    // VR Mode speech trigger (for manual control panel and accessibility)
+    if (testMode === "vr" && vrCurrentQuestion && !vrBusy) {
+      speakQuestion(vrCurrentQuestion.question);
+    }
+  }, [currentQuestionIndex, questions, testStarted, testMode, vrCurrentQuestion?.id, vrBusy]);
 
   useEffect(() => {
     return () => {
@@ -864,7 +870,6 @@ function Test() {
       } else if (payload.status === "complete") {
         console.log("[VR-Parent] Interview complete signaled. Exiting VR...");
         setVrCompleted(true);
-        setVrLaunched(false);
         setVrLaunching(false);
       }
     }
@@ -940,16 +945,17 @@ function Test() {
   }, [currentQuestionIndex]);
 
   // Poll for VR question state every 3 seconds when in VR mode
+  // Poll for VR question state every 3 seconds when in VR mode
   useEffect(() => {
     if (testMode !== "vr" || vrCompleted || testSubmitted) return;
-    if (vrCurrentQuestion) return;
     
+    // Fixed: Always poll while in VR mode to detect question advances
     const interval = setInterval(() => {
       refreshVRQuestion();
     }, 3000);
     
     return () => clearInterval(interval);
-  }, [testMode, vrCompleted, testSubmitted, vrCurrentQuestion]);
+  }, [testMode, vrCompleted, testSubmitted]);
 
   // --- Rendering ---
 
