@@ -60,6 +60,24 @@
         }).then((instance) => {
           unityInstance = instance;
           loadingBar.style.display = "none";
+
+          // --- Automated Initialization from URL Parameters ---
+          const urlParams = new URLSearchParams(window.location.search);
+          const bridge_token = urlParams.get('bridge_token');
+          const api_base = urlParams.get('api_base');
+          const session_id = urlParams.get('session_id');
+
+          if (bridge_token) {
+            console.log("[Mockmate-Bridge] Injecting credentials from URL into Unity...");
+            const payload = JSON.stringify({
+              bridge_token: bridge_token,
+              api_base: api_base || "",
+              session_id: session_id || ""
+            });
+            // Match the receiver name in MockmateVRWebGLBootstrap.cs
+            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
+          }
+
           if (fullscreenButton)
           {
             fullscreenButton.onclick = () => {
