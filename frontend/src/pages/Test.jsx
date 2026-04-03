@@ -1091,7 +1091,7 @@ function Test() {
             <div style={{ maxWidth: "420px", width: "100%", background: "#111827", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "28px", textAlign: "center" }}>
               <h2 style={{ color: "white", marginTop: 0 }}>Fullscreen Required</h2>
               <p style={{ color: "rgba(255,255,255,0.7)", marginBottom: "18px" }}>Please return to fullscreen to continue the VR test.</p>
-              <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#0f766e", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+              <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#0f766e", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Enter Full Screen</button>
             </div>
           </div>
         )}
@@ -1265,7 +1265,7 @@ function Test() {
           <div style={{ maxWidth: "420px", width: "100%", background: "white", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "28px", textAlign: "center", boxShadow: "0 20px 60px rgba(99,102,241,0.12)" }}>
             <h2 style={{ color: "#1e1b4b", marginTop: 0 }}>Fullscreen Required</h2>
             <p style={{ color: "#64748b", marginBottom: "18px" }}>Please return to fullscreen to continue the test.</p>
-            <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+            <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Enter Full Screen</button>
           </div>
         </div>
       )}
