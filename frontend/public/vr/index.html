@@ -29,6 +29,18 @@
       </div>
     </div>
     <script>
+      // --- WebGL Console Silence (INVALID_ENUM Fix) ---
+      (function() {
+        if (typeof WebGL2RenderingContext !== 'undefined' && WebGL2RenderingContext.prototype.getInternalformatParameter) {
+          const original = WebGL2RenderingContext.prototype.getInternalformatParameter;
+          WebGL2RenderingContext.prototype.getInternalformatParameter = function(target, internalformat, pname) {
+            // Suppress GL_DEPTH_STENCIL queries that cause INVALID_ENUM on some browsers
+            if (internalformat === 0x84F9) return 0; 
+            return original.apply(this, arguments);
+          };
+        }
+      })();
+
       var buildUrl = "Build";
       var loaderUrl = buildUrl + "/Build7.loader.js";
       var config = {
@@ -39,6 +51,7 @@
         companyName: "DefaultCompany",
         productName: "Build7",
         productVersion: "9.2.1",
+        autoSyncPersistentDataPath: true,
       };
 
       var container = document.querySelector("#unity-container");
@@ -109,10 +122,11 @@
 
       // --- Mockmate VR Bridge Logic (Re-implemented after Unity Build Overwrite) ---
 
-      window.SpeakNative = function(text, objectName) {
-        console.log("[Mockmate-Bridge] SpeakNative called:", text);
+      window.speakNative = function(text, objectName) {
+        console.log("[Mockmate-Bridge] speakNative called:", text);
         if (!window.speechSynthesis) {
           console.warn("[Mockmate-Bridge] SpeechSynthesis not supported.");
+          if (unityInstance) unityInstance.SendMessage(objectName, "OnSpeakEnd");
           return;
         }
         window.speechSynthesis.cancel(); 
@@ -130,12 +144,19 @@
         window.speechSynthesis.speak(utterance);
       };
 
-      window.StopNativeSpeech = function() {
+      window.stopNativeSpeech = function() {
         if (window.speechSynthesis) window.speechSynthesis.cancel();
       };
 
+      window.onInterviewComplete = function() {
+        console.log("[Mockmate-Bridge] onInterviewComplete triggered. Messaging parent.");
+        if (window.parent) {
+          window.parent.postMessage({ type: "vr_interview_complete" }, "*");
+        }
+      };
+
       var recognition = null;
-      window.StartSpeechToText = function(objectName) {
+      window.startNativeSTT = function(objectName) {
         console.log("[Mockmate-Bridge] StartSpeechToText called");
         var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -167,7 +188,7 @@
         recognition.start();
       };
 
-      window.StopSpeechToText = function() {
+      window.stopNativeSTT = function() {
         if (recognition) recognition.stop();
       };
     </script>

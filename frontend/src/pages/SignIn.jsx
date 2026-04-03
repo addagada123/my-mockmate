@@ -309,7 +309,7 @@ function SignIn() {
           loop
           muted
           playsInline
-          style={{ width: '72px', height: '72px', objectFit: 'contain', mixBlendMode: 'multiply', borderRadius: '14px' }}
+          style={{ width: '72px', height: '72px', objectFit: 'contain', mixBlendMode: 'multiply', borderRadius: '50%' }}
         />
         <span className="signin-brand-name">Mockmate</span>
       </div>

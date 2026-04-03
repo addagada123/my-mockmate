@@ -12,6 +12,9 @@ public class MockmateVRBrowserTTS : MonoBehaviour
     [DllImport("__Internal")]
     private static extern void SpeakNative(string text, string objectName);
 
+    [DllImport("__Internal")]
+    private static extern void StopNativeSpeech();
+
     public bool LastSpeakSucceeded { get; private set; }
     private bool _isSpeaking = false;
     private MockmateVRAnimationBridge _animBridge;
@@ -52,6 +55,14 @@ public class MockmateVRBrowserTTS : MonoBehaviour
         }
 
         LastSpeakSucceeded = true;
+    }
+
+    public void StopSpeech()
+    {
+        if (Application.platform == RuntimePlatform.WebGLPlayer)
+            StopNativeSpeech();
+        
+        OnSpeakEnd();
     }
 
     public void OnSpeakStart()

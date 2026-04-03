@@ -156,30 +156,29 @@ def _add_entropy_seed(messages: List[Dict[str, str]]):
 
 
 def _safe_str_slice(text: Any, limit: int) -> str:
-    """Brute force string slice to bypass IDE slice overload errors."""
-    s = str(text)
-    res = ""
+    """Robust string slicing helper."""
+    s = str(text or "")
     lim = int(limit)
-    for i in range(min(len(s), lim)):
-        res += s[i] # type: ignore
-    return res
+    return s[:lim]
 
 def _safe_list_slice(lst: Any, limit: int) -> List[Any]:
-    """Brute force list slice to bypass IDE slice overload errors."""
-    res = []
-    lim = int(limit)
+    """Robust list slicing helper."""
     l_list = list(lst or [])
-    for i in range(min(len(l_list), lim)):
-        res.append(l_list[i])
-    return res
+    lim = int(limit)
+    return l_list[:lim]
 
 def _safe_round(val: Any, digits: int = 0) -> float:
-    """Brute force round to bypass IDE overload errors."""
-    f_val = float(val or 0)
-    d = int(digits)
-    factor = 10**d
-    # Basic standard rounding (add 0.5 and truncate)
-    return float(int(f_val * factor + 0.5)) / float(factor)
+    """Robust rounding helper (standard round half-up behavior)."""
+    try:
+        f_val = float(val or 0)
+        d = int(digits)
+        # Use standard rounding for non-negative, adjustment for negative to match 'half-up'
+        if f_val >= 0:
+            return float(int(f_val * (10**d) + 0.5)) / (10**d)
+        else:
+            return float(int(f_val * (10**d) - 0.5)) / (10**d)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def parse_json_response(raw_text: str) -> Optional[dict]:
@@ -1858,16 +1857,10 @@ async def ai_evaluate_answer(question: str, user_answer: str, correct_answer: st
         logger.info(f"AI evaluation from {provider}")
 
         # Parse the AI response as JSON
-        import json as _json
-        # Strip markdown code fences if present
-        cleaned = raw_text.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[-1]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3] # type: ignore
-            cleaned = cleaned.strip()
-
-        result = _json.loads(cleaned)
+        # Use the robust parse_json_response helper to handle markdown fences and raw text
+        result = parse_json_response(raw_text)
+        if not result:
+             raise ValueError("Could not parse JSON from AI response")
 
         # Validate required fields
         score = max(0, min(100, int(result.get("score", 0))))
@@ -3671,8 +3664,11 @@ async def get_vr_next_question(
 
 @app.get("/vr-bridge/next")
 async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, session_id: Optional[str] = None):
-    """ Standardized endpoint for fetching the next VR question for Unity. """
+    """ Standardized endpoint for fetching the next VR question. """
+    token_pref = _safe_str_slice(str(bridge_token or ""), 8)
+    logger.debug(f"[/vr-bridge/next] VR Next Question requested. Token: {token_pref}")
     db = get_db()
+    
     session = None
     if bridge_token:
         session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
@@ -3688,24 +3684,24 @@ async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, sessio
         raise HTTPException(status_code=400, detail="Either bridge_token or session_id is required")
 
     return await _process_vr_get_next(db, session, session_id)
-
-
-async def _process_vr_get_next(db: Any, session: Dict[str, Any], session_id_str: Optional[str]) -> Dict[str, Any]:
-    """Internal helper to fetch next question and handle lazy init."""
+ 
+ 
+def _ensure_vr_test_initialized(db: Any, session: Dict[str, Any], session_id_str: Optional[str]) -> Dict[str, Any]:
+    """Helper to ensure a session has a VR test state initialized."""
     vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
     questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
-    
+
     if not questions:
         source_questions = session.get("questions") or session.get("all_questions", [])
         current_sid = session_id_str or (str(session.get("_id")) if session.get("_id") != "direct-pass" else None)
-        
+
         if not source_questions and current_sid:
             cache = db.resume_question_cache.find_one({"session_id": current_sid})
             if not cache and session.get("resume_hash"):
                 cache = db.resume_question_cache.find_one({"resume_hash": session["resume_hash"], "user_id": session["user_id"]})
             if cache:
                 source_questions = cache.get("questions") or cache.get("all_questions", [])
-        
+
         if source_questions:
             vr_questions = []
             for i, q in enumerate(source_questions):
@@ -3726,7 +3722,18 @@ async def _process_vr_get_next(db: Any, session: Dict[str, Any], session_id_str:
             }
             if session.get("_id") != "direct-pass":
                 db.user_sessions.update_one({"_id": session["_id"]}, {"$set": {"vr_test": vr_state}})
-            questions = vr_questions
+    
+    return vr_state
+
+
+async def _process_vr_get_next(db: Any, session: Dict[str, Any], session_id_str: Optional[str]) -> Dict[str, Any]:
+    """Internal helper to fetch next question and handle lazy init."""
+    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
+    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
+
+    if not questions:
+        vr_state = _ensure_vr_test_initialized(db, session, session_id_str)
+        questions = vr_state.get("questions") or []
 
     if not questions:
         raise HTTPException(status_code=404, detail="VR test not initialized")
@@ -3772,93 +3779,7 @@ async def complete_vr_test(
     _, session = _get_owned_session(db, payload.session_id, current_user)  # type: ignore
     return await _process_vr_complete(db, session, payload.time_spent or 0)
 
-# --- Standardized VR Bridge Endpoints ---
-
-@app.get("/vr-bridge/next")
-async def get_vr_bridge_next_question(bridge_token: Optional[str] = None, session_id: Optional[str] = None):
-    """ Standardized endpoint for fetching the next VR question. """
-    token_pref = _safe_str_slice(str(bridge_token or ""), 8)
-    logger.debug(f"[/vr-bridge/next] VR Next Question requested. Token: {token_pref}")
-    db = get_db()
-    
-    session = None
-    if bridge_token:
-        session = cast(Dict[str, Any], _get_session_by_bridge_token(db, bridge_token))
-    elif session_id:
-        try:
-            if not ObjectId: raise HTTPException(status_code=500, detail="bson/ObjectId not available")
-            session = cast(Dict[str, Any], db.user_sessions.find_one({"_id": ObjectId(session_id)}))
-            if not session: raise HTTPException(status_code=404, detail="Session not found")
-        except Exception:
-             raise HTTPException(status_code=400, detail="Invalid session_id format")
-    
-    if not session:
-        raise HTTPException(status_code=400, detail="Either bridge_token or session_id is required")
-
-    vr_state = cast(Dict[str, Any], session.get("vr_test") or {})
-    questions = cast(List[Dict[str, Any]], vr_state.get("questions") or [])
-    
-    if not questions:
-        # Lazy initialization fallback
-        source_questions = session.get("questions") or session.get("all_questions", [])
-        
-        # Extract session_id for cache lookup if not provided directly
-        current_sid = session_id or (str(session.get("_id")) if session.get("_id") != "direct-pass" else None)
-        
-        if not source_questions and current_sid:
-            cache = db.resume_question_cache.find_one({"session_id": current_sid})
-            if not cache and session.get("resume_hash"):
-                cache = db.resume_question_cache.find_one({"resume_hash": session["resume_hash"], "user_id": session["user_id"]})
-            if cache:
-                source_questions = cache.get("questions") or cache.get("all_questions", [])
-        
-        if source_questions:
-            vr_questions = []
-            for i, q in enumerate(source_questions):
-                vr_questions.append({
-                    "index": i,
-                    "id": q.get("id") or f"vr_q_{i+1}",
-                    "question": q.get("question") or "",
-                    "answer": q.get("answer") or "",
-                    "topic": q.get("topic") or "General",
-                    "difficulty": str(q.get("difficulty") or "medium").lower(),
-                    "type": q.get("type") or "open"
-                })
-            vr_state = {
-                "status": "in_progress",
-                "current_question_index": 0,
-                "questions": vr_questions,
-                "answers": [],
-            }
-            if session.get("_id") != "direct-pass":
-                db.user_sessions.update_one({"_id": session["_id"]}, {"$set": {"vr_test": vr_state}})
-            questions = vr_questions
-
-    if not questions:
-        raise HTTPException(status_code=404, detail="VR test not initialized")
-
-    # Define idx AFTER potential lazy-init to ensure we have the correct index
-    idx = int(vr_state.get("current_question_index", 0))
-
-    if idx >= len(questions):
-        return {"success": True, "completed": True, "current_question": None, "current_question_index": idx, "total_questions": len(questions)}
-
-    # Standardize question object for Unity JsonUtility compliance
-    raw_q = questions[idx]
-    clean_q = {
-        "index": raw_q.get("index", idx),
-        "id": str(raw_q.get("id") or raw_q.get("_id") or f"q_{idx}"),
-        "question": raw_q.get("question", ""),
-        "answer": raw_q.get("answer", raw_q.get("correct_answer", "")),
-        "topic": raw_q.get("topic") or session.get("topic") or "General",
-        "difficulty": raw_q.get("difficulty") or session.get("difficulty") or "Medium",
-        "type": raw_q.get("type", "behavioral")
-    }
-
-    return {
-        "success": True, "completed": False, "current_question_index": idx,
-        "total_questions": len(questions), "current_question": clean_q
-    }
+# --- Standardized VR Answer & Complete ---
 
 
 @app.post("/vr-bridge/answer")
