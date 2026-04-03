@@ -1528,6 +1528,8 @@ class QuestionAnswer(BaseModel):
     question: str
     user_answer: str
     correct_answer: Optional[str] = None
+    question_type: Optional[str] = None
+    score: Optional[int] = None
 
 class TestSubmission(BaseModel):
     session_id: str
@@ -4147,11 +4149,19 @@ async def submit_test(
         evaluated_answers = []
         
         for qa in submission.answers:
-            evaluation = simple_evaluate_answer(
-                qa.question,
-                qa.user_answer,
-                qa.correct_answer or ""
-            )
+            if (qa.question_type or "").strip().lower() == "coding" and qa.score is not None:
+                score_value = max(0, min(100, int(qa.score)))
+                evaluation = {
+                    "score": score_value,
+                    "feedback": "Scored from coding test cases.",
+                    "is_correct": score_value >= 55,
+                }
+            else:
+                evaluation = simple_evaluate_answer(
+                    qa.question,
+                    qa.user_answer,
+                    qa.correct_answer or ""
+                )
             
             evaluated_answers.append({
                 "question": qa.question,

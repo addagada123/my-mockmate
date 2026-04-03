@@ -185,6 +185,8 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
           question: q.question,
           user_answer: userAnswer,
           correct_answer: q.answer || "",
+          question_type: q.type || null,
+          score: q.type === "coding" ? (codeResult?.score ?? 0) : undefined,
         };
       });
 

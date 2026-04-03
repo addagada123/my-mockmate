@@ -62,7 +62,7 @@
       var progressBarFull = document.querySelector("#unity-progress-bar-full");
       var fullscreenButton = document.querySelector("#unity-fullscreen-button");
       var unityInstance = null;
-      var bootstrapRetryTimer = null;
+      var bootstrapPayloadDelivered = false;
 
       function notifyParent(type, detail) {
         if (window.parent) {
@@ -71,29 +71,13 @@
       }
 
       function deliverBootstrapPayload(payload) {
-        if (!unityInstance || !payload) return;
+        if (!unityInstance || !payload || bootstrapPayloadDelivered) return;
 
         try {
           unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
+          bootstrapPayloadDelivered = true;
           console.log("[Mockmate-Bridge] Bootstrap payload sent to Unity.");
           notifyParent("vr_bootstrap_sent", null);
-
-          // Retry a few times because Unity scene objects may not be fully ready
-          // at the exact moment createUnityInstance resolves.
-          var attempts = 0;
-          bootstrapRetryTimer = window.setInterval(function() {
-            attempts += 1;
-            if (!unityInstance || attempts > 5) {
-              window.clearInterval(bootstrapRetryTimer);
-              bootstrapRetryTimer = null;
-              return;
-            }
-            try {
-              unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
-            } catch (retryError) {
-              console.warn("[Mockmate-Bridge] Bootstrap retry failed:", retryError);
-            }
-          }, 1200);
         } catch (bootstrapError) {
           console.error("[Mockmate-Bridge] Failed to send bootstrap payload:", bootstrapError);
           notifyParent("vr_bootstrap_error", String(bootstrapError));

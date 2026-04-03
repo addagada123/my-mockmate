@@ -544,8 +544,16 @@ function Test() {
       }
       const answersPayload = questions.map((q, idx) => ({
         question: q.question,
-        user_answer: answers[idx] || "",
+        user_answer:
+          (q.type || "").toLowerCase() === "coding"
+            ? (answers[idx] || q.starter_code || "")
+            : (answers[idx] || ""),
         correct_answer: q.answer || "",
+        question_type: q.type || null,
+        score:
+          (q.type || "").toLowerCase() === "coding"
+            ? (questionResults[idx]?.score ?? codingResults[idx]?.score ?? 0)
+            : undefined,
       }));
       const totalTimeSecs = questions.length * 60;
       const elapsed = timeLeft !== null ? totalTimeSecs - timeLeft : null;
