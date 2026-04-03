@@ -14,31 +14,47 @@ Step-by-step instructions to set up your Unity project so that pressing **"Take 
 
 ## Step 1 — Import the Scripts
 
-Copy these **4 C# files** from the `unity/` folder into your Unity project's `Assets/Scripts/Mockmate/` folder:
+Copy these scripts from the repo `unity/` folder into your Unity project's `Assets/Scripts/Mockmate/` folder:
 
 | File | Purpose |
 |------|---------|
 | `MockmateVRApiClient.cs` | Makes HTTP calls to the Mockmate backend |
 | `MockmateVRFlowController.cs` | Manages the interview lifecycle (question → speak → listen → submit) |
-| `MockmateVRDeepLinkBootstrap.cs` | Handles deep link launches (backup method) |
-| `MockmateVRTokenPoller.cs` | Polls for bridge tokens automatically |
+| `MockmateVRWebGLBootstrap.cs` | Receives the bridge token from the browser page and starts the WebGL flow |
 | `MockmateVRAnimationBridge.cs` | **NEW** — Handles mouth, jaw, and typing animations |
-| `MockmateVRBackendTTS.cs` | **NEW** — Proxies TTS through the Mockmate backend for WebGL |
+| `MockmateVRBackendTTS.cs` | Proxies TTS through the Mockmate backend for WebGL |
+| `MockmateVRBrowserTTS.cs` | Browser-native speech fallback for WebGL |
+| `MockmateVRBrowserSTT.cs` | Browser-native speech recognition input for WebGL |
+| `VRInterviewGlue.cs` | Auto-wires the flow controller to TTS, STT, and animation systems |
+| `MockmateVRUIBinder.cs` | Optional helper that binds flow events to TextMeshPro/UI panels |
+
+> Note
+> `MockmateVRDeepLinkBootstrap.cs` and `MockmateVRTokenPoller.cs` are referenced by older docs but are not present in this repo. The current browser WebGL path uses `MockmateVRWebGLBootstrap.cs` instead.
 
 ---
 
 ## Step 2 — Set Up the Scene Hierarchy
 
-Create a single GameObject in your scene with all the scripts attached:
+Create these GameObjects in your scene:
 
 1. **Create** → **Empty Object** → name it **`MockmateVRManager`**
-2. **Add Component** → `MockmateVRApiClient`
-3. **Add Component** → `MockmateVRFlowController`
-4. **Add Component** → `MockmateVRTokenPoller`
-5. **Add Component** → `MockmateVRDeepLinkBootstrap`
-6. **Add Component** → `MockmateVRAnimationBridge`
+2. Add these components to `MockmateVRManager`:
+   - `MockmateVRApiClient`
+   - `MockmateVRFlowController`
+   - `MockmateVRAnimationBridge`
+   - `MockmateVRBackendTTS`
+   - `MockmateVRBrowserTTS`
+   - `MockmateVRBrowserSTT`
+   - `VRInterviewGlue`
+3. **Create** → **Empty Object** → name it exactly **`MockmateVRBootstrap`**
+4. Add `MockmateVRWebGLBootstrap` to `MockmateVRBootstrap`
+5. Optional: add `MockmateVRUIBinder` to your VR canvas/UI object
 
-Your Inspector for `MockmateVRManager` should show all 4 scripts.
+For browser WebGL, the object name `MockmateVRBootstrap` is required because the page calls:
+
+```csharp
+unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload)
+```
 
 ---
 
@@ -59,30 +75,16 @@ Your Inspector for `MockmateVRManager` should show all 4 scripts.
 | Prep Time Seconds | `10` |
 | Silence Gap Seconds | `3` |
 
-### MockmateVRTokenPoller ⭐ (Key Script)
+### MockmateVRWebGLBootstrap
 | Field | Value |
 |-------|-------|
 | Flow Controller | Drag the `MockmateVRManager` GameObject here |
-| Api Client | Drag the `MockmateVRManager` GameObject here |
-| Poll Interval Seconds | `2.5` |
-| Device Id | *Leave empty* (auto-uses `SystemInfo.deviceUniqueIdentifier`) **OR** paste your **session ID** from the web app |
-| Api Base | `https://mockmate-api-6dvm.onrender.com` |
-| Poll Local File | ✅ Checked |
-| Local Folder Name | `MockmateVR` |
-| Local File Name | `bridge_token.json` |
-
-### MockmateVRDeepLinkBootstrap
-| Field | Value |
-|-------|-------|
-| Flow Controller | Drag the `MockmateVRManager` GameObject here |
-| Default Api Base | `https://mockmate-api-6dvm.onrender.com` |
-| Auto Begin On Deep Link | ✅ Checked |
 
 ### MockmateVRBackendTTS (Optional for Audio)
 | Field | Value |
 |-------|-------|
 | Api Client | Drag the `MockmateVRManager` GameObject here |
-| Audio Source | Drag the `MockmateVRManager` GameObject here |
+| Audio Source | Drag an `AudioSource` in the scene here |
 | Voice | `alloy` (or your preferred OpenAI TTS voice) |
 
 ### VRInterviewGlue
@@ -90,6 +92,18 @@ Your Inspector for `MockmateVRManager` should show all 4 scripts.
 |-------|-------|
 | Backend TTS | Drag the `MockmateVRManager` GameObject here |
 | Flow Controller | Drag the `MockmateVRManager` GameObject here |
+| Browser TTS | Drag the `MockmateVRBrowserTTS` object / component here |
+| Browser STT | Drag the `MockmateVRBrowserSTT` object / component here |
+| Audio Recorder | Leave empty for browser WebGL |
+| STT Client | Drag the `STTClient` object / component here |
+
+### MockmateVRAnimationBridge
+| Field | Value |
+|-------|-------|
+| Animator | Your interviewer avatar Animator |
+| Jaw Bone | Optional jaw transform |
+| Face Renderer | Optional skinned mesh renderer with mouth blend shapes |
+| Lip Sync Audio Source | Same `AudioSource` used by `MockmateVRBackendTTS` |
 
 ---
 
@@ -99,19 +113,26 @@ Connect the `MockmateVRFlowController` events to your VR UI elements:
 
 | Event | What to do |
 |-------|-----------|
-| `OnQuestionReceived(string)` | Display the question text on a VR panel / TTS |
-| `OnQuestionSpeakingStart` | Drag `MockmateVRAnimationBridge.StartTalking` here |
-| `OnQuestionSpeakingEnd` | Drag `MockmateVRAnimationBridge.StopTalking` here |
-| `OnListeningStart` | Drag `MockmateVRAnimationBridge.StartTyping` here |
-| `OnListeningEnd` | Drag `MockmateVRAnimationBridge.StopTyping` here |
+| `OnQuestionReceived(string)` | Display the question text on a VR panel |
 | `OnPrepTick(float)` | Show countdown timer |
 | `OnAnswerNow` | Show "Speak now!" prompt |
-| `OnListeningStart` | Start STT / microphone recording |
-| `OnListeningEnd` | Stop STT / microphone recording |
 | `OnStatusMessage(string)` | Display status text in VR UI |
 | `OnError(string)` | Display error message |
 | `OnRunningScoreUpdated(float)` | Update score display |
 | `OnCompleted(float)` | Show final score & end screen |
+
+If you use `VRInterviewGlue`, it already auto-subscribes at runtime to:
+- `OnQuestionReceived`
+- `OnQuestionSpeakingStart`
+- `OnListeningStart`
+- `OnListeningEnd`
+
+That means you should not manually duplicate speech/listening behavior hooks in the Inspector unless you intentionally want multiple listeners.
+
+For browser WebGL:
+- Keep `MockmateVRBrowserSTT` enabled
+- Keep `WebGLWhisperSTT`, `AudioRecorder`, and `OpenAIWhisperSTT` disabled unless you are testing an editor/native fallback path
+- Leave `MockmateVRBrowserSTT -> On Transcript Chunk` empty; `VRInterviewGlue` subscribes to it at runtime
 
 ### Feeding STT Results Back
 
@@ -126,20 +147,20 @@ This feeds real-time transcription into the flow controller. After silence is de
 
 ---
 
-## Step 5 — Set Device ID (Important!)
+## Step 5 — Browser WebGL Bootstrap
 
-The **Device ID** is how Unity knows which bridge token to pick up. You have two options:
+For the browser WebGL flow used by this repo, Unity does not poll for a device token.
 
-### Option A: Auto-generated (Default)
-Leave the `Device Id` field empty. Unity will use `SystemInfo.deviceUniqueIdentifier`. 
+Instead:
+1. The React app loads `/vr/index.html?bridge_token=...&api_base=...`
+2. The page boots Unity
+3. The page sends that payload to `MockmateVRBootstrap.SetBridgeToken(...)`
+4. `MockmateVRWebGLBootstrap` calls `flowController.BeginFlow()`
 
-> ⚠️ With this option, you need to tell the web app your device's unique ID. You can find it by adding a `Debug.Log(SystemInfo.deviceUniqueIdentifier)` to your scene.
-
-### Option B: Use Session ID (Recommended for Development)
-Set the `Device Id` to match the **session ID** shown on the VR Test Control panel in the web app. The web app automatically registers the token with this ID.
-
-### Option C: Custom ID
-Set a custom string like `"my-quest-3"` and configure the web app to use the same ID.
+If browser VR loads but never starts the interview, first verify that:
+- the scene contains a GameObject named exactly `MockmateVRBootstrap`
+- it has `MockmateVRWebGLBootstrap`
+- its `flowController` field points to the real `MockmateVRFlowController`
 
 ---
 
@@ -161,12 +182,13 @@ Set a custom string like `"my-quest-3"` and configure the web app to use the sam
 ## Step 7 — Test the Full Flow
 
 1. Open your Unity project and press **Play** (or deploy to headset)
-2. Unity shows: *"Waiting for bridge token from web app..."*
+2. Open the browser WebGL build through the web app
 3. On the web app, select a topic → choose difficulty → click **"Take Test in VR"**
-4. Unity automatically picks up the token and starts the interview
-5. The interviewer "speaks" the question (or you wire it to TTS)
-6. You answer via your microphone (connected to STT → `AppendTranscriptChunk`)
-7. After all questions, scores appear on both Unity and the web dashboard
+4. The page injects the bridge token into `MockmateVRBootstrap`
+5. Unity starts the interview
+6. The interviewer speaks the question
+7. You answer via your microphone (connected to STT → `AppendTranscriptChunk`)
+8. After all questions, scores appear on both Unity and the web dashboard
 
 ---
 
@@ -187,33 +209,26 @@ To make the **"Desktop App"** button automatically open your Unity build:
 
 ---
 
-## How the Automatic Token Sync Works
+## How the Browser WebGL Token Sync Works
 
 ```
 Web App clicks "Take Test in VR"
          │
          ├─── POST /vr-test/start → gets bridge_token
          │
-         ├─── POST /vr-bridge/register-token → stores token for polling
-         │
-         ├─── Deep link attempt (URL: mockmate://start-vr?...)
-         │     └─── Launches your .exe (if Step 8 is done)
-         │
-         └─── Downloads bridge_token.json (backup for manual copy)
-
-Unity (running in Play mode / on headset)
-         │
-         ├─── Polls GET /vr-bridge/token-poll every 2.5 seconds
-         │     └─── When token found → auto-starts interview
-         │
-         └─── Also checks %APPDATA%/MockmateVR/bridge_token.json (if polling fails)
+         └─── Loads /vr/index.html?bridge_token=...&api_base=...
+                    │
+                    ├─── Unity WebGL runtime loads
+                    └─── SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload)
+                              │
+                              └─── MockmateVRWebGLBootstrap starts MockmateVRFlowController
 ```
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|---------|
-| Unity doesn't pick up the token | Make sure `Device Id` in Unity matches what the web app sends (default: `mockmate-vr-default`). Check the console for `[MockmateVR-Poller]` logs. |
+| Unity doesn't pick up the token | Make sure the scene contains a GameObject named exactly `MockmateVRBootstrap` and that it has `MockmateVRWebGLBootstrap` attached. |
 | "Bridge token expired" error | Tokens expire after 6 hours. Click "Take Test in VR" again to get a fresh token. |
 | Network errors in Unity | Check that `Api Base` URL is correct and accessible from your headset/PC. |
 | Questions don't load | Ensure you've generated questions on the web app first (select a topic and difficulty). |

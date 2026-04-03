@@ -413,7 +413,12 @@ public class MockmateVRFlowController : MonoBehaviour
 
     private bool HasExternalSpeechHandler()
     {
-        return OnQuestionSpeakingStart != null && OnQuestionSpeakingStart.GetPersistentEventCount() > 0;
+        if (OnQuestionSpeakingStart != null && OnQuestionSpeakingStart.GetPersistentEventCount() > 0)
+            return true;
+
+        // VRInterviewGlue auto-subscribes at runtime, so relying on persistent
+        // Inspector listeners alone can incorrectly skip speech completion waits.
+        return FindFirstObjectByType<VRInterviewGlue>() != null;
     }
 
     private void EndListeningSession()

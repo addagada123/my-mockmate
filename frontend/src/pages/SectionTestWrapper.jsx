@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import LoadingPage from "./LoadingPage";
@@ -120,13 +120,11 @@ function SectionTestWrapper() {
 }
 
 function SectionTest({ questions, topic, difficulty, sessionId }) {
-  const navigate = useNavigate();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [codingResults, setCodingResults] = useState({});
   const [testSubmitted, setTestSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitResult, setSubmitResult] = useState(null);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(questions.length * 60);
   const testContainerRef = useRef(null);
@@ -166,7 +164,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
     }));
   }
 
-  async function submitTest() {
+  const submitTest = useCallback(async () => {
     if (submitting) return;
     setSubmitting(true);
     setTestSubmitted(true);
@@ -206,7 +204,6 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
       );
 
       if (resp.data) {
-        setSubmitResult(resp.data);
         localStorage.setItem("lastTestScore", resp.data.percentage ?? 0);
       }
     } catch (err) {
@@ -215,21 +212,20 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
       setSubmitting(false);
       if (document.fullscreenElement) document.exitFullscreen();
     }
-  }
+  }, [answers, codingResults, difficulty, questions, sessionId, submitting, tabSwitchCount, timeLeft, topic]);
 
   useEffect(() => {
-    if (timeLeft > 0 && !testSubmitted) {
+    if (testSubmitted) return;
+
+    if (timeLeft > 0) {
       const timer = setTimeout(() => {
         setTimeLeft(timeLeft - 1);
       }, 1000);
-
-      if (timeLeft === 0) {
-        submitTest();
-      }
-
       return () => clearTimeout(timer);
     }
-  }, [timeLeft, testSubmitted]);
+
+    submitTest();
+  }, [submitTest, testSubmitted, timeLeft]);
 
   useEffect(() => {
     function handler() {
@@ -247,7 +243,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
     }
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
-  }, []);
+  }, [submitTest]);
 
   return (
     <div

@@ -3917,7 +3917,10 @@ async def _transcribe_with_gemini(audio_content: bytes, language: Optional[str] 
             )
         )
         
-        transcript = response.text.strip()
+        # Safely extract text from the Gemini response to avoid 'NoneType' errors
+        # In google-genai, response.text may be None if the result was blocked or empty.
+        text = getattr(response, "text", "") or ""
+        transcript = text.strip() if text else ""
         return {"text": transcript, "provider": "gemini"}
     except Exception as e:
         logger.error(f"Gemini transcription fallback failed: {e}")

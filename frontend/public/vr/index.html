@@ -22,6 +22,7 @@
       </div>
       <div id="unity-footer">
         <div id="unity-webgl-logo"></div>
+        <div id="unity-fullscreen-button" title="Fullscreen"></div>
         <button id="entervr" value="Enter VR" disabled>VR</button>
         <button id="enterar" value="Enter AR" disabled>AR</button>
         <div id="unity-webxr-link">Using <a href="https://github.com/De-Panther/unity-webxr-export" target="_blank" title="WebXR Export">WebXR Export</a></div>
@@ -61,6 +62,43 @@
       var progressBarFull = document.querySelector("#unity-progress-bar-full");
       var fullscreenButton = document.querySelector("#unity-fullscreen-button");
       var unityInstance = null;
+      var bootstrapRetryTimer = null;
+
+      function notifyParent(type, detail) {
+        if (window.parent) {
+          window.parent.postMessage({ source: "mockmate-vr", type: type, detail: detail || null }, "*");
+        }
+      }
+
+      function deliverBootstrapPayload(payload) {
+        if (!unityInstance || !payload) return;
+
+        try {
+          unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
+          console.log("[Mockmate-Bridge] Bootstrap payload sent to Unity.");
+          notifyParent("vr_bootstrap_sent", null);
+
+          // Retry a few times because Unity scene objects may not be fully ready
+          // at the exact moment createUnityInstance resolves.
+          var attempts = 0;
+          bootstrapRetryTimer = window.setInterval(function() {
+            attempts += 1;
+            if (!unityInstance || attempts > 5) {
+              window.clearInterval(bootstrapRetryTimer);
+              bootstrapRetryTimer = null;
+              return;
+            }
+            try {
+              unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
+            } catch (retryError) {
+              console.warn("[Mockmate-Bridge] Bootstrap retry failed:", retryError);
+            }
+          }, 1200);
+        } catch (bootstrapError) {
+          console.error("[Mockmate-Bridge] Failed to send bootstrap payload:", bootstrapError);
+          notifyParent("vr_bootstrap_error", String(bootstrapError));
+        }
+      }
       
 
       loadingBar.style.display = "block";
@@ -68,17 +106,24 @@
       var script = document.createElement("script");
       script.src = loaderUrl;
       script.onload = () => {
+        notifyParent("vr_loading", "Unity loader script loaded. Starting runtime...");
+        const urlParams = new URLSearchParams(window.location.search);
+        const bridge_token = urlParams.get('bridge_token');
+        const api_base = urlParams.get('api_base');
+        const session_id = urlParams.get('session_id');
+        const streaming_assets_url = urlParams.get('streaming_assets_url');
+
+        if (streaming_assets_url) {
+          config.streamingAssetsUrl = streaming_assets_url.replace(/\/+$/, "");
+          console.log("[Mockmate-Bridge] Using custom StreamingAssets URL:", config.streamingAssetsUrl);
+        }
+
         createUnityInstance(canvas, config, (progress) => {
           progressBarFull.style.width = 100 * progress + "%";
         }).then((instance) => {
           unityInstance = instance;
           loadingBar.style.display = "none";
-
-          // --- Automated Initialization from URL Parameters ---
-          const urlParams = new URLSearchParams(window.location.search);
-          const bridge_token = urlParams.get('bridge_token');
-          const api_base = urlParams.get('api_base');
-          const session_id = urlParams.get('session_id');
+          notifyParent("vr_unity_loaded", null);
 
           if (bridge_token) {
             console.log("[Mockmate-Bridge] Injecting credentials from URL into Unity...");
@@ -87,8 +132,7 @@
               api_base: api_base || "",
               session_id: session_id || ""
             });
-            // Match the receiver name in MockmateVRWebGLBootstrap.cs
-            unityInstance.SendMessage("MockmateVRBootstrap", "SetBridgeToken", payload);
+            deliverBootstrapPayload(payload);
           }
 
           if (fullscreenButton)
@@ -98,6 +142,7 @@
             };
           }
         }).catch((message) => {
+          notifyParent("vr_runtime_error", String(message));
           alert(message);
         });
       };

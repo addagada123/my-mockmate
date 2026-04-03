@@ -33,7 +33,6 @@ function Test() {
   const navigate = useNavigate();
   const [difficulty, setDifficulty] = useState(null);
   const [testStarted, setTestStarted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [questions, setQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -64,9 +63,10 @@ function Test() {
   const [vrBusy, setVrBusy] = useState(false);
   const [vrCompleted, setVrCompleted] = useState(false);
   const [vrBridgeToken, setVrBridgeToken] = useState("");
-  const [vrBridgeExpiresAt, setVrBridgeExpiresAt] = useState("");
   const vrStartedAtRef = useRef(null);
   const vrIframeInitializedRef = useRef(false);
+  const vrStartInFlightRef = useRef(false);
+  const vrAutoStartRequestedRef = useRef(false);
   const [vrLaunching, setVrLaunching] = useState(false);
   const [vrLoadMessage, setVrLoadMessage] = useState("Preparing VR environment...");
   const [vrLoadError, setVrLoadError] = useState("");
@@ -315,7 +315,7 @@ function Test() {
   }
 
   async function startVRTest(mode) {
-    if (vrBusy || vrLaunching || vrBridgeToken) {
+    if (vrBusy || vrLaunching || vrBridgeToken || vrStartInFlightRef.current) {
       console.log("[VR-Parent] Bridge initialization already in progress or completed. Skipping duplicate start.");
       return;
     }
@@ -324,6 +324,7 @@ function Test() {
       return;
     }
     try {
+      vrStartInFlightRef.current = true;
       setVrBusy(true);
       setVrLaunchMode(mode);
       const token = localStorage.getItem("mockmate_token");
@@ -351,7 +352,6 @@ function Test() {
       setVrLoadError("");
       setVrLoadMessage("Preparing VR environment...");
       setVrBridgeToken(response.data.bridge_token || "");
-      setVrBridgeExpiresAt(response.data.bridge_expires_at || "");
       vrStartedAtRef.current = Date.now();
 
       if (response.data.bridge_token) {
@@ -375,24 +375,28 @@ function Test() {
         }
       }
 
-      if (vrLaunchMode === "desktop" || mode === "desktop") {
+      if (mode === "desktop") {
         const desktopUrl = `mockmate://start?bridge_token=${response.data.bridge_token}&api_base=${encodeURIComponent(API_BASE)}&session_id=${sessionId}`;
         window.location.href = desktopUrl;
         setVrLaunching(false);
         setVrLoadMessage("Redirecting to Desktop App...");
+        vrAutoStartRequestedRef.current = false;
         return;
       }
       
       if (!response.data.bridge_token) {
         throw new Error("No bridge token received from server");
       }
+      vrAutoStartRequestedRef.current = false;
       setVrLaunching(true);
       setVrShowManual(false);
     } catch (error) {
+      vrAutoStartRequestedRef.current = false;
       showWarning(
         `VR start failed: ${error.response?.data?.detail || error.message}`
       );
     } finally {
+      vrStartInFlightRef.current = false;
       setVrBusy(false);
     }
   }
@@ -409,6 +413,11 @@ function Test() {
             `${API_BASE}/vr-test/web-next?session_id=${encodeURIComponent(sessionId)}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
+      console.log("[VR-Parent] refreshVRQuestion:", {
+        completed: !!response.data.completed,
+        current_question_index: response.data.current_question_index,
+        question_id: response.data.current_question?.id || null,
+      });
       setVrCompleted(!!response.data.completed);
       setVrCurrentQuestion(response.data.current_question || null);
       setVrCurrentIndex(response.data.current_question_index || 0);
@@ -438,6 +447,11 @@ function Test() {
         question_index: vrCurrentIndex,
         user_answer: vrTranscript.trim(),
       };
+      console.log("[VR-Parent] submitVRAnswer:start", {
+        question_index: vrCurrentIndex,
+        question_id: vrCurrentQuestion?.id || null,
+        transcript_length: vrTranscript.trim().length,
+      });
       const response = vrBridgeToken
         ? await axios.post(
             `${API_BASE}/vr-bridge/answer?bridge_token=${encodeURIComponent(vrBridgeToken)}`,
@@ -458,6 +472,12 @@ function Test() {
               },
             }
           );
+      console.log("[VR-Parent] submitVRAnswer:success", {
+        completed: !!response.data.completed,
+        next_question_index: response.data.next_question_index,
+        next_question_id: response.data.next_question?.id || null,
+        running_percentage: response.data.running_percentage || 0,
+      });
       setVrRunningScore(response.data.running_percentage || 0);
       setVrCurrentQuestion(response.data.next_question || null);
       setVrCurrentIndex(response.data.next_question_index || vrCurrentIndex);
@@ -564,13 +584,10 @@ function Test() {
       const targetEl = testContainerRef.current || document.documentElement;
       if (targetEl.requestFullscreen) {
         await targetEl.requestFullscreen();
-        setIsFullscreen(true);
       } else if (targetEl.webkitRequestFullscreen) {
         await targetEl.webkitRequestFullscreen();
-        setIsFullscreen(true);
       } else if (targetEl.msRequestFullscreen) {
         await targetEl.msRequestFullscreen();
-        setIsFullscreen(true);
       } else {
         showWarning("Please enter full screen or you will be suspended from test");
       }
@@ -581,6 +598,7 @@ function Test() {
   }
 
   function handleStartVR(mode) {
+    vrAutoStartRequestedRef.current = true;
     startVRTest(mode);
   }
 
@@ -626,9 +644,32 @@ function Test() {
 
   useEffect(() => {
     const handleVRMessage = (event) => {
-      if (event.data && event.data.type === "vr_interview_complete") {
+      if (event.origin !== window.location.origin) return;
+      if (!event.data || event.data.source !== "mockmate-vr") return;
+
+      if (event.data.type === "vr_interview_complete") {
         console.log("[VR-Parent] Received completion signal from VR frame.");
         completeVRTest();
+      } else if (event.data.type === "vr_loading") {
+        console.log("[VR-Parent] VR iframe loading:", event.data.detail);
+        setVrLoadError("");
+        setVrLoadMessage(event.data.detail || "Loading VR environment...");
+      } else if (event.data.type === "vr_unity_loaded") {
+        console.log("[VR-Parent] Unity runtime loaded inside VR iframe.");
+        setVrLoadError("");
+        setVrLoadMessage("Unity runtime loaded. Waiting for interview bootstrap...");
+      } else if (event.data.type === "vr_bootstrap_sent") {
+        console.log("[VR-Parent] Bridge token delivered to Unity bootstrap.");
+        setVrLoadError("");
+        setVrLoadMessage("Bridge token delivered. Waiting for first question...");
+      } else if (event.data.type === "vr_bootstrap_error") {
+        console.error("[VR-Parent] Unity bootstrap delivery failed:", event.data.detail);
+        setVrLoadError(`Unity bootstrap failed: ${event.data.detail || "unknown error"}`);
+        setVrShowManual(true);
+      } else if (event.data.type === "vr_runtime_error") {
+        console.error("[VR-Parent] Unity runtime failed:", event.data.detail);
+        setVrLoadError(`Unity runtime failed: ${event.data.detail || "unknown error"}`);
+        setVrShowManual(true);
       }
     };
     window.addEventListener("message", handleVRMessage);
@@ -788,10 +829,13 @@ function Test() {
   }, [difficulty, topic, sessionId, location.search]);
 
   useEffect(() => {
-    if (questions.length > 0 && testMode === "vr" && !vrBridgeToken && !vrBusy) {
-      handleStartVR("browser");
-    }
-  }, [questions.length, testMode, vrBridgeToken, vrBusy]);
+    if (questions.length === 0) return;
+    if (testMode !== "vr") return;
+    if (!vrAutoStartRequestedRef.current) return;
+    if (vrBridgeToken || vrBusy || vrLaunching || vrStartInFlightRef.current) return;
+
+    startVRTest(vrLaunchMode || "browser");
+  }, [questions.length, testMode, vrBridgeToken, vrBusy, vrLaunching, vrLaunchMode]);
 
   useEffect(() => {
     if (questions.length > 0 && timeLeft === null) {
@@ -849,49 +893,14 @@ function Test() {
   useEffect(() => {
     function handleFullscreenChange() {
       if (!document.fullscreenElement) {
-        setIsFullscreen(false);
         if (testStarted && testMode === "normal") {
           showWarning("Please enter full screen or you will be suspended from test");
         }
-      } else {
-        setIsFullscreen(true);
       }
     }
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, [testStarted, testMode]);
-
-  useEffect(() => {
-    function handleVRFrameMessage(event) {
-      if (event.origin !== window.location.origin) return;
-      const payload = event.data;
-      if (!payload || payload.source !== "mockmate-vr") return;
-
-      if (payload.status === "loading") {
-        if (!vrIframeInitializedRef.current && !vrCurrentQuestion && !vrCompleted) {
-          setVrLaunching(true);
-        }
-        setVrLoadError("");
-        setVrLoadMessage(payload.detail || "Loading VR environment...");
-      } else if (payload.status === "ready") {
-        vrIframeInitializedRef.current = true;
-        setVrLaunching(false);
-        setVrLoadError("");
-        setVrLoadMessage(payload.detail || "VR environment ready.");
-      } else if (payload.status === "error") {
-        setVrLaunching(false);
-        setVrLoadError(payload.detail || "VR environment failed to load.");
-        setVrShowManual(true);
-      } else if (payload.status === "complete") {
-        console.log("[VR-Parent] Interview complete signaled. Exiting VR...");
-        setVrCompleted(true);
-        setVrLaunching(false);
-      }
-    }
-
-    window.addEventListener("message", handleVRFrameMessage);
-    return () => window.removeEventListener("message", handleVRFrameMessage);
-  }, [vrCurrentQuestion, vrCompleted]);
 
   useEffect(() => {
     if (testMode !== "vr" || !vrLaunching || vrLoadError || vrCurrentQuestion || vrCompleted) return;
@@ -910,6 +919,11 @@ function Test() {
     if (testMode !== "vr") return;
     if (!vrCurrentQuestion) return;
 
+    console.log("[VR-Parent] active question updated", {
+      question_index: vrCurrentIndex,
+      question_id: vrCurrentQuestion?.id || null,
+      completed: vrCompleted,
+    });
     vrIframeInitializedRef.current = true;
     setVrLaunching(false);
     setVrLoadError("");
@@ -940,6 +954,10 @@ function Test() {
       } else if (qMode === "normal" || qMode === "vr") {
         setTestMode(qMode);
         setTestStarted(true);
+        if (qMode === "vr") {
+          vrAutoStartRequestedRef.current = true;
+          setVrLaunchMode("browser");
+        }
       }
     }
   }, [location.search]);
@@ -1130,19 +1148,31 @@ function Test() {
                 {vrLoadError}
               </div>
             )}
-            <iframe
-              key="vr-unity-iframe"
-              src={unityUrl}
-              title="MockMate VR"
-              onLoad={() => {
-                vrIframeInitializedRef.current = true;
-                setVrLaunching(false);
-                setVrLoadMessage("VR page loaded. Waiting for Unity runtime...");
-              }}
-              style={{ width: "100%", height: "100%", border: "none", display: "block", background: "#080c14" }}
-              allow="microphone; fullscreen"
-              allowFullScreen
-            />
+            {vrBridgeToken ? (
+              <iframe
+                key="vr-unity-iframe"
+                src={unityUrl}
+                title="MockMate VR"
+                onLoad={() => {
+                  vrIframeInitializedRef.current = true;
+                  setVrLaunching(false);
+                  setVrLoadMessage("VR page loaded. Waiting for Unity runtime...");
+                }}
+                style={{ width: "100%", height: "100%", border: "none", display: "block", background: "#080c14" }}
+                allow="microphone; fullscreen"
+                allowFullScreen
+              />
+            ) : (
+              <div style={{
+                position: "absolute", inset: 0, background: "#080c14",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                zIndex: 10, gap: "16px"
+              }}>
+                <div style={{ width: "48px", height: "48px", border: "4px solid rgba(255,255,255,0.1)", borderTop: "4px solid #0ea5e9", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px" }}>{vrLoadMessage}</p>
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "14px" }}>Fetching VR Bridge Credentials...</p>
+              </div>
+            )}
           </div>
 
           {/* Manual control panel (slide in from right) */}
