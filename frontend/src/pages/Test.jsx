@@ -46,6 +46,7 @@ function Test() {
   const pendingStopRef = useRef(false);
   const silenceTimeoutRef = useRef(null);
   const [currentScore, setCurrentScore] = useState(0); // running average
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [timeLeft, setTimeLeft] = useState(null);
   const [testSubmitted, setTestSubmitted] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -71,7 +72,6 @@ function Test() {
   const [vrLoadMessage, setVrLoadMessage] = useState("Preparing VR environment...");
   const [vrLoadError, setVrLoadError] = useState("");
   const [vrShowManual, setVrShowManual] = useState(false); // show fallback manual panel
-  const [vrLaunchMode, setVrLaunchMode] = useState(null); // 'browser' or 'desktop'
 
   // --- Function Declarations (Hoisted) ---
 
@@ -314,7 +314,7 @@ function Test() {
     }
   }
 
-  async function startVRTest(mode) {
+  async function startVRTest() {
     if (vrBusy || vrLaunching || vrBridgeToken || vrStartInFlightRef.current) {
       console.log("[VR-Parent] Bridge initialization already in progress or completed. Skipping duplicate start.");
       return;
@@ -326,7 +326,6 @@ function Test() {
     try {
       vrStartInFlightRef.current = true;
       setVrBusy(true);
-      setVrLaunchMode(mode);
       const token = localStorage.getItem("mockmate_token");
       const response = await axios.post(
         `${API_BASE}/vr-test/start`,
@@ -375,15 +374,6 @@ function Test() {
         }
       }
 
-      if (mode === "desktop") {
-        const desktopUrl = `mockmate://start?bridge_token=${response.data.bridge_token}&api_base=${encodeURIComponent(API_BASE)}&session_id=${sessionId}`;
-        window.location.href = desktopUrl;
-        setVrLaunching(false);
-        setVrLoadMessage("Redirecting to Desktop App...");
-        vrAutoStartRequestedRef.current = false;
-        return;
-      }
-      
       if (!response.data.bridge_token) {
         throw new Error("No bridge token received from server");
       }
@@ -550,10 +540,11 @@ function Test() {
             : (answers[idx] || ""),
         correct_answer: q.answer || "",
         question_type: q.type || null,
-        score:
+        score: questionResults[idx]?.score ?? (
           (q.type || "").toLowerCase() === "coding"
-            ? (questionResults[idx]?.score ?? codingResults[idx]?.score ?? 0)
-            : undefined,
+            ? (codingResults[idx]?.score ?? 0)
+            : undefined
+        ),
       }));
       const totalTimeSecs = questions.length * 60;
       const elapsed = timeLeft !== null ? totalTimeSecs - timeLeft : null;
@@ -592,10 +583,13 @@ function Test() {
       const targetEl = testContainerRef.current || document.documentElement;
       if (targetEl.requestFullscreen) {
         await targetEl.requestFullscreen();
+        setIsFullscreen(true);
       } else if (targetEl.webkitRequestFullscreen) {
         await targetEl.webkitRequestFullscreen();
+        setIsFullscreen(true);
       } else if (targetEl.msRequestFullscreen) {
         await targetEl.msRequestFullscreen();
+        setIsFullscreen(true);
       } else {
         showWarning("Please enter full screen or you will be suspended from test");
       }
@@ -605,9 +599,10 @@ function Test() {
     }
   }
 
-  function handleStartVR(mode) {
+  async function handleStartVR() {
     vrAutoStartRequestedRef.current = true;
-    startVRTest(mode);
+    await requestFullscreen();
+    startVRTest();
   }
 
   function toggleMarkForReview() {
@@ -842,8 +837,8 @@ function Test() {
     if (!vrAutoStartRequestedRef.current) return;
     if (vrBridgeToken || vrBusy || vrLaunching || vrStartInFlightRef.current) return;
 
-    startVRTest(vrLaunchMode || "browser");
-  }, [questions.length, testMode, vrBridgeToken, vrBusy, vrLaunching, vrLaunchMode]);
+    startVRTest();
+  }, [questions.length, testMode, vrBridgeToken, vrBusy, vrLaunching]);
 
   useEffect(() => {
     if (questions.length > 0 && timeLeft === null) {
@@ -900,8 +895,9 @@ function Test() {
 
   useEffect(() => {
     function handleFullscreenChange() {
+      setIsFullscreen(!!document.fullscreenElement);
       if (!document.fullscreenElement) {
-        if (testStarted && testMode === "normal") {
+        if (testStarted && (testMode === "normal" || testMode === "vr")) {
           showWarning("Please enter full screen or you will be suspended from test");
         }
       }
@@ -964,7 +960,6 @@ function Test() {
         setTestStarted(true);
         if (qMode === "vr") {
           vrAutoStartRequestedRef.current = true;
-          setVrLaunchMode("browser");
         }
       }
     }
@@ -1040,18 +1035,14 @@ function Test() {
             {difficulty !== "coding" && (
               <div style={{ marginTop: "12px", padding: "24px", background: "#f8fafc", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
                 <h3 style={{ fontSize: "16px", color: "#334155", marginBottom: "12px" }}>Experience in VR</h3>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                  <button onClick={() => handleStartVR("browser")}
-                          style={{ padding: "12px", background: "#0f766e", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
+                <div>
+                  <button onClick={() => handleStartVR()}
+                          style={{ width: "100%", padding: "12px", background: "#0f766e", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
                     🌐 Browser VR
-                  </button>
-                  <button onClick={() => handleStartVR("desktop")}
-                          style={{ padding: "12px", background: "#0e7490", color: "white", borderRadius: "10px", border: "none", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
-                    🖥️ Desktop App
                   </button>
                 </div>
                 <p style={{ fontSize: "12px", color: "#64748b", marginTop: "12px" }}>
-                  Browser mode works instantly. Desktop version requires installation but offers higher fidelity.
+                  Browser VR works instantly in this setup.
                 </p>
               </div>
             )}
@@ -1095,6 +1086,15 @@ function Test() {
 
     return (
       <div style={{ minHeight: "100vh", background: "#080c14", display: "flex", flexDirection: "column" }}>
+        {!isFullscreen && !testSubmitted && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(8,12,20,0.96)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+            <div style={{ maxWidth: "420px", width: "100%", background: "#111827", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "28px", textAlign: "center" }}>
+              <h2 style={{ color: "white", marginTop: 0 }}>Fullscreen Required</h2>
+              <p style={{ color: "rgba(255,255,255,0.7)", marginBottom: "18px" }}>Please return to fullscreen to continue the VR test.</p>
+              <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#0f766e", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+            </div>
+          </div>
+        )}
 
         {/* ── Top bar ── */}
         <div style={{
@@ -1260,6 +1260,15 @@ function Test() {
 
   return (
     <div ref={testContainerRef} style={{ minHeight: "100vh", background: "#f5f3ff", padding: "20px" }}>
+      {!isFullscreen && testStarted && testMode === "normal" && !testSubmitted && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(245,243,255,0.96)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div style={{ maxWidth: "420px", width: "100%", background: "white", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "28px", textAlign: "center", boxShadow: "0 20px 60px rgba(99,102,241,0.12)" }}>
+            <h2 style={{ color: "#1e1b4b", marginTop: 0 }}>Fullscreen Required</h2>
+            <p style={{ color: "#64748b", marginBottom: "18px" }}>Please return to fullscreen to continue the test.</p>
+            <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+          </div>
+        </div>
+      )}
       <div ref={tabSwitchWarningRef} style={{ position: "fixed", top: "20px", right: "20px", backgroundColor: "#dc2626", color: "white", padding: "12px 16px", borderRadius: "8px", zIndex: 1000, display: "none" }} />
       
       <div style={{ display: "flex", justifyContent: "space-between", background: "white", padding: "16px 20px", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", marginBottom: "20px" }}>

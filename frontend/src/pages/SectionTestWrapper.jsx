@@ -127,6 +127,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
   const [submitting, setSubmitting] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState(questions.length * 60);
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const testContainerRef = useRef(null);
   const warningRef = useRef(null);
 
@@ -147,6 +148,18 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
       setTimeout(() => {
         if (warningRef.current) warningRef.current.style.display = "none";
       }, 3000);
+    }
+  }
+
+  async function requestFullscreen() {
+    try {
+      const el = testContainerRef.current || document.documentElement;
+      if (el.requestFullscreen) {
+        await el.requestFullscreen();
+        setIsFullscreen(true);
+      }
+    } catch {
+      showWarning("Please enter fullscreen mode");
     }
   }
 
@@ -247,6 +260,17 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
     return () => document.removeEventListener("visibilitychange", handler);
   }, [submitTest]);
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(!!document.fullscreenElement);
+      if (!document.fullscreenElement && !testSubmitted) {
+        showWarning("Please return to fullscreen to continue the test");
+      }
+    }
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [testSubmitted]);
+
   return (
     <div
       ref={testContainerRef}
@@ -256,6 +280,15 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
         padding: "20px",
       }}
     >
+      {!isFullscreen && !testSubmitted && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(245,243,255,0.96)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div style={{ maxWidth: "420px", width: "100%", background: "white", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "28px", textAlign: "center", boxShadow: "0 20px 60px rgba(99,102,241,0.12)" }}>
+            <h2 style={{ color: "#1e1b4b", marginTop: 0 }}>Fullscreen Required</h2>
+            <p style={{ color: "#64748b", marginBottom: "18px" }}>Please return to fullscreen to continue the test.</p>
+            <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+          </div>
+        </div>
+      )}
       <div
         ref={warningRef}
         style={{

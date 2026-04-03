@@ -2459,8 +2459,7 @@ async def evaluate_answer(
     Evaluate a single answer
     """
     try:
-        # Use simple evaluation function
-        evaluation = simple_evaluate_answer(
+        evaluation = await ai_evaluate_answer(
             question_answer.question,
             question_answer.user_answer,
             question_answer.correct_answer or ""
@@ -3415,17 +3414,24 @@ async def _process_vr_answer(
         )
 
     q = questions[idx]
-    # Standardize on AI evaluation for better quality
-    evaluation = await ai_evaluate_answer(
-        q.get("question", ""),
-        payload.user_answer,
-        q.get("answer", ""),
-    )
+    user_answer = (payload.user_answer or "").strip()
+    if not user_answer or user_answer == "[No answer detected]":
+        evaluation = {
+            "score": 0,
+            "feedback": "No answer provided.",
+            "is_correct": False,
+        }
+    else:
+        evaluation = await ai_evaluate_answer(
+            q.get("question", ""),
+            user_answer,
+            q.get("answer", ""),
+        )
 
     answer_record = {
         "question_index": idx,
         "question": q.get("question", ""),
-        "user_answer": payload.user_answer,
+        "user_answer": user_answer,
         "correct_answer": q.get("answer", ""),
         "score": evaluation.get("score", 0),
         "feedback": evaluation.get("feedback", ""),
@@ -4149,15 +4155,28 @@ async def submit_test(
         evaluated_answers = []
         
         for qa in submission.answers:
-            if (qa.question_type or "").strip().lower() == "coding" and qa.score is not None:
+            question_type = (qa.question_type or "").strip().lower()
+            if qa.score is not None:
                 score_value = max(0, min(100, int(qa.score)))
                 evaluation = {
                     "score": score_value,
-                    "feedback": "Scored from coding test cases.",
+                    "feedback": "Using submitted evaluated score.",
                     "is_correct": score_value >= 55,
                 }
+            elif not (qa.user_answer or "").strip():
+                evaluation = {
+                    "score": 0,
+                    "feedback": "No answer provided.",
+                    "is_correct": False,
+                }
+            elif question_type == "coding":
+                evaluation = {
+                    "score": 0,
+                    "feedback": "Coding answer was submitted without a verified run score.",
+                    "is_correct": False,
+                }
             else:
-                evaluation = simple_evaluate_answer(
+                evaluation = await ai_evaluate_answer(
                     qa.question,
                     qa.user_answer,
                     qa.correct_answer or ""

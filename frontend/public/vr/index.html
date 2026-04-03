@@ -196,16 +196,28 @@
         
         recognition = new SpeechRecognition();
         recognition.lang = 'en-US';
-        recognition.interimResults = false;
+        recognition.interimResults = true;
         recognition.maxAlternatives = 1;
 
         recognition.onstart = function() {
           if (unityInstance) unityInstance.SendMessage(objectName, "OnListeningStart");
         };
         recognition.onresult = function(event) {
-          var transcript = event.results[0][0].transcript;
-          console.log("[Mockmate-Bridge] STT Result:", transcript);
-          if (unityInstance) unityInstance.SendMessage(objectName, "OnTranscriptionReceived", transcript);
+          for (var i = event.resultIndex; i < event.results.length; i += 1) {
+            var result = event.results[i];
+            if (!result || !result[0]) continue;
+            var transcript = (result[0].transcript || "").trim();
+            if (!transcript) continue;
+
+            if (unityInstance) {
+              if (result.isFinal) {
+                console.log("[Mockmate-Bridge] STT Final Result:", transcript);
+                unityInstance.SendMessage(objectName, "OnTranscriptionReceived", transcript);
+              } else {
+                unityInstance.SendMessage(objectName, "OnSpeechActivity", transcript);
+              }
+            }
+          }
         };
         recognition.onerror = function(event) {
           console.error("[Mockmate-Bridge] STT Error:", event.error);

@@ -266,6 +266,16 @@ public class MockmateVRFlowController : MonoBehaviour
         _lastTranscriptUpdateAt = Time.time;
     }
 
+    /// <summary>
+    /// Refresh the silence timer when the STT layer detects ongoing speech/interim activity,
+    /// without committing a new transcript chunk.
+    /// </summary>
+    public void MarkSpeechActivity()
+    {
+        if (!_isListening) return;
+        _lastTranscriptUpdateAt = Time.time;
+    }
+
     /// <summary>Alias for AppendTranscriptChunk to maintain compatibility with legacy Inspector events.</summary>
     public void OnTranscriptionReceived(string text) => AppendTranscriptChunk(text);
 

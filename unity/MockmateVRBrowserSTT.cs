@@ -14,6 +14,16 @@ public class MockmateVRBrowserSTT : MonoBehaviour
 
     /// <summary>Invoked every time a full sentence/phrase is recognized locally by the browser.</summary>
     public UnityEvent<string> OnTranscriptChunk;
+    private MockmateVRFlowController _flowController;
+    private VRInterviewGlue _glue;
+
+    private void Awake()
+    {
+        if (OnTranscriptChunk == null)
+            OnTranscriptChunk = new UnityEvent<string>();
+        _flowController = FindFirstObjectByType<MockmateVRFlowController>();
+        _glue = FindFirstObjectByType<VRInterviewGlue>();
+    }
 
     /// <summary>Starts the browser's speech recognition session.</summary>
     public void StartSpeechToText()
@@ -46,13 +56,29 @@ public class MockmateVRBrowserSTT : MonoBehaviour
         Debug.Log($"[BrowserSTT] Signal received: \"{processedText}\"");
         OnTranscriptChunk?.Invoke(processedText);
         
-        // Manual fallback if not wired in Inspector
-        if (OnTranscriptChunk.GetPersistentEventCount() == 0)
+        // Manual fallback only when no runtime glue is present and no Inspector listeners exist.
+        // VRInterviewGlue adds a runtime listener, which does not count as a persistent event.
+        if (_glue == null)
+            _glue = FindFirstObjectByType<VRInterviewGlue>();
+
+        if (_glue == null && OnTranscriptChunk.GetPersistentEventCount() == 0)
         {
-            var flow = FindFirstObjectByType<MockmateVRFlowController>();
-            if (flow != null)
-                flow.AppendTranscriptChunk(processedText);
+            if (_flowController == null)
+                _flowController = FindFirstObjectByType<MockmateVRFlowController>();
+            if (_flowController != null)
+                _flowController.AppendTranscriptChunk(processedText);
         }
+    }
+
+    /// <summary>
+    /// Callback from JavaScript for interim/non-final speech activity so short pauses
+    /// do not count as silence.
+    /// </summary>
+    public void OnSpeechActivity(string _ignored)
+    {
+        if (_flowController == null)
+            _flowController = FindFirstObjectByType<MockmateVRFlowController>();
+        _flowController?.MarkSpeechActivity();
     }
 
     /// <summary>Compatibility alias for legacy Inspector events and older JS versions.</summary>

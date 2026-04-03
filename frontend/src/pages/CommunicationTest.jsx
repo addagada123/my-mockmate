@@ -286,6 +286,7 @@ function CommunicationTest() {
 
   // Generate test
   async function startTest(level) {
+    await requestFullscreen();
     setDifficulty(level);
     setLoading(true);
     setError("");
@@ -536,6 +537,15 @@ function CommunicationTest() {
 
   return (
     <div ref={testContainerRef} style={{ minHeight: "100vh", background: "#f5f3ff", padding: "20px" }}>
+      {!isFullscreen && testStarted && !testSubmitted && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(245,243,255,0.96)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div style={{ maxWidth: "420px", width: "100%", background: "white", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "28px", textAlign: "center", boxShadow: "0 20px 60px rgba(99,102,241,0.12)" }}>
+            <h2 style={{ color: "#1e1b4b", marginTop: 0 }}>Fullscreen Required</h2>
+            <p style={{ color: "#64748b", marginBottom: "18px" }}>Please return to fullscreen to continue the communication test.</p>
+            <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+          </div>
+        </div>
+      )}
       {/* Warning */}
       <div ref={warningRef} style={{
         position: "fixed", top: "20px", right: "20px", backgroundColor: "#dc2626",
