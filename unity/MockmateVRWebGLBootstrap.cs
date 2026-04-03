@@ -8,6 +8,9 @@ using UnityEngine;
 public class MockmateVRWebGLBootstrap : MonoBehaviour
 {
     [SerializeField] private MockmateVRFlowController flowController;
+    private string _lastBridgeToken = "";
+    private string _lastApiBase = "";
+    private bool _flowStartedForCurrentToken;
 
     private void Awake()
     {
@@ -50,14 +53,34 @@ public class MockmateVRWebGLBootstrap : MonoBehaviour
         try
         {
             TokenPayload payload = JsonUtility.FromJson<TokenPayload>(json);
+            string decodedApiBase = string.IsNullOrWhiteSpace(payload.api_base)
+                ? ""
+                : Uri.UnescapeDataString(payload.api_base);
+            string decodedBridgeToken = string.IsNullOrWhiteSpace(payload.bridge_token)
+                ? ""
+                : Uri.UnescapeDataString(payload.bridge_token);
 
-            if (!string.IsNullOrWhiteSpace(payload.api_base))
-                flowController.SetApiBase(Uri.UnescapeDataString(payload.api_base));
+            bool samePayload =
+                string.Equals(_lastApiBase, decodedApiBase, StringComparison.Ordinal) &&
+                string.Equals(_lastBridgeToken, decodedBridgeToken, StringComparison.Ordinal);
 
-            if (!string.IsNullOrWhiteSpace(payload.bridge_token))
+            if (samePayload && _flowStartedForCurrentToken)
             {
-                flowController.SetBridgeToken(Uri.UnescapeDataString(payload.bridge_token));
+                Debug.Log("[MockmateVR-WebGL] Duplicate bootstrap payload ignored.");
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(decodedApiBase))
+                flowController.SetApiBase(decodedApiBase);
+
+            if (!string.IsNullOrWhiteSpace(decodedBridgeToken))
+            {
+                _lastApiBase = decodedApiBase;
+                _lastBridgeToken = decodedBridgeToken;
+
+                flowController.SetBridgeToken(decodedBridgeToken);
                 flowController.BeginFlow();
+                _flowStartedForCurrentToken = true;
                 Debug.Log($"[MockmateVR-WebGL] Bridge token received. Session: {payload.session_id}. Flow started.");
             }
             else

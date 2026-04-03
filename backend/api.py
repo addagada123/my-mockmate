@@ -5106,7 +5106,20 @@ async def submit_comm_test(
                     "type": "mcq",
                 })
             else:
-                open_ended_to_grade.append(ans)
+                user_answer = str(ans.get("user_answer") or "").strip()
+                if not user_answer:
+                    evaluated.append({
+                        "question_id": ans.get("question_id"),
+                        "section": ans.get("section"),
+                        "question": ans.get("question"),
+                        "user_answer": ans.get("user_answer"),
+                        "correct_answer": ans.get("correct_answer"),
+                        "score": 0,
+                        "feedback": "No answer provided.",
+                        "type": "open",
+                    })
+                else:
+                    open_ended_to_grade.append(ans)
 
         # Grade open-ended with AI (multi-provider fallback)
         if open_ended_to_grade:

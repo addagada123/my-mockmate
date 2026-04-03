@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
@@ -401,7 +401,7 @@ function Test() {
     }
   }
 
-  async function refreshVRQuestion() {
+  const refreshVRQuestion = useCallback(async () => {
     if (!sessionId && !vrBridgeToken) return;
     try {
       const token = localStorage.getItem("mockmate_token");
@@ -432,7 +432,7 @@ function Test() {
         showWarning(`VR sync failed: ${errorDetail}`);
       }
     }
-  }
+  }, [sessionId, vrBridgeToken, showWarning]);
 
   async function submitVRAnswer() {
     if ((!sessionId && !vrBridgeToken) || !vrCurrentQuestion) return;
@@ -988,7 +988,7 @@ function Test() {
     }, 3000);
     
     return () => clearInterval(interval);
-  }, [testMode, vrCompleted, testSubmitted]);
+  }, [testMode, vrCompleted, testSubmitted, refreshVRQuestion]);
 
   // --- Rendering ---
 

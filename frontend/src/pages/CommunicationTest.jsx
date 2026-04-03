@@ -239,6 +239,32 @@ function CommunicationTest() {
 
   function getQuestionKey(sIdx, qIdx) { return `${sIdx}-${qIdx}`; }
 
+  function normalizeOptions(options) {
+    if (Array.isArray(options)) {
+      return options
+        .map((opt) => (typeof opt === "string" ? opt : opt?.text || opt?.label || opt?.value || String(opt ?? "")))
+        .filter(Boolean);
+    }
+
+    if (options && typeof options === "object") {
+      return Object.entries(options)
+        .map(([key, value]) => {
+          const text = typeof value === "string" ? value : value?.text || value?.label || value?.value || String(value ?? "");
+          return `${String(key).toUpperCase()}. ${text}`.trim();
+        })
+        .filter(Boolean);
+    }
+
+    if (typeof options === "string") {
+      return options
+        .split(/\r?\n|;\s*/)
+        .map((opt) => opt.trim())
+        .filter(Boolean);
+    }
+
+    return [];
+  }
+
   function formatTime(s) {
     const m = Math.floor(s / 60);
     const sec = s % 60;
@@ -277,8 +303,6 @@ function CommunicationTest() {
         setTotalQuestions(res.data.total_questions || 15);
         setTimeLeft((res.data.total_questions || 15) * 90);
         setTestStarted(true);
-        // Fullscreen after state is committed — non-blocking
-        requestFullscreen();
       } else {
         setError("Failed to generate test — no questions returned. Please try again.");
         setDifficulty(null);
@@ -506,7 +530,8 @@ function CommunicationTest() {
   const progress = ((globalIdx + 1) / allQuestions.length) * 100;
   const currentKey = getQuestionKey(currentSectionIdx, currentQIdx);
   const currentAnswer = answers[currentKey] || "";
-  const qType = currentQ?.type || (currentQ?.options ? "mcq" : "open");
+  const normalizedOptions = normalizeOptions(currentQ?.options);
+  const qType = currentQ?.type || (normalizedOptions.length ? "mcq" : "open");
   const isSpoken = currentQ?.sectionName === "Spoken English";
 
   return (
@@ -624,9 +649,9 @@ function CommunicationTest() {
         </div>
 
         {/* MCQ options */}
-        {qType === "mcq" && currentQ?.options && (
+        {qType === "mcq" && normalizedOptions.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "24px" }}>
-            {currentQ.options.map((opt, idx) => {
+            {normalizedOptions.map((opt, idx) => {
               const letter = opt.charAt(0);
               const isSelected = currentAnswer === letter;
               return (
@@ -652,7 +677,7 @@ function CommunicationTest() {
         )}
 
         {/* Open-ended input */}
-        {(qType === "open" || (!currentQ?.options && qType !== "mcq")) && (
+        {(qType === "open" || (normalizedOptions.length === 0 && qType !== "mcq")) && (
           <div style={{ marginBottom: "24px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
               <label style={{ fontWeight: "600", color: "#334155", fontSize: "14px" }}>Your Response:</label>

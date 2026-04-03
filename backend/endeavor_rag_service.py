@@ -329,6 +329,23 @@ def get_rag_collection():
     _init_rag_db()
     return _rag_collection
 
+
+def _semantic_resume_hash(skills: List[str], experience: str) -> str:
+    """
+    Build a semantic cache key from normalized skills and experience text so
+    resumes with equivalent content can reuse generated question sets.
+    """
+    normalized_skills = sorted(
+        {
+            str(skill).strip().lower()
+            for skill in (skills or [])
+            if str(skill).strip()
+        }
+    )
+    normalized_experience = str(experience or "").strip().lower()[:500]
+    content = "||".join(normalized_skills) + "::" + normalized_experience
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
 # Backward compatibility: callers should use get_rag_collection()\nclient = None\ndb = None\ncollection = None
 
 # No local embedder in this deployment. Keep a placeholder variable for
