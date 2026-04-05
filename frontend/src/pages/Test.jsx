@@ -981,7 +981,6 @@ function Test() {
   }, [currentQuestionIndex]);
 
   // Poll for VR question state every 3 seconds when in VR mode
-  // Poll for VR question state every 3 seconds when in VR mode
   useEffect(() => {
     if (testMode !== "vr" || vrCompleted || testSubmitted) return;
     
@@ -1058,12 +1057,13 @@ function Test() {
   }
 
   if (testSubmitted) {
-    const score = localStorage.getItem("lastTestScore");
+    const scoreData = localStorage.getItem("lastTestScore");
+    const scoreResult = (scoreData && scoreData !== "undefined" && scoreData !== "null") ? Math.round(Number(scoreData)) : 0;
     return (
-      <div style={{ minHeight: "100vh", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div style={{ minHeight: "100vh", overflowY: "auto", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
         <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", maxWidth: "500px", boxShadow: "0 4px 24px rgba(99,102,241,0.08)", textAlign: "center" }}>
           <h1>✅ Test Submitted!</h1>
-          <div style={{ fontSize: "48px", fontWeight: "700", color: "#6366f1", margin: "20px 0" }}>{score}%</div>
+          <div style={{ fontSize: "48px", fontWeight: "700", color: "#6366f1", margin: "20px 0" }}>{scoreResult}%</div>
           <button onClick={() => navigate("/dashboard")} style={{ width: "100%", padding: "12px", backgroundColor: "#6366f1", color: "white", borderRadius: "8px", border: "none", cursor: "pointer", fontWeight: "600" }}>Back to Dashboard</button>
         </div>
       </div>
@@ -1259,7 +1259,7 @@ function Test() {
   const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
 
   return (
-    <div ref={testContainerRef} style={{ minHeight: "100vh", background: "#f5f3ff", padding: "20px" }}>
+    <div ref={testContainerRef} style={{ minHeight: "100vh", overflowY: "auto", background: "#f5f3ff", padding: "20px" }}>
       {!isFullscreen && testStarted && testMode === "normal" && !testSubmitted && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(245,243,255,0.96)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
           <div style={{ maxWidth: "420px", width: "100%", background: "white", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "28px", textAlign: "center", boxShadow: "0 20px 60px rgba(99,102,241,0.12)" }}>
