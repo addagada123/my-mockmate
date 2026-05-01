@@ -3,6 +3,7 @@ import sys
 import re
 import math
 import random
+import difflib
 import shutil
 import secrets
 import asyncio
@@ -52,6 +53,11 @@ try:
     from bson import ObjectId # type: ignore
 except ImportError:
     ObjectId = None
+
+try:
+    from sentence_transformers import SentenceTransformer # type: ignore
+except ImportError:
+    SentenceTransformer = None
 
 try:
     from backend.endeavor_rag_service import ( # type: ignore
@@ -1539,6 +1545,7 @@ class TestSubmission(BaseModel):
     time_spent: Optional[int] = None
     tab_switches: Optional[int] = None
     mode: Optional[str] = None
+    proctoring: Optional[Dict[str, Any]] = None
 
 class GenerateTestQuestionsRequest(BaseModel):
     session_id: Optional[str] = None
@@ -1560,6 +1567,7 @@ class CommTestRequest(BaseModel):
 class CommTestSubmission(BaseModel):
     answers: List[Dict[str, Any]]  # [{question_id, question, user_answer, correct_answer, section}]
     time_spent: Optional[int] = None
+    proctoring: Optional[Dict[str, Any]] = None
 
 class RunCodeRequest(BaseModel):
     language: str  # "python", "java", "cpp", "javascript", "c"
@@ -1617,6 +1625,45 @@ _STOP_WORDS = frozenset({
     "your", "you", "explain", "describe", "discuss", "compare", "list",
 })
 
+_SEMANTIC_ALIASES = {
+    "js": "javascript",
+    "node": "nodejs",
+    "ts": "typescript",
+    "py": "python",
+    "db": "database",
+    "auth": "authentication",
+    "login": "authentication",
+    "signin": "authentication",
+    "signup": "registration",
+    "ui": "interface",
+    "ux": "experience",
+    "repo": "repository",
+    "params": "parameter",
+    "arg": "argument",
+    "args": "argument",
+    "func": "function",
+    "api": "api",
+    "apis": "api",
+    "restful": "rest",
+    "async": "asynchronous",
+    "sync": "synchronous",
+    "optimise": "optimize",
+    "behaviour": "behavior",
+}
+
+_semantic_model = None
+_semantic_model_load_attempted = False
+
+
+def _normalize_semantic_token(token: str) -> str:
+    token = token.strip().lower()
+    token = _SEMANTIC_ALIASES.get(token, token)
+    if token.endswith("ization"):
+        token = token[:-7] + "ize"
+    elif token.endswith("isation"):
+        token = token[:-7] + "ize"
+    return token
+
 
 def _tokenize(text: str) -> List[str]:
     """Tokenize and lowercase, removing stop-words and short tokens. Strips trailing punctuation and applies simple stemming."""
@@ -1634,7 +1681,9 @@ def _tokenize(text: str) -> List[str]:
                 elif stem.endswith('ed'): stem = stem[:-2] # type: ignore
                 elif stem.endswith('ly'): stem = stem[:-2] # type: ignore
                 elif stem.endswith('ment'): stem = stem[:-4] # type: ignore
-            tokens.append(stem)
+            stem = _normalize_semantic_token(stem)
+            if stem and stem not in _STOP_WORDS:
+                tokens.append(stem)
     return tokens
 
 
@@ -1668,6 +1717,177 @@ def _tf_idf_cosine(tokens_a: List[str], tokens_b: List[str]) -> float:
     return dot / (mag_a * mag_b)
 
 
+def _get_semantic_model():
+    global _semantic_model, _semantic_model_load_attempted
+    if _semantic_model is not None:
+        return _semantic_model
+    if _semantic_model_load_attempted or SentenceTransformer is None:
+        return None
+
+    _semantic_model_load_attempted = True
+    try:
+        _semantic_model = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("Loaded sentence-transformer model for semantic fallback evaluation")
+    except Exception as exc:
+        logger.warning(f"Semantic embedding model unavailable; using lexical fallback only: {exc}")
+        _semantic_model = None
+    return _semantic_model
+
+
+def _embedding_cosine_similarity(text_a: str, text_b: str) -> Optional[float]:
+    if not text_a.strip() or not text_b.strip():
+        return None
+    model = _get_semantic_model()
+    if model is None:
+        return None
+    try:
+        embeddings = model.encode([text_a, text_b], normalize_embeddings=True)
+        vec_a = embeddings[0]
+        vec_b = embeddings[1]
+        return float(sum(float(a) * float(b) for a, b in zip(vec_a, vec_b)))
+    except Exception as exc:
+        logger.warning(f"Embedding similarity failed; falling back to lexical scoring: {exc}")
+        return None
+
+
+def _soft_token_overlap(reference_tokens: List[str], answer_tokens: List[str]) -> float:
+    if not reference_tokens or not answer_tokens:
+        return 0.0
+
+    remaining = list(answer_tokens)
+    matched = 0.0
+    for ref in reference_tokens:
+        best_idx = -1
+        best_score = 0.0
+        for idx, ans in enumerate(remaining):
+            if ans == ref:
+                best_idx = idx
+                best_score = 1.0
+                break
+            if len(ref) >= 4 and len(ans) >= 4 and (ref in ans or ans in ref):
+                ratio = 0.92
+            else:
+                ratio = difflib.SequenceMatcher(None, ref, ans).ratio()
+            if ratio > best_score:
+                best_score = ratio
+                best_idx = idx
+        if best_idx >= 0 and best_score >= 0.84:
+            matched += best_score
+            remaining.pop(best_idx)
+    return min(1.0, matched / max(1, len(reference_tokens)))
+
+
+def _length_quality_score(user_answer: str, reference_text: str) -> float:
+    word_count = len(user_answer.split())
+    sentence_count = len([s for s in re.split(r'[.!?]+', user_answer.strip()) if s.strip()])
+    reference_words = len(reference_text.split()) if reference_text.strip() else 24
+    target_words = max(12, min(50, int(reference_words * 0.6)))
+    length_ratio = min(1.0, word_count / max(1, target_words))
+    sentence_ratio = min(1.0, sentence_count / 3.0)
+    return min(1.0, (length_ratio * 0.7) + (sentence_ratio * 0.3))
+
+
+def _extract_key_concepts(text: str, limit: int = 8) -> List[str]:
+    raw_tokens = []
+    for token in re.findall(r"[a-z0-9#+.\-]+", text.lower()):
+        token = _normalize_semantic_token(token.rstrip("."))
+        if token and token not in _STOP_WORDS and len(token) >= 3:
+            raw_tokens.append(token)
+    tokens = raw_tokens
+    if not tokens:
+        return []
+
+    concepts: List[str] = []
+    seen = set()
+
+    for token in tokens:
+        if len(token) < 3 or token in seen:
+            continue
+        seen.add(token)
+        concepts.append(token)
+        if len(concepts) >= limit:
+            return concepts
+
+    for i in range(len(tokens) - 1):
+        phrase = f"{tokens[i]} {tokens[i + 1]}"
+        if phrase not in seen and len(tokens[i]) >= 3 and len(tokens[i + 1]) >= 3:
+            seen.add(phrase)
+            concepts.append(phrase)
+            if len(concepts) >= limit:
+                break
+
+    return concepts[:limit]
+
+
+def _concept_coverage(reference_text: str, user_answer: str) -> Tuple[float, List[str]]:
+    concepts = _extract_key_concepts(reference_text, limit=8)
+    if not concepts:
+        return 0.0, []
+
+    answer_lower = user_answer.lower()
+    answer_tokens = _tokenize(user_answer)
+    matched = 0.0
+    missing: List[str] = []
+
+    for concept in concepts:
+        concept_tokens = concept.split()
+        if len(concept_tokens) > 1:
+            if concept in answer_lower:
+                matched += 1.0
+            else:
+                ratio = _soft_token_overlap(concept_tokens, answer_tokens)
+                if ratio >= 0.9:
+                    matched += 0.9
+                else:
+                    missing.append(concept)
+        else:
+            ratio = _soft_token_overlap([concept], answer_tokens)
+            if ratio >= 0.9:
+                matched += ratio
+            else:
+                missing.append(concept)
+
+    return min(1.0, matched / max(1, len(concepts))), missing[:3]
+
+
+def _normalize_proctoring_data(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    raw = data or {}
+    camera_uptime_pct = float(raw.get("camera_uptime_pct", 0) or 0)
+    snapshot_count = int(raw.get("snapshot_count", 0) or 0)
+    camera_off_events = int(raw.get("camera_off_events", 0) or 0)
+    permission_denied = bool(raw.get("permission_denied", False))
+    permission_granted = bool(raw.get("permission_granted", False))
+    strict_mode = bool(raw.get("strict_mode", False))
+    active_ms = int(raw.get("active_ms", 0) or 0)
+    inactive_ms = int(raw.get("inactive_ms", 0) or 0)
+
+    compliance_score = 100.0
+    if not permission_granted:
+        compliance_score -= 35.0
+    if permission_denied:
+        compliance_score -= 15.0
+    compliance_score -= min(30.0, float(camera_off_events) * 10.0)
+    compliance_score -= min(20.0, max(0.0, 100.0 - camera_uptime_pct) * 0.25)
+    if strict_mode and snapshot_count == 0:
+        compliance_score -= 10.0
+
+    return {
+        "permission_state": str(raw.get("permission_state") or ("granted" if permission_granted else "unknown")),
+        "permission_prompted": bool(raw.get("permission_prompted", False)),
+        "permission_granted": permission_granted,
+        "permission_denied": permission_denied,
+        "camera_on": bool(raw.get("camera_on", False)),
+        "camera_off_events": camera_off_events,
+        "camera_recovered_events": int(raw.get("camera_recovered_events", 0) or 0),
+        "strict_mode": strict_mode,
+        "snapshot_count": snapshot_count,
+        "active_ms": active_ms,
+        "inactive_ms": inactive_ms,
+        "camera_uptime_pct": float(_safe_round(camera_uptime_pct, 2)),
+        "compliance_score": float(_safe_round(max(0.0, min(100.0, compliance_score)), 2)),
+    }
+
+
 # Technical keyword groups for bonus scoring
 _TECHNICAL_MARKERS = {
     "concepts": [
@@ -1690,20 +1910,24 @@ _TECHNICAL_MARKERS = {
 
 def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str = "") -> Dict:
     """
-    Advanced algorithmic answer evaluation (no AI):
-      1. Character 3-gram Cosine Similarity (40%) - Robust to word variations
-      2. Technical Concept Coverage (20%) - Matches against domain markers
-      3. Key Term Recall (15%) - Word-level overlap with reference
-      4. Answer Completeness (15%) - Length and sentence structure
-      5. Coherence & Structure (5%) - Transition words
-      6. Question-Answer Alignment (5%) - Proximity to question terms
+    Semantic-first answer evaluation (no AI).
+    Focuses on meaning/context match using:
+      1. Optional embedding similarity when a local sentence-transformer is available
+      2. TF-IDF cosine similarity on normalized tokens
+      3. Soft key-term coverage against the reference answer
+      4. Character n-gram similarity for paraphrase tolerance
+      5. Question-answer alignment
+      6. Length/completeness sanity checks
     """
     if not user_answer or not user_answer.strip():
         return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
 
-    ans_clean = re.sub(r'[^a-zA-Z0-9 ]', '', user_answer.lower())
-    ref_clean = re.sub(r'[^a-zA-Z0-9 ]', '', correct_answer.lower()) if correct_answer else ""
-    q_clean = re.sub(r'[^a-zA-Z0-9 ]', '', question.lower())
+    answer_text = user_answer.strip()
+    reference_text = (correct_answer or "").strip()
+    comparison_text = reference_text or question.strip()
+    ans_clean = re.sub(r'[^a-zA-Z0-9 ]', ' ', answer_text.lower())
+    ref_clean = re.sub(r'[^a-zA-Z0-9 ]', ' ', comparison_text.lower())
+    q_clean = re.sub(r'[^a-zA-Z0-9 ]', ' ', question.lower())
 
     def _get_char_ngrams(text, n=3):
         return [text[i:i+n] for i in range(len(text)-n+1)] # type: ignore
@@ -1718,87 +1942,103 @@ def simple_evaluate_answer(question: str, user_answer: str, correct_answer: str 
         mag2 = math.sqrt(sum(v**2 for v in c2.values()))
         return dot / (mag1 * mag2) if mag1 and mag2 else 0.0
 
-    # Signal 1: Char 3-gram Cosine (40%) - Apply a non-linear boost for higher similarity
-    char_sim_raw = _char_cosine(ans_clean, ref_clean) if ref_clean else _char_cosine(ans_clean, q_clean) * 0.6
-    char_sim = min(1.0, char_sim_raw * 1.3) # Scaled boost
-    signal_char_sim = char_sim * 40
+    ans_tokens = _tokenize(answer_text)
+    ref_tokens = _tokenize(comparison_text)
+    q_tokens = _tokenize(question)
+    ans_lower = answer_text.lower()
+    word_count = len(answer_text.split())
+    sentence_count = len([s for s in re.split(r'[.!?]+', answer_text) if s.strip()])
 
-    # Signal 2: Technical Concept Coverage (20%)
-    ans_lower = user_answer.lower()
-    tech_hits = sum(1 for m in _TECHNICAL_MARKERS["concepts"] if m in ans_lower)
-    signal_tech = float(min(float(20), float(tech_hits * 4.0)))
+    embedding_sim = _embedding_cosine_similarity(answer_text, comparison_text)
+    tfidf_sim = _tf_idf_cosine(ans_tokens, ref_tokens)
+    char_sim = _char_cosine(ans_clean, ref_clean)
+    question_sim = max(_tf_idf_cosine(ans_tokens, q_tokens), _char_cosine(ans_clean, q_clean))
+    reference_coverage = _soft_token_overlap(ref_tokens, ans_tokens)
+    concept_coverage, missing_concepts = _concept_coverage(comparison_text, answer_text)
+    completeness = _length_quality_score(answer_text, comparison_text)
 
-    # Signal 3: Key Term Recall (15%)
-    ans_tokens_list = _tokenize(user_answer)
-    ans_tokens = set(ans_tokens_list)
-    if correct_answer:
-        ref_tokens = set(_tokenize(correct_answer))
-        if ref_tokens:
-            overlap = len(ans_tokens & ref_tokens)
-            term_recall = overlap / len(ref_tokens) # type: ignore
-            # Boost recall slightly if it's non-zero
-            term_recall = min(1.0, term_recall * 1.2)
-        else:
-            term_recall = 0.5
-    else:
-        q_tokens = set(_tokenize(question))
-        overlap = len(ans_tokens & q_tokens)
-        term_recall = overlap / max(1, len(q_tokens)) * 0.5 # type: ignore
-    signal_recall = term_recall * 15
+    weighted_signals: List[Tuple[str, float, float]] = []
+    if embedding_sim is not None:
+        weighted_signals.append(("embedding_similarity", embedding_sim, 0.30))
+    weighted_signals.extend([
+        ("token_similarity", tfidf_sim, 0.20),
+        ("reference_coverage", reference_coverage, 0.16),
+        ("concept_coverage", concept_coverage, 0.16),
+        ("char_similarity", char_sim, 0.10),
+        ("question_alignment", question_sim, 0.07),
+        ("completeness", completeness, 0.05),
+    ])
 
-    # Signal 4: Answer Completeness (15%)
-    word_count = len(user_answer.split())
-    sentence_count = len(re.split(r'[.!?]+', user_answer.strip()))
-    length_score = float(min(float(10), float(word_count) / 8.0))
-    sent_score = float(min(float(5), float(sentence_count) * 2.0))
-    signal_completeness = length_score + sent_score
+    total_weight = sum(weight for _name, _value, weight in weighted_signals) or 1.0
+    semantic_score = sum(value * weight for _name, value, weight in weighted_signals) / total_weight
 
-    # Signal 5: Coherence & Structure (5%)
     structure_hits = sum(1 for m in _TECHNICAL_MARKERS["structure"] if m in ans_lower)
-    signal_structure = float(min(float(5), float(structure_hits) * 1.5))
+    tech_hits = sum(1 for m in _TECHNICAL_MARKERS["concepts"] if m in ans_lower)
+    structure_bonus = min(1.0, (structure_hits / 3.0)) * 4.0
+    terminology_bonus = 0.0
+    if reference_text:
+        terminology_bonus = min(3.0, tech_hits * 0.6)
 
-    # Signal 6: Question-Answer Alignment (5%)
-    qa_sim = _char_cosine(ans_clean, q_clean)
-    signal_alignment = float(min(float(5.0), float(qa_sim) * 1.5 * 5.0))
+    raw_score = semantic_score * 100.0 + structure_bonus + terminology_bonus
 
-    # Combine
-    raw_score = signal_char_sim + signal_tech + signal_recall + signal_completeness + signal_structure + signal_alignment
+    if word_count < 6:
+        raw_score *= 0.2
+    elif word_count < 12:
+        raw_score *= 0.55
+    elif word_count < 20:
+        raw_score *= 0.8
 
-    # Bonuses
-    if tech_hits >= 3: raw_score = float(min(float(100), float(raw_score) + 7.0))
-    if word_count >= 60 and sentence_count >= 3: raw_score = float(min(float(100), float(raw_score) + 5.0))
+    if q_clean and q_clean in ans_clean and word_count < len(question.split()) + 6:
+        raw_score *= 0.35
 
-    # Penalties
-    if word_count < 10: raw_score *= 0.3
-    elif word_count < 20: raw_score *= 0.7
-    
-    if q_clean in ans_clean and word_count < len(question.split()) + 5:
-        raw_score *= 0.3
+    if reference_text and reference_coverage >= 0.50 and char_sim >= 0.55:
+        raw_score = max(raw_score, 68.0)
+    if reference_text and concept_coverage >= 0.50 and tfidf_sim >= 0.22 and completeness >= 0.65:
+        raw_score = max(raw_score, 74.0)
+    if reference_text and concept_coverage >= 0.72 and reference_coverage >= 0.58:
+        raw_score = max(raw_score, 80.0)
+    if reference_text and reference_coverage >= 0.75 and semantic_score >= 0.72:
+        raw_score = max(raw_score, 72.0)
+    if reference_text and reference_coverage >= 0.88 and semantic_score >= 0.82:
+        raw_score = max(raw_score, 84.0)
 
     score = max(0, min(100, int(_safe_round(raw_score))))
     is_correct = score >= 55
 
-    # Feedback
     feedback_parts = []
-    if score >= 85: feedback_parts.append("Excellent technical response with strong conceptual coverage.")
-    elif score >= 70: feedback_parts.append("Good answer that addresses the core requirements.")
-    elif score >= 55: feedback_parts.append("Acceptable response, but could benefit from more technical depth.")
-    else: feedback_parts.append("Improvement needed in technical accuracy and conceptual depth.")
+    if score >= 85:
+        feedback_parts.append("Strong match to the expected meaning and context, with good technical clarity.")
+    elif score >= 70:
+        feedback_parts.append("Good answer that captures most of the expected meaning.")
+    elif score >= 55:
+        feedback_parts.append("Partially correct and contextually relevant, but some important points are missing.")
+    else:
+        feedback_parts.append("The answer does not yet align closely enough with the expected meaning or context.")
 
-    if word_count < 25: feedback_parts.append("Consider providing a more detailed explanation.")
-    if tech_hits < 2: feedback_parts.append("Including more industry-standard terminology would strengthen your answer.")
-    
+    if reference_coverage < 0.45 and reference_text:
+        feedback_parts.append("Cover more of the key ideas from the expected answer.")
+    if missing_concepts and concept_coverage < 0.75:
+        feedback_parts.append(f"Missing key concepts: {', '.join(missing_concepts)}.")
+    if completeness < 0.55:
+        feedback_parts.append("Add a bit more explanation so the reasoning is clearer.")
+    if question_sim < 0.30:
+        feedback_parts.append("Focus more directly on what the question is asking.")
+
     return {
         "score": score,
         "feedback": " ".join(feedback_parts),
         "is_correct": is_correct,
+        "confidence": float(_safe_round(semantic_score * 100.0, 1)),
         "breakdown": {
-            "semantic_sim": float(int(float(signal_char_sim) * 10) / 10.0),
-            "tech_markers": float(int(float(signal_tech) * 10) / 10.0),
-            "term_recall": float(int(float(signal_recall) * 10) / 10.0),
-            "completeness": float(int(float(signal_completeness) * 10) / 10.0),
-            "structure": float(int(float(signal_structure) * 10) / 10.0),
-            "alignment": float(int(float(signal_alignment) * 10) / 10.0)
+            "embedding_similarity": float(_safe_round((embedding_sim or 0.0) * 100.0, 1)),
+            "token_similarity": float(_safe_round(tfidf_sim * 100.0, 1)),
+            "reference_coverage": float(_safe_round(reference_coverage * 100.0, 1)),
+            "concept_coverage": float(_safe_round(concept_coverage * 100.0, 1)),
+            "char_similarity": float(_safe_round(char_sim * 100.0, 1)),
+            "question_alignment": float(_safe_round(question_sim * 100.0, 1)),
+            "completeness": float(_safe_round(completeness * 100.0, 1)),
+            "structure_bonus": float(_safe_round(structure_bonus, 1)),
+            "terminology_bonus": float(_safe_round(terminology_bonus, 1)),
         }
     }
 
@@ -1825,6 +2065,9 @@ async def ai_evaluate_answer(question: str, user_answer: str, correct_answer: st
     if not user_answer or not user_answer.strip():
         return {"score": 0, "feedback": "No answer provided.", "is_correct": False}
 
+    algorithmic = simple_evaluate_answer(question, user_answer, correct_answer)
+    key_concepts = _extract_key_concepts(correct_answer or question, limit=8)
+
     system_prompt = (
         "You are an expert interview evaluator. Evaluate the candidate's answer to an interview question.\n"
         "Score from 0-100 based on:\n"
@@ -1845,7 +2088,16 @@ async def ai_evaluate_answer(question: str, user_answer: str, correct_answer: st
     if correct_answer and correct_answer.strip():
         user_prompt = str(user_prompt) + f"\n\n**Reference/Expected Answer:** {correct_answer}"
 
-    user_prompt = str(user_prompt) + "\n\nEvaluate this answer. Return ONLY valid JSON."
+    if key_concepts:
+        user_prompt = str(user_prompt) + f"\n\n**Key Concepts Expected:** {', '.join(key_concepts)}"
+
+    user_prompt = str(user_prompt) + (
+        f"\n\n**Semantic Cross-Check (for consistency, not as a hard rule):** "
+        f"algorithmic_score={algorithmic.get('score', 0)}, "
+        f"concept_coverage={algorithmic.get('breakdown', {}).get('concept_coverage', 0)}, "
+        f"reference_coverage={algorithmic.get('breakdown', {}).get('reference_coverage', 0)}"
+        "\n\nEvaluate this answer. Prioritize actual meaning match, conceptual correctness, and coverage of the expected ideas. Return ONLY valid JSON."
+    )
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -1870,19 +2122,48 @@ async def ai_evaluate_answer(question: str, user_answer: str, correct_answer: st
         is_correct = result.get("is_correct", score >= 55)
         breakdown = result.get("breakdown", {})
 
+        algo_score = float(algorithmic.get("score", 0))
+        divergence = abs(score - algo_score)
+        fallback_confidence = float(algorithmic.get("confidence", algo_score))
+
+        if divergence >= 35:
+            blended_score = int(_safe_round((score * 0.35) + (algo_score * 0.65)))
+            evaluation_mode = "hybrid_guardrailed"
+        elif divergence >= 18:
+            blended_score = int(_safe_round((score * 0.5) + (algo_score * 0.5)))
+            evaluation_mode = "hybrid_blended"
+        else:
+            blended_score = int(_safe_round((score * 0.7) + (algo_score * 0.3)))
+            evaluation_mode = "hybrid_ai_weighted"
+
+        if fallback_confidence >= 82 and algo_score >= score + 20:
+            blended_score = max(blended_score, int(_safe_round((algo_score * 0.75) + (score * 0.25))))
+            evaluation_mode = "hybrid_semantic_override"
+
+        blended_score = max(0, min(100, blended_score))
+        if not feedback:
+            feedback = str(algorithmic.get("feedback", "")).strip()
+        elif evaluation_mode != "hybrid_ai_weighted":
+            feedback = f"{feedback} Semantic fallback cross-check applied for score stability."
+
         return {
-            "score": score,
+            "score": blended_score,
             "feedback": feedback,
-            "is_correct": is_correct,
-            "breakdown": breakdown,
-            "evaluated_by": "ai",
+            "is_correct": blended_score >= 55,
+            "breakdown": {
+                "ai": breakdown,
+                "semantic_fallback": algorithmic.get("breakdown", {}),
+                "ai_raw_score": score,
+                "semantic_raw_score": algo_score,
+                "divergence": float(_safe_round(divergence, 1)),
+            },
+            "evaluated_by": evaluation_mode,
             "ai_provider": provider,
         }
     except Exception as e:
         logger.warning(f"AI evaluation failed, falling back to algorithmic: {e}")
-        fallback = simple_evaluate_answer(question, user_answer, correct_answer)
-        fallback["evaluated_by"] = "algorithmic_fallback"
-        return fallback
+        algorithmic["evaluated_by"] = "algorithmic_fallback"
+        return algorithmic
 
 @app.get("/")
 async def root():
@@ -3492,6 +3773,7 @@ async def _process_vr_complete(
     completed_at = datetime.now()
     difficulty_label = vr_state.get("difficulty") or session.get("difficulty") or "medium"
     derived_topic = vr_state.get("topic") or session.get("topic") or "General"
+    proctoring_data = _normalize_proctoring_data(vr_state.get("proctoring"))
 
     # Update DB ONLY if not a direct-pass session
     if session_id_obj != "direct-pass":
@@ -3510,6 +3792,7 @@ async def _process_vr_complete(
                     "difficulty": difficulty_label,
                     "time_spent": time_spent,
                     "tab_switches": 0,
+                    "proctoring": proctoring_data,
                     "vr_test.status": "completed",
                     "vr_test.completed_at": completed_at,
                 },
@@ -3522,6 +3805,7 @@ async def _process_vr_complete(
                         "time_spent": time_spent,
                         "tab_switches": 0,
                         "mode": "vr",
+                        "proctoring": proctoring_data,
                     }
                 }
             }
@@ -3537,6 +3821,7 @@ async def _process_vr_complete(
         "max_score": max_score,
         "percentage": _safe_round(percentage, 2),
         "evaluated_answers": answers,
+        "proctoring": proctoring_data,
     }
 
 
@@ -4216,6 +4501,7 @@ async def submit_test(
         completed_at = datetime.now()
         difficulty_label = submission.difficulty or session.get("difficulty") or "medium"
         submission_mode = (submission.mode or "normal").lower()
+        proctoring_data = _normalize_proctoring_data(submission.proctoring)
 
         db.user_sessions.update_one(
             {"_id": session_id_obj},
@@ -4231,7 +4517,8 @@ async def submit_test(
                     "topic": derived_topic,
                     "difficulty": difficulty_label,
                     "time_spent": submission.time_spent,
-                    "tab_switches": submission.tab_switches
+                    "tab_switches": submission.tab_switches,
+                    "proctoring": proctoring_data,
                 },
                 "$push": {
                     "test_attempts": {
@@ -4242,6 +4529,7 @@ async def submit_test(
                         "time_spent": submission.time_spent,
                         "tab_switches": submission.tab_switches,
                         "mode": submission_mode,
+                        "proctoring": proctoring_data,
                     }
                 }
             }
@@ -4252,7 +4540,8 @@ async def submit_test(
             "total_score": total_score,
             "max_score": max_score,
             "percentage": _safe_round(percentage, 2),
-            "evaluated_answers": evaluated_answers
+            "evaluated_answers": evaluated_answers,
+            "proctoring": proctoring_data,
         }
         
     except HTTPException:
@@ -4330,7 +4619,7 @@ async def get_performance(
                 "total_score": 1, "max_score": 1, "percentage": 1,
                 "skills": 1, "status": 1, "topic": 1,
                 "difficulty": 1, "time_spent": 1, "test_attempts": 1,
-                "evaluated_answers": 1, "tab_switches": 1,
+                "evaluated_answers": 1, "tab_switches": 1, "proctoring": 1,
             }
         ).sort("created_at", -1))
         
@@ -4351,6 +4640,7 @@ async def get_performance(
                         "status": "completed",
                         "tabSwitches": attempt.get("tab_switches") or 0,
                         "mode": attempt.get("mode") or s.get("mode") or "normal",
+                        "proctoring": _normalize_proctoring_data(attempt.get("proctoring") or s.get("proctoring")),
                     })
             elif s.get("status") == "completed" or (s.get("max_score") or 0) > 0:
                 submitted_at = s.get("completed_at") or s.get("created_at")
@@ -4363,6 +4653,7 @@ async def get_performance(
                     "status": s.get("status") or "completed",
                     "tabSwitches": s.get("tab_switches") or 0,
                     "mode": s.get("mode") or "normal",
+                    "proctoring": _normalize_proctoring_data(s.get("proctoring")),
                 })
         
         total_tests = len(attempts)
@@ -4385,6 +4676,7 @@ async def get_performance(
                 "status": a.get("status") or "completed",
                 "tabSwitches": a.get("tabSwitches") or 0,
                 "mode": a.get("mode") or "normal",
+                "proctoring": a.get("proctoring") or _normalize_proctoring_data(None),
             })
         
         # â”€â”€ 4. Topic-wise breakdown â”€â”€
@@ -4514,6 +4806,26 @@ async def get_performance(
                 "fastestTest": float(_safe_round(float(min(a["timeSpent"] for a in timed_attempts)) / 60.0, 1)),
                 "slowestTest": float(_safe_round(float(max(a["timeSpent"] for a in timed_attempts)) / 60.0, 1)),
             }
+
+        proctoring_rows = [a.get("proctoring") or _normalize_proctoring_data(None) for a in attempts]
+        proctored_attempts = [p for p in proctoring_rows if p.get("permission_prompted")]
+        avg_uptime = (
+            sum(float(p.get("camera_uptime_pct", 0)) for p in proctored_attempts) / len(proctored_attempts)
+            if proctored_attempts else 0.0
+        )
+        avg_compliance = (
+            sum(float(p.get("compliance_score", 0)) for p in proctored_attempts) / len(proctored_attempts)
+            if proctored_attempts else 0.0
+        )
+        proctoring_summary = {
+            "attemptsWithCameraPrompt": len(proctored_attempts),
+            "cameraDeniedAttempts": sum(1 for p in proctored_attempts if p.get("permission_denied")),
+            "strictModeAttempts": sum(1 for p in proctored_attempts if p.get("strict_mode")),
+            "averageCameraUptime": float(_safe_round(avg_uptime, 2)),
+            "averageComplianceScore": float(_safe_round(avg_compliance, 2)),
+            "totalSnapshots": sum(int(p.get("snapshot_count", 0)) for p in proctored_attempts),
+            "totalCameraOffEvents": sum(int(p.get("camera_off_events", 0)) for p in proctored_attempts),
+        }
         
         # â”€â”€ 10. Weak areas & study recommendations â”€â”€
         weak_topics = [t for t in topic_breakdown if t["status"] == "weak"]
@@ -4573,6 +4885,7 @@ async def get_performance(
             "difficultyBreakdown": difficulty_breakdown,
             "scoreTrend": score_trend,
             "timeEfficiency": time_efficiency,
+            "proctoringSummary": proctoring_summary,
             "studyRecommendations": study_recommendations,
         }
         
@@ -5150,28 +5463,16 @@ async def submit_comm_test(
                 else:
                     open_ended_to_grade.append(ans)
 
-        # Grade open-ended with AI (multi-provider fallback)
+        # Grade open-ended with the same hybrid evaluator used elsewhere
         if open_ended_to_grade:
             for ans in open_ended_to_grade:
-                grading_prompt = f"""Grade this communication test answer on a scale of 0-100.
-
-Question: {ans.get('question')}
-Ideal Answer: {ans.get('correct_answer')}
-Student Answer: {ans.get('user_answer')}
-
-Evaluate on: clarity, professionalism, grammar, relevance, and completeness.
-Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                 try:
-                    grade_text, _provider = await call_ai_with_fallback(
-                        messages=[{"role": "user", "content": grading_prompt}], # type: ignore
-                        temperature=0.3,
-                        max_tokens=200,
+                    evaluation = await ai_evaluate_answer(
+                        str(ans.get("question") or ""),
+                        str(ans.get("user_answer") or ""),
+                        str(ans.get("correct_answer") or ""),
                     )
-                    grade_data = parse_json_response(grade_text)
-                    if not grade_data:
-                        grade_data = {"score": 50, "feedback": "Could not parse grade"}
-
-                    score = min(100, max(0, int(grade_data.get("score", 50))))
+                    score = min(100, max(0, int(evaluation.get("score", 50))))
                     total_score = int(total_score) + int(score) # type: ignore
                     evaluated.append({
                         "question_id": ans.get("question_id"),
@@ -5180,24 +5481,32 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                         "user_answer": ans.get("user_answer"),
                         "correct_answer": ans.get("correct_answer"),
                         "score": score,
-                        "feedback": grade_data.get("feedback", ""),
+                        "feedback": evaluation.get("feedback", ""),
                         "type": "open",
                     })
                 except Exception as ge:
                     logger.warning(f"AI grading error: {ge}")
-                    total_score = int(total_score) + 50 # type: ignore
+                    fallback = simple_evaluate_answer(
+                        str(ans.get("question") or ""),
+                        str(ans.get("user_answer") or ""),
+                        str(ans.get("correct_answer") or ""),
+                    )
+                    score = min(100, max(0, int(fallback.get("score", 50))))
+                    total_score = int(total_score) + int(score) # type: ignore
                     evaluated.append({
                         "question_id": ans.get("question_id"),
                         "section": ans.get("section"),
                         "question": ans.get("question"),
                         "user_answer": ans.get("user_answer"),
-                        "score": 50,
-                        "feedback": "Auto-graded (AI unavailable)",
+                        "correct_answer": ans.get("correct_answer"),
+                        "score": score,
+                        "feedback": fallback.get("feedback", "Auto-graded with semantic fallback."),
                         "type": "open",
                     })
 
         max_score = total_questions * 100
         percentage = float(_safe_round(float(total_score) / float(max_score) * 100.0, 2)) if max_score > 0 else 0.0 # type: ignore
+        proctoring_data = _normalize_proctoring_data(submission.proctoring)
 
         # Section-wise breakdown
         section_scores = {}
@@ -5225,6 +5534,7 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
                 "section_scores": section_scores,
                 "time_spent": submission.time_spent,
                 "topic": "Communication Skills",
+                "proctoring": proctoring_data,
             }}
         )
 
@@ -5235,6 +5545,7 @@ Return ONLY JSON: {{"score": <0-100>, "feedback": "brief feedback"}}"""
             "max_score": max_score,
             "section_scores": section_scores,
             "evaluated_answers": evaluated,
+            "proctoring": proctoring_data,
         }
 
     except HTTPException:

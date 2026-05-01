@@ -4,6 +4,8 @@ import axios from "axios";
 import LoadingPage from "./LoadingPage";
 import CodingQuestion from "./CodingQuestion";
 import { API_BASE } from "../config/runtime";
+import { useCameraProctoring } from "../hooks/useCameraProctoring";
+import CameraProctorPanel from "../components/CameraProctorPanel";
 
 function SectionTestWrapper() {
   const { sessionId, topic, difficulty } = useParams();
@@ -130,6 +132,20 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const testContainerRef = useRef(null);
   const warningRef = useRef(null);
+  const {
+    videoRef: proctorVideoRef,
+    permissionState: proctorPermissionState,
+    cameraOn: proctorCameraOn,
+    strictMode: proctorStrictMode,
+    setStrictMode: setProctorStrictMode,
+    snapshots: proctorSnapshots,
+    requestCamera: requestProctorCamera,
+    captureSnapshot: captureProctorSnapshot,
+    getSubmissionData: getProctorSubmissionData,
+  } = useCameraProctoring({
+    active: !testSubmitted,
+    warningCallback: showWarning,
+  });
 
   const currentQuestion = questions[currentQuestionIndex];
   const isCodingSection = difficulty === "coding" || currentQuestion?.type === "coding";
@@ -212,6 +228,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
           difficulty: difficulty,
           time_spent: elapsed,
           tab_switches: tabSwitchCount,
+          proctoring: getProctorSubmissionData(),
         },
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -261,6 +278,12 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
   }, [submitTest]);
 
   useEffect(() => {
+    if (!testSubmitted) {
+      requestProctorCamera();
+    }
+  }, [requestProctorCamera, testSubmitted]);
+
+  useEffect(() => {
     function handleFullscreenChange() {
       setIsFullscreen(!!document.fullscreenElement);
       if (!document.fullscreenElement && !testSubmitted) {
@@ -286,6 +309,19 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
             <h2 style={{ color: "#1e1b4b", marginTop: 0 }}>Fullscreen Required</h2>
             <p style={{ color: "#64748b", marginBottom: "18px" }}>Please return to fullscreen to continue the test.</p>
             <button onClick={requestFullscreen} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>Re-enter Fullscreen</button>
+          </div>
+        </div>
+      )}
+      {!testSubmitted && proctorPermissionState === "granted" && !proctorCameraOn && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.72)", zIndex: 49, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div style={{ maxWidth: "420px", width: "100%", background: "white", borderRadius: "16px", padding: "28px", textAlign: "center" }}>
+            <h2 style={{ marginTop: 0, color: "#1e293b" }}>Camera Feed Required</h2>
+            <p style={{ color: "#64748b", marginBottom: "18px", lineHeight: 1.6 }}>
+              Please restore the camera preview to continue this proctored test with full compliance.
+            </p>
+            <button onClick={requestProctorCamera} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>
+              Re-enable Camera
+            </button>
           </div>
         </div>
       )}
@@ -341,6 +377,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: "20px", maxWidth: "1280px", margin: "0 auto", alignItems: "flex-start" }}>
       <div
         style={{
           backgroundColor: "white",
@@ -349,6 +386,7 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
           boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
           maxWidth: "1000px",
           margin: "0 auto",
+          flex: 1,
         }}
       >
         <div style={{ marginBottom: "24px" }}>
@@ -484,6 +522,20 @@ function SectionTest({ questions, topic, difficulty, sessionId }) {
             {submitting ? "⏳ Submitting..." : "✅ Submit Test"}
           </button>
         </div>
+      </div>
+      <div style={{ width: "300px" }}>
+        <CameraProctorPanel
+          videoRef={proctorVideoRef}
+          permissionState={proctorPermissionState}
+          cameraOn={proctorCameraOn}
+          strictMode={proctorStrictMode}
+          onStrictModeChange={setProctorStrictMode}
+          onRetryCamera={requestProctorCamera}
+          onTakeSnapshot={captureProctorSnapshot}
+          snapshots={proctorSnapshots}
+          compact
+        />
+      </div>
       </div>
     </div>
   );

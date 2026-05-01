@@ -4,6 +4,8 @@ import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
 import { API_BASE, VR_STREAMING_ASSETS_URL } from "../config/runtime";
+import { useCameraProctoring } from "../hooks/useCameraProctoring";
+import CameraProctorPanel from "../components/CameraProctorPanel";
 const VR_DEVICE_ID = `mm-vr-${Math.random().toString(36).substring(2, 9)}`;
 
 function isSqlTopic(topicText) {
@@ -73,6 +75,21 @@ function Test() {
   const [vrLoadError, setVrLoadError] = useState("");
   const [vrShowManual, setVrShowManual] = useState(false); // show fallback manual panel
 
+  const {
+    videoRef: proctorVideoRef,
+    permissionState: proctorPermissionState,
+    cameraOn: proctorCameraOn,
+    strictMode: proctorStrictMode,
+    setStrictMode: setProctorStrictMode,
+    snapshots: proctorSnapshots,
+    requestCamera: requestProctorCamera,
+    captureSnapshot: captureProctorSnapshot,
+    getSubmissionData: getProctorSubmissionData,
+  } = useCameraProctoring({
+    active: testStarted && testMode === "normal" && !testSubmitted,
+    warningCallback: showWarning,
+  });
+
   // --- Function Declarations (Hoisted) ---
 
   function stopSpeech() {
@@ -138,6 +155,206 @@ function Test() {
       totalScore += results[i]?.score || 0;
     }
     return Math.round(totalScore / questionsList.length);
+  }
+
+  function offlineEvaluateAnswer(questionText, answerText, correctAnswer) {
+    const stopWords = new Set([
+      "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+      "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+      "should", "may", "might", "can", "could", "must", "and", "but", "or",
+      "not", "if", "then", "else", "when", "of", "at", "by", "for", "with",
+      "about", "to", "from", "in", "into", "what", "which", "who", "this",
+      "that", "it", "how", "why", "where", "your", "you"
+    ]);
+    const aliases = {
+      js: "javascript",
+      ts: "typescript",
+      py: "python",
+      db: "database",
+      auth: "authentication",
+      login: "authentication",
+      ui: "interface",
+      ux: "experience",
+      restful: "rest",
+      async: "asynchronous",
+      sync: "synchronous",
+    };
+
+    const tokenize = (text) =>
+      ((text || "").toLowerCase().match(/[a-z0-9#+.-]+/g) || [])
+        .map((token) => aliases[token] || token)
+        .filter((token) => !stopWords.has(token) && token.length > 1);
+
+    const charCosine = (a, b) => {
+      const cleanA = (a || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ");
+      const cleanB = (b || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ");
+      if (!cleanA.trim() || !cleanB.trim()) return 0;
+      const grams = (text) => {
+        const arr = [];
+        for (let i = 0; i < text.length - 2; i += 1) arr.push(text.slice(i, i + 3));
+        return arr;
+      };
+      const count = (arr) => {
+        const map = {};
+        arr.forEach((item) => {
+          map[item] = (map[item] || 0) + 1;
+        });
+        return map;
+      };
+      const c1 = count(grams(cleanA));
+      const c2 = count(grams(cleanB));
+      const keys = new Set([...Object.keys(c1), ...Object.keys(c2)]);
+      let dot = 0;
+      let mag1 = 0;
+      let mag2 = 0;
+      keys.forEach((key) => {
+        const v1 = c1[key] || 0;
+        const v2 = c2[key] || 0;
+        dot += v1 * v2;
+      });
+      Object.values(c1).forEach((v) => { mag1 += v * v; });
+      Object.values(c2).forEach((v) => { mag2 += v * v; });
+      return mag1 && mag2 ? dot / (Math.sqrt(mag1) * Math.sqrt(mag2)) : 0;
+    };
+
+    const softOverlap = (referenceTokens, answerTokens) => {
+      if (!referenceTokens.length || !answerTokens.length) return 0;
+      const remaining = [...answerTokens];
+      let matched = 0;
+      referenceTokens.forEach((ref) => {
+        let bestIndex = -1;
+        let bestScore = 0;
+        remaining.forEach((ans, index) => {
+          let score = 0;
+          if (ans === ref) score = 1;
+          else if (ref.length >= 4 && ans.length >= 4 && (ans.includes(ref) || ref.includes(ans))) score = 0.92;
+          if (score > bestScore) {
+            bestScore = score;
+            bestIndex = index;
+          }
+        });
+        if (bestIndex >= 0 && bestScore >= 0.84) {
+          matched += bestScore;
+          remaining.splice(bestIndex, 1);
+        }
+      });
+      return Math.min(1, matched / Math.max(1, referenceTokens.length));
+    };
+
+    const tfidfCosine = (tokensA, tokensB) => {
+      if (!tokensA.length || !tokensB.length) return 0;
+      const tfA = {};
+      const tfB = {};
+      tokensA.forEach((t) => { tfA[t] = (tfA[t] || 0) + 1; });
+      tokensB.forEach((t) => { tfB[t] = (tfB[t] || 0) + 1; });
+      const terms = new Set([...Object.keys(tfA), ...Object.keys(tfB)]);
+      const docFreq = {};
+      terms.forEach((term) => {
+        docFreq[term] = (tfA[term] ? 1 : 0) + (tfB[term] ? 1 : 0);
+      });
+      let dot = 0;
+      let magA = 0;
+      let magB = 0;
+      terms.forEach((term) => {
+        const idf = Math.log(2 / docFreq[term]) + 1;
+        const va = (tfA[term] || 0) * idf;
+        const vb = (tfB[term] || 0) * idf;
+        dot += va * vb;
+        magA += va * va;
+        magB += vb * vb;
+      });
+      return magA && magB ? dot / (Math.sqrt(magA) * Math.sqrt(magB)) : 0;
+    };
+
+    const extractKeyConcepts = (text) => {
+      const tokens = ((text || "").toLowerCase().match(/[a-z0-9#+.-]+/g) || [])
+        .map((token) => aliases[token] || token)
+        .filter((token) => !stopWords.has(token) && token.length >= 3);
+      const concepts = [];
+      const seen = new Set();
+      for (const token of tokens) {
+        if (token.length < 3 || seen.has(token)) continue;
+        seen.add(token);
+        concepts.push(token);
+        if (concepts.length >= 8) return concepts;
+      }
+      for (let i = 0; i < tokens.length - 1; i += 1) {
+        const phrase = `${tokens[i]} ${tokens[i + 1]}`;
+        if (!seen.has(phrase) && tokens[i].length >= 3 && tokens[i + 1].length >= 3) {
+          seen.add(phrase);
+          concepts.push(phrase);
+          if (concepts.length >= 8) break;
+        }
+      }
+      return concepts;
+    };
+
+    const conceptCoverage = (referenceText, currentAnswer) => {
+      const concepts = extractKeyConcepts(referenceText);
+      if (!concepts.length) return { score: 0, missing: [] };
+      const answerLower = (currentAnswer || "").toLowerCase();
+      const answerTokensLocal = tokenize(currentAnswer);
+      let matched = 0;
+      const missing = [];
+      concepts.forEach((concept) => {
+        const conceptTokens = concept.split(" ");
+        if (conceptTokens.length > 1) {
+          if (answerLower.includes(concept)) matched += 1;
+          else {
+            const ratio = softOverlap(conceptTokens, answerTokensLocal);
+            if (ratio >= 0.9) matched += 0.9;
+            else missing.push(concept);
+          }
+        } else {
+          const ratio = softOverlap([concept], answerTokensLocal);
+          if (ratio >= 0.9) matched += ratio;
+          else missing.push(concept);
+        }
+      });
+      return { score: Math.min(1, matched / Math.max(1, concepts.length)), missing: missing.slice(0, 3) };
+    };
+
+    const comparisonText = (correctAnswer || questionText || "").trim();
+    const answerTokens = tokenize(answerText);
+    const refTokens = tokenize(comparisonText);
+    const questionTokens = tokenize(questionText || "");
+    const tokenSimilarity = tfidfCosine(answerTokens, refTokens);
+    const referenceCoverage = softOverlap(refTokens, answerTokens);
+    const conceptMatch = conceptCoverage(comparisonText, answerText);
+    const questionAlignment = Math.max(tfidfCosine(answerTokens, questionTokens), charCosine(answerText, questionText || ""));
+    const semanticSimilarity = charCosine(answerText, comparisonText);
+    const wordCount = (answerText || "").trim().split(/\s+/).filter(Boolean).length;
+    const completeness = Math.min(1, wordCount / Math.max(12, Math.min(40, refTokens.length * 2 || 16)));
+
+    let score = (
+      tokenSimilarity * 24 +
+      referenceCoverage * 20 +
+      conceptMatch.score * 24 +
+      semanticSimilarity * 20 +
+      questionAlignment * 14 +
+      completeness * 8
+    );
+
+    if (wordCount < 6) score *= 0.2;
+    else if (wordCount < 12) score *= 0.55;
+    else if (wordCount < 20) score *= 0.8;
+
+    if (referenceCoverage >= 0.5 && semanticSimilarity >= 0.55) score = Math.max(score, 68);
+    if (conceptMatch.score >= 0.5 && tokenSimilarity >= 0.22 && completeness >= 0.65) score = Math.max(score, 74);
+    if (conceptMatch.score >= 0.72 && referenceCoverage >= 0.58) score = Math.max(score, 80);
+    if (referenceCoverage >= 0.8 && tokenSimilarity >= 0.65) score = Math.max(score, 78);
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    return {
+      score,
+      correct: score >= 55,
+      feedback:
+        score >= 70
+          ? "Good semantic/context match (offline evaluation)."
+          : score >= 55
+            ? "Partially correct with some contextual match (offline evaluation)."
+            : `Needs a closer match to the expected meaning${conceptMatch.missing.length ? `; missing: ${conceptMatch.missing.join(", ")}` : ""} (offline evaluation).`,
+    };
   }
 
   async function submitAnswer() {
@@ -215,29 +432,7 @@ function Test() {
       );
     } catch (evalErr) {
       console.error("Backend evaluation error, using fallback:", evalErr);
-      const stopWords = new Set(["a", "an", "the", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "shall", "should", "may", "might", "can", "could", "and", "but", "or", "not", "if", "then", "else", "when", "of", "at", "by", "for", "with", "about", "to", "from", "in", "into", "what", "which", "who", "this", "that", "it", "how", "why", "where", "your", "you"]);
-      const tokenize = (t) => (t || "").toLowerCase().match(/[a-z0-9#+.-]+/g)?.filter(w => !stopWords.has(w) && w.length > 1) || [];
-      const ansTokens = tokenize(answerText);
-      const refTokens = tokenize(question.answer || "");
-      const qTokens = tokenize(question.question);
-      let score = 0;
-      if (refTokens.length > 0 && ansTokens.length > 0) {
-        const refSet = new Set(refTokens);
-        const ansSet = new Set(ansTokens);
-        const overlap = [...refSet].filter(w => ansSet.has(w)).length;
-        const cosine = overlap / Math.sqrt(refSet.size * ansSet.size) || 0;
-        score = Math.round(Math.min(100, cosine * 100 + Math.min(20, ansTokens.length / 6)));
-      } else if (qTokens.length > 0 && ansTokens.length > 0) {
-        const qSet = new Set(qTokens);
-        const ansSet = new Set(ansTokens);
-        const overlap = [...qSet].filter(w => ansSet.has(w)).length;
-        score = Math.round(Math.min(80, (overlap / qSet.size) * 80 + Math.min(15, ansTokens.length / 8)));
-      }
-      const result = {
-        score,
-        correct: score >= 55,
-        feedback: score >= 55 ? "Acceptable answer (offline evaluation)." : "Needs improvement (offline evaluation).",
-      };
+      const result = offlineEvaluateAnswer(question.question, answerText, question.answer || "");
       const updated = { ...questionResults, [currentQuestionIndex]: result };
       setQuestionResults(updated);
       setCurrentScore(calculateAverageScore(updated));
@@ -558,6 +753,7 @@ function Test() {
           time_spent: elapsed,
           tab_switches: tabSwitchCount,
           mode: testMode === "vr" ? "vr" : "normal",
+          proctoring: getProctorSubmissionData(),
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -576,6 +772,15 @@ function Test() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  }
+
+  function formatPercentage(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "0%";
+    const rounded = Math.round(num * 100) / 100;
+    return Number.isInteger(rounded)
+      ? `${rounded}%`
+      : `${rounded.toFixed(2).replace(/\.?0+$/, "")}%`;
   }
 
   async function requestFullscreen() {
@@ -973,6 +1178,12 @@ function Test() {
   }, [difficulty, questions.length, testMode]);
 
   useEffect(() => {
+    if (testStarted && testMode === "normal" && !testSubmitted) {
+      requestProctorCamera();
+    }
+  }, [requestProctorCamera, testMode, testStarted, testSubmitted]);
+
+  useEffect(() => {
     setVisitedQuestions((prev) => {
       const next = new Set(prev);
       next.add(currentQuestionIndex);
@@ -1024,6 +1235,19 @@ function Test() {
         <div style={{ backgroundColor: "white", borderRadius: "20px", padding: "40px", maxWidth: "560px", boxShadow: "0 20px 60px rgba(99,102,241,0.12)", textAlign: "center" }}>
           <h1 style={{ color: "#1e1b4b", marginBottom: "16px" }}>Questions Ready</h1>
           <p style={{ color: "#666", marginBottom: "32px" }}>{questions.length} questions generated for <strong>{decodeURIComponent(topic)}</strong>.</p>
+          <div style={{ marginBottom: "20px", textAlign: "left" }}>
+            <CameraProctorPanel
+              videoRef={proctorVideoRef}
+              permissionState={proctorPermissionState}
+              cameraOn={proctorCameraOn}
+              strictMode={proctorStrictMode}
+              onStrictModeChange={setProctorStrictMode}
+              onRetryCamera={requestProctorCamera}
+              onTakeSnapshot={captureProctorSnapshot}
+              snapshots={proctorSnapshots}
+              compact
+            />
+          </div>
           
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <button onClick={async () => { setTestMode("normal"); await requestFullscreen(); setTestStarted(true); }} 
@@ -1058,12 +1282,14 @@ function Test() {
 
   if (testSubmitted) {
     const scoreData = localStorage.getItem("lastTestScore");
-    const scoreResult = (scoreData && scoreData !== "undefined" && scoreData !== "null") ? Math.round(Number(scoreData)) : 0;
+    const scoreResult = (scoreData && scoreData !== "undefined" && scoreData !== "null")
+      ? formatPercentage(scoreData)
+      : "0%";
     return (
       <div style={{ minHeight: "100vh", overflowY: "auto", background: "#f5f3ff", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
         <div style={{ backgroundColor: "white", borderRadius: "12px", padding: "40px", maxWidth: "500px", boxShadow: "0 4px 24px rgba(99,102,241,0.08)", textAlign: "center" }}>
           <h1>✅ Test Submitted!</h1>
-          <div style={{ fontSize: "48px", fontWeight: "700", color: "#6366f1", margin: "20px 0" }}>{scoreResult}%</div>
+          <div style={{ fontSize: "48px", fontWeight: "700", color: "#6366f1", margin: "20px 0" }}>{scoreResult}</div>
           <button onClick={() => navigate("/dashboard")} style={{ width: "100%", padding: "12px", backgroundColor: "#6366f1", color: "white", borderRadius: "8px", border: "none", cursor: "pointer", fontWeight: "600" }}>Back to Dashboard</button>
         </div>
       </div>
@@ -1269,6 +1495,19 @@ function Test() {
           </div>
         </div>
       )}
+      {testStarted && testMode === "normal" && !testSubmitted && proctorPermissionState === "granted" && !proctorCameraOn && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.78)", zIndex: 49, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div style={{ maxWidth: "460px", width: "100%", background: "white", borderRadius: "16px", padding: "28px", boxShadow: "0 20px 60px rgba(15,23,42,0.18)", textAlign: "center" }}>
+            <h2 style={{ marginTop: 0, color: "#1e293b" }}>Camera Attention Needed</h2>
+            <p style={{ color: "#64748b", lineHeight: 1.6, marginBottom: "18px" }}>
+              The camera preview is part of the proctored setup for this interview. Please restore the feed to continue under full compliance.
+            </p>
+            <button onClick={requestProctorCamera} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "700" }}>
+              Re-enable Camera
+            </button>
+          </div>
+        </div>
+      )}
       <div ref={tabSwitchWarningRef} style={{ position: "fixed", top: "20px", right: "20px", backgroundColor: "#dc2626", color: "white", padding: "12px 16px", borderRadius: "8px", zIndex: 1000, display: "none" }} />
       
       <div style={{ display: "flex", justifyContent: "space-between", background: "white", padding: "16px 20px", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
@@ -1282,7 +1521,7 @@ function Test() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: "20px", maxWidth: "1200px", margin: "0 auto" }}>
+      <div style={{ display: "flex", gap: "20px", maxWidth: "1280px", margin: "0 auto", alignItems: "flex-start" }}>
         <div style={{ flex: 1, background: "white", padding: "32px", borderRadius: "16px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)" }}>
           <div style={{ height: "6px", background: "#eee", borderRadius: "3px", marginBottom: "24px" }}>
             <div style={{ width: `${progress}%`, height: "100%", background: "#6366f1", transition: "width 0.3s" }} />
@@ -1321,23 +1560,40 @@ function Test() {
           </div>
         </div>
 
-        {showQuestionPanel && (
-          <div style={{ width: "250px", background: "white", borderRadius: "16px", padding: "20px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)", height: "fit-content" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
-              <h4 style={{ margin: 0 }}>Questions</h4>
-              <button onClick={() => setShowQuestionPanel(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+        <div style={{ width: showQuestionPanel ? "300px" : "300px", display: "flex", flexDirection: "column", gap: "16px" }}>
+          <CameraProctorPanel
+            videoRef={proctorVideoRef}
+            permissionState={proctorPermissionState}
+            cameraOn={proctorCameraOn}
+            strictMode={proctorStrictMode}
+            onStrictModeChange={setProctorStrictMode}
+            onRetryCamera={requestProctorCamera}
+            onTakeSnapshot={captureProctorSnapshot}
+            snapshots={proctorSnapshots}
+            compact
+          />
+          {showQuestionPanel ? (
+            <div style={{ width: "250px", background: "white", borderRadius: "16px", padding: "20px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)", height: "fit-content" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
+                <h4 style={{ margin: 0 }}>Questions</h4>
+                <button onClick={() => setShowQuestionPanel(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+                {questions.map((_, idx) => {
+                  const status = getQuestionStatus(idx);
+                  const config = statusConfig[status];
+                  return (
+                    <button key={idx} onClick={() => setCurrentQuestionIndex(idx)} style={{ aspectRatio: "1", background: config.bg, color: config.color, border: "none", borderRadius: "8px", padding: "8px", cursor: "pointer", fontWeight: "bold" }}>{idx + 1}</button>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
-              {questions.map((_, idx) => {
-                const status = getQuestionStatus(idx);
-                const config = statusConfig[status];
-                return (
-                  <button key={idx} onClick={() => setCurrentQuestionIndex(idx)} style={{ aspectRatio: "1", background: config.bg, color: config.color, border: "none", borderRadius: "8px", padding: "8px", cursor: "pointer", fontWeight: "bold" }}>{idx + 1}</button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+          ) : (
+            <button onClick={() => setShowQuestionPanel(true)} style={{ padding: "12px", borderRadius: "12px", border: "1px dashed #cbd5e1", background: "white", color: "#475569", cursor: "pointer", fontWeight: "700" }}>
+              Show Question Grid
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

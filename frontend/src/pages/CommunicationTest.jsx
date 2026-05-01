@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE } from "../config/runtime";
+import { useCameraProctoring } from "../hooks/useCameraProctoring";
+import CameraProctorPanel from "../components/CameraProctorPanel";
 
 /* ── Animated loading screen ── */
 const loadingMessages = [
@@ -132,6 +134,20 @@ function CommunicationTest() {
 
   const testContainerRef = useRef(null);
   const warningRef = useRef(null);
+  const {
+    videoRef: proctorVideoRef,
+    permissionState: proctorPermissionState,
+    cameraOn: proctorCameraOn,
+    strictMode: proctorStrictMode,
+    setStrictMode: setProctorStrictMode,
+    snapshots: proctorSnapshots,
+    requestCamera: requestProctorCamera,
+    captureSnapshot: captureProctorSnapshot,
+    getSubmissionData: getProctorSubmissionData,
+  } = useCameraProctoring({
+    active: testStarted && !testSubmitted,
+    warningCallback: showWarning,
+  });
 
   // Speech recognition for spoken section
   const recognitionRef = useRef(null);
@@ -221,6 +237,12 @@ function CommunicationTest() {
     document.addEventListener("fullscreenchange", h);
     return () => document.removeEventListener("fullscreenchange", h);
   }, []);
+
+  useEffect(() => {
+    if (testStarted && !testSubmitted) {
+      requestProctorCamera();
+    }
+  }, [requestProctorCamera, testStarted, testSubmitted]);
 
   async function requestFullscreen() {
     try {
@@ -377,7 +399,11 @@ function CommunicationTest() {
       });
       const res = await axios.post(
         `${API_BASE}/submit-comm-test?session_id=${sessionId}`,
-        { answers: payload, time_spent: timeLeft !== null ? (totalQuestions * 90 - timeLeft) : null },
+        {
+          answers: payload,
+          time_spent: timeLeft !== null ? (totalQuestions * 90 - timeLeft) : null,
+          proctoring: getProctorSubmissionData(),
+        },
         { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
       );
       if (res.data.success) setResults(res.data);
@@ -411,6 +437,20 @@ function CommunicationTest() {
           {error && (
             <p style={{ color: "#991b1b", backgroundColor: "#fee2e2", padding: "10px", borderRadius: "8px", marginBottom: "16px", fontSize: "14px" }}>{error}</p>
           )}
+
+          <div style={{ marginBottom: "20px", textAlign: "left" }}>
+            <CameraProctorPanel
+              videoRef={proctorVideoRef}
+              permissionState={proctorPermissionState}
+              cameraOn={proctorCameraOn}
+              strictMode={proctorStrictMode}
+              onStrictModeChange={setProctorStrictMode}
+              onRetryCamera={requestProctorCamera}
+              onTakeSnapshot={captureProctorSnapshot}
+              snapshots={proctorSnapshots}
+              compact
+            />
+          </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <button
@@ -546,6 +586,19 @@ function CommunicationTest() {
           </div>
         </div>
       )}
+      {testStarted && !testSubmitted && proctorPermissionState === "granted" && !proctorCameraOn && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.72)", zIndex: 49, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+          <div style={{ maxWidth: "440px", width: "100%", background: "white", borderRadius: "16px", padding: "28px", textAlign: "center" }}>
+            <h2 style={{ marginTop: 0, color: "#1e293b" }}>Camera Feed Required</h2>
+            <p style={{ color: "#64748b", marginBottom: "18px", lineHeight: 1.6 }}>
+              Please restore the camera preview to continue this communication assessment under full proctoring compliance.
+            </p>
+            <button onClick={requestProctorCamera} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "600" }}>
+              Re-enable Camera
+            </button>
+          </div>
+        </div>
+      )}
       {/* Warning */}
       <div ref={warningRef} style={{
         position: "fixed", top: "20px", right: "20px", backgroundColor: "#dc2626",
@@ -591,9 +644,10 @@ function CommunicationTest() {
       </div>
 
       {/* Main Content */}
+      <div style={{ display: "flex", gap: "20px", maxWidth: "1240px", margin: "0 auto", alignItems: "flex-start" }}>
       <div style={{
         backgroundColor: "white", borderRadius: "12px", padding: "32px",
-        boxShadow: "0 20px 60px rgba(99,102,241,0.12)", maxWidth: "900px", margin: "0 auto",
+        boxShadow: "0 20px 60px rgba(99,102,241,0.12)", maxWidth: "900px", margin: "0 auto", flex: 1,
       }}>
         {/* Progress */}
         <div style={{ marginBottom: "20px" }}>
@@ -805,8 +859,22 @@ function CommunicationTest() {
           borderRadius: "8px", fontSize: "12px", color: "#92400e",
           borderLeft: "4px solid #f59e0b",
         }}>
-          <strong>{"\ud83d\udd12"} Proctoring:</strong> {isFullscreen ? "\u2705 Fullscreen Active" : "\u26a0\ufe0f Not in Fullscreen"} {"\u2022"} Tab Switches: {tabSwitchCount}/5
+          <strong>{"\ud83d\udd12"} Proctoring:</strong> {isFullscreen ? "\u2705 Fullscreen Active" : "\u26a0\ufe0f Not in Fullscreen"} {"\u2022"} Tab Switches: {tabSwitchCount}/5 {"\u2022"} Camera: {proctorPermissionState === "granted" && proctorCameraOn ? "\u2705 On" : proctorPermissionState === "denied" ? "\u26a0\ufe0f Fallback" : "\u23f3 Pending"}
         </div>
+      </div>
+      <div style={{ width: "300px" }}>
+        <CameraProctorPanel
+          videoRef={proctorVideoRef}
+          permissionState={proctorPermissionState}
+          cameraOn={proctorCameraOn}
+          strictMode={proctorStrictMode}
+          onStrictModeChange={setProctorStrictMode}
+          onRetryCamera={requestProctorCamera}
+          onTakeSnapshot={captureProctorSnapshot}
+          snapshots={proctorSnapshots}
+          compact
+        />
+      </div>
       </div>
     </div>
   );

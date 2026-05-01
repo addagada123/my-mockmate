@@ -21,6 +21,7 @@ function Performance() {
   const [topicBreakdown, setTopicBreakdown] = useState([]);
   const [difficultyBreakdown, setDifficultyBreakdown] = useState({});
   const [timeEfficiency, setTimeEfficiency] = useState(null);
+  const [proctoringSummary, setProctoringSummary] = useState(null);
   const [studyRecommendations, setStudyRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -59,6 +60,12 @@ function Performance() {
                 difficulty: r.difficulty,
                 timeSpent: Math.round(r.timeSpent / 60),
                 tabSwitches: r.tabSwitches || 0,
+                cameraUptime: r.proctoring?.camera_uptime_pct ?? 0,
+                cameraOffEvents: r.proctoring?.camera_off_events ?? 0,
+                complianceScore: r.proctoring?.compliance_score ?? 0,
+                snapshotCount: r.proctoring?.snapshot_count ?? 0,
+                cameraDenied: !!r.proctoring?.permission_denied,
+                cameraPrompted: !!r.proctoring?.permission_prompted,
                 ts: dt.getTime(),
               };
             })
@@ -80,6 +87,7 @@ function Performance() {
           setTopicBreakdown(response.data.topicBreakdown || []);
           setDifficultyBreakdown(response.data.difficultyBreakdown || {});
           setTimeEfficiency(response.data.timeEfficiency || null);
+          setProctoringSummary(response.data.proctoringSummary || null);
           setStudyRecommendations(response.data.studyRecommendations || []);
         }
       } catch (error) {
@@ -337,6 +345,9 @@ function Performance() {
                       Tab Switches
                     </th>
                     <th style={{ padding: "12px", textAlign: "left", color: "#64748b", fontWeight: "600", fontSize: "13px" }}>
+                      Camera
+                    </th>
+                    <th style={{ padding: "12px", textAlign: "left", color: "#64748b", fontWeight: "600", fontSize: "13px" }}>
                       Status
                     </th>
                   </tr>
@@ -394,6 +405,17 @@ function Performance() {
                           </span>
                         ) : (
                           <span style={{ color: "#10b981", fontWeight: "600", fontSize: "12px" }}>✅ 0</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "12px", fontSize: "13px", color: "#334155" }}>
+                        {!record.cameraPrompted ? (
+                          <span style={{ color: "#64748b", fontWeight: "600" }}>N/A</span>
+                        ) : record.cameraDenied ? (
+                          <span style={{ color: "#b45309", fontWeight: "700" }}>Fallback</span>
+                        ) : (
+                          <span style={{ fontWeight: "600" }}>
+                            {Number(record.cameraUptime || 0).toFixed(0)}% up · {record.cameraOffEvents} off
+                          </span>
                         )}
                       </td>
                       <td style={{ padding: "12px", fontSize: "13px" }}>
@@ -633,6 +655,42 @@ function Performance() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {proctoringSummary && proctoringSummary.attemptsWithCameraPrompt > 0 && (
+          <div
+            style={{
+              background: "white",
+              borderRadius: "16px",
+              padding: "24px",
+              boxShadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
+              marginTop: "24px",
+            }}
+          >
+            <h2 style={{ color: "#1e293b", marginBottom: "20px", fontSize: "20px", fontWeight: "700" }}>
+              🎥 Proctoring Metrics
+            </h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px" }}>
+              {[
+                { label: "Camera Attempts", value: proctoringSummary.attemptsWithCameraPrompt, color: "#6366f1" },
+                { label: "Avg Uptime", value: `${proctoringSummary.averageCameraUptime}%`, color: "#10b981" },
+                { label: "Compliance", value: `${proctoringSummary.averageComplianceScore}%`, color: "#0f766e" },
+                { label: "Strict Mode", value: proctoringSummary.strictModeAttempts, color: "#8b5cf6" },
+                { label: "Snapshots", value: proctoringSummary.totalSnapshots, color: "#f59e0b" },
+                { label: "Camera Off Events", value: proctoringSummary.totalCameraOffEvents, color: "#dc2626" },
+              ].map((m) => (
+                <div key={m.label} style={{ padding: "16px", borderRadius: "12px", background: "#f8fafc", textAlign: "center" }}>
+                  <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 4px 0", fontWeight: "600" }}>{m.label}</p>
+                  <p style={{ fontSize: "22px", fontWeight: "700", color: m.color, margin: 0 }}>{m.value}</p>
+                </div>
+              ))}
+            </div>
+            {proctoringSummary.cameraDeniedAttempts > 0 && (
+              <p style={{ margin: "16px 0 0 0", color: "#92400e", fontSize: "13px", fontWeight: "600" }}>
+                Camera fallback was used in {proctoringSummary.cameraDeniedAttempts} attempt{proctoringSummary.cameraDeniedAttempts > 1 ? "s" : ""}.
+              </p>
+            )}
           </div>
         )}
 
