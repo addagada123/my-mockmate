@@ -91,12 +91,26 @@ export function useCameraProctoring({
     return dataUrl;
   }, [cameraOn]);
 
+  // Tracks consecutive failed health checks before declaring camera off
+  const failCountRef = useRef(0);
+
   const startMonitoring = useCallback(() => {
     flushTimers();
+    failCountRef.current = 0;
     monitorTimerRef.current = setInterval(() => {
       const stream = streamRef.current;
       const track = stream?.getVideoTracks?.()[0];
-      const isLive = !!track && track.readyState === "live" && !track.muted && track.enabled;
+      // Only check readyState — skip track.muted which is transiently true on many browsers
+      const isLive = !!track && track.readyState === "live" && track.enabled;
+
+      if (!isLive) {
+        // Require 2 consecutive failures before declaring camera off (debounce)
+        failCountRef.current += 1;
+        if (failCountRef.current < 2) return;
+      } else {
+        failCountRef.current = 0;
+      }
+
       setCameraOn((prev) => {
         if (prev !== isLive) {
           if (isLive) {
@@ -110,7 +124,7 @@ export function useCameraProctoring({
         }
         return isLive;
       });
-    }, 2500);
+    }, 5000); // Check every 5s instead of 2.5s — reduces false positives
   }, [flushTimers, noteActiveWindow, warningCallback]);
 
   useEffect(() => {

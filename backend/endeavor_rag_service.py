@@ -396,12 +396,27 @@ class InterviewSession:
         return variations[session_variant]
 
 # --- Enhanced Skills Extraction (same as before) ---
+def _read_pdf_text(pdf_path: str) -> str:
+    """Fast PDF text extraction using pypdf directly (no LangChain overhead)."""
+    try:
+        from pypdf import PdfReader  # type: ignore
+        reader = PdfReader(pdf_path)
+        pages = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            pages.append(text)
+        return "\n".join(pages)
+    except Exception:
+        # Ultimate fallback to LangChain loader
+        from langchain_community.document_loaders import PyPDFLoader
+        resume_loader = PyPDFLoader(pdf_path)
+        resume_docs = resume_loader.load()
+        return "\n".join([doc.page_content for doc in resume_docs])
+
+
 def extract_skills_from_resume(resume_pdf_path: str) -> Tuple[List[str], str]:
     """Extract technical skills and return resume text"""
-    from langchain_community.document_loaders import PyPDFLoader
-    resume_loader = PyPDFLoader(resume_pdf_path)
-    resume_docs = resume_loader.load()
-    resume_text = "\n".join([doc.page_content for doc in resume_docs])
+    resume_text = _read_pdf_text(resume_pdf_path)
 
     # Comprehensive skill keywords
     skill_keywords = [
