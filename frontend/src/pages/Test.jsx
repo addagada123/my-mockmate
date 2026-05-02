@@ -4,8 +4,7 @@ import axios from "axios";
 import InterviewerAvatar from "./InterviewerAvatar";
 import CodingQuestion from "./CodingQuestion";
 import { API_BASE, VR_STREAMING_ASSETS_URL } from "../config/runtime";
-import { useCameraProctoring } from "../hooks/useCameraProctoring";
-import CameraProctorPanel from "../components/CameraProctorPanel";
+
 const VR_DEVICE_ID = `mm-vr-${Math.random().toString(36).substring(2, 9)}`;
 
 function isSqlTopic(topicText) {
@@ -75,20 +74,7 @@ function Test() {
   const [vrLoadError, setVrLoadError] = useState("");
   const [vrShowManual, setVrShowManual] = useState(false); // show fallback manual panel
 
-  const {
-    videoRef: proctorVideoRef,
-    permissionState: proctorPermissionState,
-    cameraOn: proctorCameraOn,
-    strictMode: proctorStrictMode,
-    setStrictMode: setProctorStrictMode,
-    snapshots: proctorSnapshots,
-    requestCamera: requestProctorCamera,
-    captureSnapshot: captureProctorSnapshot,
-    getSubmissionData: getProctorSubmissionData,
-  } = useCameraProctoring({
-    active: testStarted && testMode === "normal" && !testSubmitted,
-    warningCallback: showWarning,
-  });
+
 
   // --- Function Declarations (Hoisted) ---
 
@@ -753,7 +739,7 @@ function Test() {
           time_spent: elapsed,
           tab_switches: tabSwitchCount,
           mode: testMode === "vr" ? "vr" : "normal",
-          proctoring: getProctorSubmissionData(),
+          proctoring: null,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -1177,11 +1163,7 @@ function Test() {
     }
   }, [difficulty, questions.length, testMode]);
 
-  useEffect(() => {
-    if (testStarted && testMode === "normal" && !testSubmitted) {
-      requestProctorCamera();
-    }
-  }, [requestProctorCamera, testMode, testStarted, testSubmitted]);
+
 
   useEffect(() => {
     setVisitedQuestions((prev) => {
@@ -1236,17 +1218,6 @@ function Test() {
           <h1 style={{ color: "#1e1b4b", marginBottom: "16px" }}>Questions Ready</h1>
           <p style={{ color: "#666", marginBottom: "32px" }}>{questions.length} questions generated for <strong>{decodeURIComponent(topic)}</strong>.</p>
           <div style={{ marginBottom: "20px", textAlign: "left" }}>
-            <CameraProctorPanel
-              videoRef={proctorVideoRef}
-              permissionState={proctorPermissionState}
-              cameraOn={proctorCameraOn}
-              strictMode={proctorStrictMode}
-              onStrictModeChange={setProctorStrictMode}
-              onRetryCamera={requestProctorCamera}
-              onTakeSnapshot={captureProctorSnapshot}
-              snapshots={proctorSnapshots}
-              compact
-            />
           </div>
           
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -1495,19 +1466,7 @@ function Test() {
           </div>
         </div>
       )}
-      {testStarted && testMode === "normal" && !testSubmitted && proctorPermissionState === "granted" && !proctorCameraOn && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.78)", zIndex: 49, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-          <div style={{ maxWidth: "460px", width: "100%", background: "white", borderRadius: "16px", padding: "28px", boxShadow: "0 20px 60px rgba(15,23,42,0.18)", textAlign: "center" }}>
-            <h2 style={{ marginTop: 0, color: "#1e293b" }}>Camera Attention Needed</h2>
-            <p style={{ color: "#64748b", lineHeight: 1.6, marginBottom: "18px" }}>
-              The camera preview is part of the proctored setup for this interview. Please restore the feed to continue under full compliance.
-            </p>
-            <button onClick={requestProctorCamera} style={{ width: "100%", padding: "12px", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "700" }}>
-              Re-enable Camera
-            </button>
-          </div>
-        </div>
-      )}
+
       <div ref={tabSwitchWarningRef} style={{ position: "fixed", top: "20px", right: "20px", backgroundColor: "#dc2626", color: "white", padding: "12px 16px", borderRadius: "8px", zIndex: 1000, display: "none" }} />
       
       <div style={{ display: "flex", justifyContent: "space-between", background: "white", padding: "16px 20px", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
@@ -1560,18 +1519,7 @@ function Test() {
           </div>
         </div>
 
-        <div style={{ width: showQuestionPanel ? "300px" : "300px", display: "flex", flexDirection: "column", gap: "16px" }}>
-          <CameraProctorPanel
-            videoRef={proctorVideoRef}
-            permissionState={proctorPermissionState}
-            cameraOn={proctorCameraOn}
-            strictMode={proctorStrictMode}
-            onStrictModeChange={setProctorStrictMode}
-            onRetryCamera={requestProctorCamera}
-            onTakeSnapshot={captureProctorSnapshot}
-            snapshots={proctorSnapshots}
-            compact
-          />
+        <div style={{ width: "250px", display: "flex", flexDirection: "column", gap: "16px" }}>
           {showQuestionPanel ? (
             <div style={{ width: "250px", background: "white", borderRadius: "16px", padding: "20px", boxShadow: "0 10px 30px rgba(0,0,0,0.05)", height: "fit-content" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
